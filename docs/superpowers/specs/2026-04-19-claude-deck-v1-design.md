@@ -96,8 +96,8 @@ Build target: 8-10 hours of wall-clock work with aggressive parallel-agent decom
 
 ### 2.2 Key design choices
 
-- **Subprocess per goal, not per request.** Each goal holds a long-running `claude --input-format stream-json --output-format stream-json` process for the duration of active work. Between turns the process may be idle; interrupt/kill on goal close.
-- **Hooks installed globally in `~/.claude/settings.json`** do triple duty: observer, approval gate, plan pane feed. One mechanism, three wins.
+- **Subprocess per turn.** For v1 we assume the `claude` CLI exits after each `result` event (the documented `--print` behavior). On user follow-up, we spawn a new subprocess with `--resume <session_id>`, which rehydrates the prior context. Open question §16.2 asks whether `--input-format stream-json` allows multi-turn within one process; if yes we upgrade to long-running in v1.1 without breaking the interface.
+- **Hooks installed globally in `~/.claude/settings.json`** do triple duty: observer, approval gate, plan pane feed. One mechanism, three wins. Global scope means dashboard-spawned *and* terminal-spawned sessions both emit events to claude-deck with no per-session configuration.
 - **Goals outlive sessions.** A goal can span multiple spawned sessions (close the subprocess, reopen later with `--resume`). External sessions (from a user's terminal) can be adopted into a goal post-hoc.
 - **Trace files on disk are the source of truth for raw events.** SQLite holds queryable state; filesystem holds byte-level fidelity. Self-improvement loops read the trace.
 - **Single Express server, one SQLite file, one WS channel.** Monolith by choice for v1 — deferral of service splits until operational complexity justifies them.
@@ -386,14 +386,16 @@ Scope by goal to avoid sending irrelevant events to background tabs.
 claude
   --output-format stream-json
   --input-format  stream-json
-  --session-id    <goal.id-or-new-uuid>
+  --session-id    <goal.id-or-new-uuid>       # first invocation only; reuse on resume
   --permission-mode default
   --model         <goal.model>
-  --settings      <path-to-goal-settings.json>   # scopes hooks to this session
-  --cwd           <goal.cwd>
   [--append-system-prompt <optional goal context>]
-  [--resume       <existing-session-id>]
+  [--resume       <existing-session-id>]      # subsequent invocations
 ```
+
+Working directory is **not** a CLI flag — it's set via `child_process.spawn(..., { cwd: goal.cwd })` when spawning the node subprocess.
+
+Hooks are **not** scoped per session; they come from the global `~/.claude/settings.json` and fire for every claude invocation on this machine.
 
 ### 7.2 stdin protocol (server → CLI)
 
@@ -565,8 +567,6 @@ The trace format is designed to be consumed by:
 
 ## 10. Frontend structure
 
-See Section 4 of the source brainstorming notes; summarized here.
-
 ### 10.1 Routes
 
 ```
@@ -620,7 +620,9 @@ Standalone sibling package. Dependencies: `@modelcontextprotocol/sdk`, Node stdl
 - `get_session_messages(session_id)` — returns Message[]
 - `schedule_task(name, cron_expr, goal_template)` — creates scheduled task
 
-Transport: stdio. Registered in user's MCP config so any `claude` session can drive `claude-deck`. Reference CCAM's `mcp/` for structure.
+Transport: stdio. Registered in user's MCP config so any `claude` session can drive `claude-deck`.
+
+**Integration pattern:** MCP tools call the dashboard's HTTP API at `http://127.0.0.1:4100/api/*` rather than reading SQLite directly. This keeps validation, business logic, and WebSocket broadcasts unified — an MCP-driven `create_goal` triggers the same `goal:created` broadcast as a UI-driven create. Reference CCAM's `mcp/` for package structure only; API integration pattern differs.
 
 ## 12. Deployment
 
@@ -631,7 +633,7 @@ npm install
 npm run dev     # concurrently runs server (tsx watch) + client (vite)
 ```
 
-- Vite dev server: 5173 (proxies `/api`, `/ws` to 4100)
+- Vite dev server: 5173 (proxies `/api` and `/ws` to 4100 via `vite.config.ts` `server.proxy`; WS requires `ws: true`)
 - Express: 4100
 
 ### 12.2 Production local
@@ -699,7 +701,8 @@ docker compose up
 | Plan pane re-render on WS | < 100ms |
 | Approval card appearance | < 500ms from WS event |
 | Trace append throughput | sustain 1MB/s without blocking event loop |
-| Hook HTTP response (autonomous mode) | < 50ms |
+| Hook HTTP response (autonomous mode — server auto-allows) | < 50ms |
+| Hook HTTP response (supervised mode — waiting on user) | up to 30 min ceiling, then auto-deny |
 | Feed page (10k events) scroll | ≥ 30fps |
 | Analytics page (30 days) load | < 1s |
 
@@ -745,7 +748,7 @@ F0 delivers the scaffold every other agent reads. No parallelism here — drift 
 | B2 | Hook ingest + approvals | `server/routes/hooks.ts`, `server/approval-coordinator.ts`, `hooks/client.js` | PreToolUse blocks until decision; autonomous auto-allow; timeout auto-deny; fail-open verified |
 | B3 | Goals service | `server/routes/goals.ts`, `server/services/goal-service.ts` | API contract tests pass; kanban_order insertion works; plan_json updates via service |
 | B4 | Sessions service | `server/routes/sessions.ts`, `server/services/session-service.ts`, `server/services/message-service.ts` | Hook init creates session; external goal_id=NULL; adopt endpoint works |
-| B5 | Trace writer + API | `server/trace-writer.ts`, `server/routes/trace.ts`, `server/services/trace-service.ts` | All B1/B2 events land in JSONL; bundle endpoint returns valid tar; fidelity test passes |
+| B5 | Trace writer + API | `server/trace-writer.ts`, `server/routes/trace.ts`, `server/services/trace-service.ts` | All B1/B2 events land in JSONL; bundle endpoint returns valid tar; fidelity test passes. `trace_index` table is stretch-goal (§3.7) — skip if pressed for time. |
 | B6 | Scheduler | `server/scheduler.ts`, `server/routes/scheduled.ts` | Cron fires at scheduled time; run-now immediate; disabled tasks don't fire |
 
 ### 14.3 Parallel Burst 2 — Frontend pages (6 agents, ~3-4h)
@@ -812,8 +815,8 @@ Written-plans skill (invoked after this spec is approved) produces one detailed 
 
 ## 16. Open questions (to resolve before or during implementation)
 
-1. **Windows path handling in `hooks/client.js`.** The hook command string in settings.json uses forward slashes. Verify Windows paths with spaces work via `node "C:/path with spaces/hooks/client.js"` quoting.
-2. **CLI `--session-id` reuse semantics.** Confirm via testing whether passing the same `--session-id` across invocations is equivalent to `--resume <id>`. Document the winner.
+1. **Windows path handling in `hooks/client.js`.** The hook command string in settings.json uses forward slashes for portability (Git Bash, PowerShell, and node all accept forward-slash paths on Windows). Verify Windows paths with spaces work via quoting: `node "C:/path with spaces/hooks/client.js"`. If quoting is unreliable in settings.json, fall back to installing hooks into a no-spaces path (`~/.claude-deck/hooks/client.js`).
+2. **CLI `--session-id` reuse semantics.** Confirm via testing whether passing the same `--session-id` across invocations is equivalent to `--resume <id>`. Document the winner. Related: confirm whether `--input-format stream-json` allows multi-turn within one process (if yes → upgrade to long-running subprocess in a follow-up without breaking §7 interface).
 3. **Thinking content blocks in stream-json.** Confirm whether extended-thinking output appears as a distinct block type and include it in the parser's union.
 4. **Compaction event fidelity.** Trace capture should preserve the full pre/post-compaction window — confirm `compact_boundary` event contains enough to reconstruct.
 
