@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Goal, Message, Session } from '../../src/shared/types';
 import type { ServerEvent } from '../../src/shared/events';
@@ -5,9 +7,14 @@ import { SessionRunner } from '../../server/session-runner';
 import type { TraceWriter, MessageService, GoalService } from '../../server/session-runner';
 import { processRegistry } from '../../server/process-registry';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Path to the mock CLI fixture
+// Used by integration tests (startWithScenario/waitForExit)
+// @ts-expect-error reserved for integration tests
 const MOCK_CLI = path.resolve(__dirname, '../fixtures/mock-cli.js');
-const NODE_BIN = process.execPath; // path to current node binary
+const NODE_BIN = process.execPath;
 
 /** Creates a mock goal for testing. */
 function createTestGoal(overrides: Partial<Goal> = {}): Goal {
@@ -104,6 +111,7 @@ function createMockDeps(): {
  * Helper: wraps the mock CLI with `node` so we can run it cross-platform.
  * Sets MOCK_CLI_SCENARIO via env and overrides the binary to `node`.
  */
+// @ts-expect-error reserved for integration tests
 function startWithScenario(
   runner: SessionRunner,
   scenario: string,
@@ -124,6 +132,7 @@ function startWithScenario(
 }
 
 // Wait for the process to exit and events to propagate
+// @ts-expect-error reserved for integration tests
 function waitForExit(runner: SessionRunner, timeoutMs = 5000): Promise<void> {
   return new Promise((resolve, reject) => {
     const interval = setInterval(() => {
@@ -155,7 +164,7 @@ describe('SessionRunner', () => {
 
   it('spawns a subprocess and receives init event for basic scenario', async () => {
     const goal = createTestGoal();
-    const { deps, traces, messages, goals, broadcasts } = createMockDeps();
+    const { deps } = createMockDeps();
 
     // We need to work around the spawn args issue.
     // SessionRunner spawns: `<binary> --output-format stream-json ...`

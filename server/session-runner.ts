@@ -222,7 +222,7 @@ export class SessionRunner implements Killable {
         resolve();
       };
 
-      this.child.kill('SIGTERM');
+      this.child?.kill('SIGTERM');
     });
   }
 

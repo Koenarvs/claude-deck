@@ -48,7 +48,7 @@ export class MessageService {
   private readonly getSessionGoalIdStmt: Database.Statement;
 
   constructor(
-    private readonly db: Database.Database,
+    db: Database.Database,
     private readonly broadcastFn: (event: ServerEvent) => void,
   ) {
     this.insertStmt = db.prepare(`

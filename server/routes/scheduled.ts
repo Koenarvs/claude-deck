@@ -54,7 +54,7 @@ export function createScheduledRouter(
     '/scheduled-tasks/:id',
     validateBody(UpdateScheduledTaskInputSchema),
     (req: Request, res: Response) => {
-      const { id } = req.params;
+      const id = String(req.params['id']);
       const input = req.body as UpdateScheduledTaskInput;
 
       if (input.cron_expr !== undefined && !cron.validate(input.cron_expr)) {
@@ -75,7 +75,7 @@ export function createScheduledRouter(
 
   /** DELETE /api/scheduled-tasks/:id — deletes a scheduled task and unregisters its cron job. */
   router.delete('/scheduled-tasks/:id', (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params['id']);
 
     const deleted = taskService.delete(id);
     if (!deleted) {
@@ -89,7 +89,7 @@ export function createScheduledRouter(
 
   /** POST /api/scheduled-tasks/:id/run-now — fires the task immediately, creating a goal. */
   router.post('/scheduled-tasks/:id/run-now', (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params['id']);
 
     try {
       const result = scheduler.runNow(id);

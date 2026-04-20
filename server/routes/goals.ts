@@ -99,7 +99,7 @@ export function createGoalsRouter(goalService: GoalService): Router {
    */
   router.get('/goals/:id', (req: Request, res: Response) => {
     try {
-      const detail = goalService.getDetail(req.params['id']!);
+      const detail = goalService.getDetail(String(String(req.params['id'])));
       if (!detail) {
         res.status(404).json({ error: 'Goal not found' });
         return;
@@ -121,7 +121,7 @@ export function createGoalsRouter(goalService: GoalService): Router {
     validateBody(UpdateGoalInputSchema),
     (req: Request, res: Response) => {
       try {
-        const goal = goalService.update(req.params['id']!, req.body);
+        const goal = goalService.update(String(String(req.params['id'])), req.body);
         res.json(goal);
       } catch (err) {
         if (err instanceof GoalNotFoundError) {
@@ -148,7 +148,7 @@ export function createGoalsRouter(goalService: GoalService): Router {
    */
   router.delete('/goals/:id', (req: Request, res: Response) => {
     try {
-      goalService.archive(req.params['id']!);
+      goalService.archive(String(String(req.params['id'])));
       res.json({ archived: true });
     } catch (err) {
       if (err instanceof GoalNotFoundError) {
@@ -181,7 +181,7 @@ export function createGoalsRouter(goalService: GoalService): Router {
     validateBody(SendMessageBodySchema),
     (req: Request, res: Response) => {
       try {
-        const goal = goalService.get(req.params['id']!);
+        const goal = goalService.get(String(String(req.params['id'])));
         if (!goal) {
           res.status(404).json({ error: 'Goal not found' });
           return;
@@ -206,7 +206,7 @@ export function createGoalsRouter(goalService: GoalService): Router {
    */
   router.post('/goals/:id/interrupt', (req: Request, res: Response) => {
     try {
-      const goal = goalService.get(req.params['id']!);
+      const goal = goalService.get(String(String(req.params['id'])));
       if (!goal) {
         res.status(404).json({ error: 'Goal not found' });
         return;
@@ -232,7 +232,7 @@ export function createGoalsRouter(goalService: GoalService): Router {
     (req: Request, res: Response) => {
       try {
         const goal = goalService.adoptSession(
-          req.params['id']!,
+          String(String(req.params['id'])),
           req.body.session_id,
         );
         res.json(goal);

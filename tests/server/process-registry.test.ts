@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { processRegistry } from '../../server/process-registry';
 import type { Killable } from '../../server/process-registry';
 
@@ -22,15 +22,6 @@ describe('ProcessRegistry', () => {
   beforeEach(() => {
     // Clear the registry before each test.
     // Use killAll with mock runners that have already been cleaned up.
-    const keys: string[] = [];
-    // Access the registry size to check if cleanup is needed
-    if (processRegistry.size > 0) {
-      // We need to clear it -- remove each entry
-      // Since we can't iterate directly, we'll use killAll
-      // But first stub all runners to not error
-    }
-    // Force-clear by removing known keys from previous tests
-    // This is a test-only workaround since the registry is a singleton
     return processRegistry.killAll();
   });
 

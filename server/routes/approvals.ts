@@ -64,7 +64,7 @@ export function createApprovalsRouter(
     validateBody(DecideApprovalBodySchema),
     (req, res) => {
       try {
-        const approvalId = req.params['id'];
+        const approvalId = String(req.params['id']);
         if (!approvalId) {
           res.status(400).json({ error: 'Missing approval ID' });
           return;

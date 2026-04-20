@@ -21,7 +21,7 @@ import logger from '../logger';
  * @param dataDir - The root data directory where traces are stored.
  * @returns An Express Router with trace endpoints mounted.
  */
-export function createTraceRouter(db: Database.Database, dataDir: string): Router {
+export function createTraceRouter(db: Database.Database, _dataDir?: string): Router {
   const router = Router();
 
   /**
@@ -47,7 +47,7 @@ export function createTraceRouter(db: Database.Database, dataDir: string): Route
     filename: string,
     contentType: string,
   ): void {
-    const sessionId = req.params['id'];
+    const sessionId = String(req.params['id']);
     if (!sessionId) {
       res.status(400).json({ error: 'Missing session ID' });
       return;
@@ -106,7 +106,7 @@ export function createTraceRouter(db: Database.Database, dataDir: string): Route
    * The archive contains all trace files under a `<session_id>/` prefix.
    */
   router.get('/sessions/:id/trace/bundle', (req: Request, res: Response) => {
-    const sessionId = req.params['id'];
+    const sessionId = String(req.params['id']);
     if (!sessionId) {
       res.status(400).json({ error: 'Missing session ID' });
       return;
@@ -136,7 +136,7 @@ export function createTraceRouter(db: Database.Database, dataDir: string): Route
    * Each session's files appear under `<session_id>/` prefix in the archive.
    */
   router.get('/goals/:id/trace', (req: Request, res: Response) => {
-    const goalId = req.params['id'];
+    const goalId = String(req.params['id']);
     if (!goalId) {
       res.status(400).json({ error: 'Missing goal ID' });
       return;

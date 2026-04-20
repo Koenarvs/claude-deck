@@ -13,7 +13,7 @@ export type GoalCreator = (input: CreateGoalInput) => { id: string };
 /** Internal record for a registered cron job. */
 interface RegisteredJob {
   taskId: string;
-  job: cron.ScheduledTask;
+  job: ReturnType<typeof cron.schedule>;
 }
 
 /**

@@ -87,7 +87,7 @@ export function createSessionsRouter(
    * Returns a single session by ID, or 404 if not found.
    */
   router.get('/sessions/:id', (req, res) => {
-    const session = sessionService.get(req.params['id']!);
+    const session = sessionService.get(String(String(req.params['id'])));
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
       return;
@@ -108,7 +108,7 @@ export function createSessionsRouter(
     validateQuery(ListMessagesQuerySchema),
     (req, res) => {
       // Verify session exists
-      const sessionId = req.params['id']!;
+      const sessionId = String(String(req.params['id']));
       const session = sessionService.get(sessionId);
       if (!session) {
         res.status(404).json({ error: 'Session not found' });

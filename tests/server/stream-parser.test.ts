@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { Readable } from 'node:stream';
 import { parseLine, createStreamParser } from '../../server/stream-parser';
 import type { StreamParserCallbacks } from '../../server/stream-parser';
