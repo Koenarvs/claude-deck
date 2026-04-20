@@ -39,7 +39,7 @@ export function validateQuery(schema: ZodSchema) {
       return;
     }
     // Express 5 makes req.query a getter — store parsed data on res.locals
-    (req as Record<string, unknown>)['validatedQuery'] = result.data;
+    (req as unknown as Record<string, unknown>)['validatedQuery'] = result.data;
     next();
   };
 }
