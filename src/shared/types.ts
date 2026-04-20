@@ -90,6 +90,7 @@ export type HookEventType =
   | 'SessionStart'
   | 'PreToolUse'
   | 'PostToolUse'
+  | 'PermissionRequest'
   | 'UserPromptSubmit'
   | 'Stop';
 

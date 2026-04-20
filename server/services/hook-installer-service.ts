@@ -65,6 +65,7 @@ const HOOK_EVENT_TYPES: readonly string[] = [
   'UserPromptSubmit',
   'PreToolUse',
   'PostToolUse',
+  'PermissionRequest',
   'Stop',
 ] as const;
 

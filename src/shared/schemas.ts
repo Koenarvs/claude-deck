@@ -28,6 +28,7 @@ export const HookEventTypeSchema = z.enum([
   'SessionStart',
   'PreToolUse',
   'PostToolUse',
+  'PermissionRequest',
   'UserPromptSubmit',
   'Stop',
 ]);

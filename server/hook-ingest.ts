@@ -210,6 +210,30 @@ export class HookIngest {
   }
 
   /**
+   * Handles a PermissionRequest hook event.
+   * These are the 3-option permission dialogs (yes / yes always / no).
+   * Routes through the approval coordinator like PreToolUse.
+   */
+  async onPermissionRequest(payload: HookPayload): Promise<Decision> {
+    const toolName = payload.tool_name ?? 'unknown';
+    this.persistEvent('PermissionRequest', payload, toolName);
+
+    const sessionId = payload.session_id ?? null;
+    const goalId = this.getGoalIdForSession(sessionId);
+    const isAutonomous = this.getGoalPermissionMode(goalId) === 'autonomous';
+
+    return this.approvalCoordinator.request(
+      {
+        session_id: sessionId,
+        goal_id: goalId,
+        tool_name: toolName,
+        tool_args: JSON.stringify(payload.tool_input ?? {}),
+      },
+      isAutonomous,
+    );
+  }
+
+  /**
    * Handles a Stop hook event.
    * Persists the event and marks the session as ended.
    */

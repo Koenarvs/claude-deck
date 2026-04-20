@@ -71,7 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages (session_id,
 CREATE TABLE IF NOT EXISTS hook_events (
   id TEXT PRIMARY KEY,
   session_id TEXT,
-  event_type TEXT CHECK (event_type IN ('SessionStart', 'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop')),
+  event_type TEXT CHECK (event_type IN ('SessionStart', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'UserPromptSubmit', 'Stop')),
   tool_name TEXT,
   payload_json TEXT,
   created_at INTEGER

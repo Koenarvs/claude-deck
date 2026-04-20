@@ -98,6 +98,21 @@ export function createHooksRouter(hookIngest: HookIngest): Router {
   });
 
   /**
+   * POST /hook/permission-request
+   * 3-option permission dialogs (yes / yes always / no).
+   * Blocks until approval decision, like pre-tool-use.
+   */
+  router.post('/hook/permission-request', validateBody(HookPayloadSchema), async (req, res) => {
+    try {
+      const decision = await hookIngest.onPermissionRequest(req.body);
+      res.json(decision);
+    } catch (err) {
+      logger.error({ err }, 'Error in permission-request hook handler — failing open');
+      res.json({ decision: 'allow' }); // fail-open
+    }
+  });
+
+  /**
    * POST /hook/stop
    * Marks the session as ended.
    */
