@@ -14,7 +14,11 @@ import { HookIngest } from './hook-ingest';
 import { createHooksRouter } from './routes/hooks';
 import { createApprovalsRouter } from './routes/approvals';
 import { processRegistry } from './process-registry';
+import { SessionService } from './services/session-service';
+import { MessageService } from './services/message-service';
+import { createSessionsRouter } from './routes/sessions';
 import systemRouter from './routes/system';
+import { broadcast } from './ws';
 import logger from './logger';
 
 const env = loadEnv();
@@ -39,14 +43,18 @@ function createGoal(input: import('../src/shared/types').CreateGoalInput): { id:
   return { id: goal.id };
 }
 
+const sessionService = new SessionService(db, broadcast);
+const messageService = new MessageService(db, broadcast);
+
 const scheduler = new Scheduler(scheduledTaskService, createGoal);
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
 const goalsRouter = createGoalsRouter(goalService);
+const sessionsRouter = createSessionsRouter(sessionService, messageService);
 const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
 
 // Create Express app and HTTP server
-const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, hooksRouter, approvalsRouter, systemRouter] });
+const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouter] });
 const server = http.createServer(app);
 
 // Attach WebSocket server
