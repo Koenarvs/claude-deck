@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
 import type { Goal, StreamJsonEvent, Message, Session, AssistantContentBlock } from '../src/shared/types';
 import type { ServerEvent } from '../src/shared/events';
@@ -11,6 +11,24 @@ import logger from './logger';
  * Exhaustive check helper. If this is ever called at runtime, it means
  * a new variant was added to a union but the switch was not updated.
  */
+/** Resolves the full path to the claude CLI binary. Caches after first lookup. */
+let resolvedClaudePath: string | null = null;
+function resolveClaudePath(cliBinary: string): string {
+  if (cliBinary !== 'claude') return cliBinary;
+  if (resolvedClaudePath) return resolvedClaudePath;
+  try {
+    resolvedClaudePath = execSync('which claude', { encoding: 'utf-8' }).trim();
+    // Convert Git Bash path to Windows path if needed
+    if (resolvedClaudePath.startsWith('/c/')) {
+      resolvedClaudePath = 'C:/' + resolvedClaudePath.slice(3);
+    }
+    logger.info({ path: resolvedClaudePath }, 'Resolved claude CLI path');
+  } catch {
+    resolvedClaudePath = cliBinary; // fallback
+  }
+  return resolvedClaudePath;
+}
+
 function assertNever(x: never): null {
   logger.warn({ value: x }, 'Unhandled union variant');
   return null;
@@ -149,10 +167,9 @@ export class SessionRunner implements Killable {
 
     logger.info({ goalId: this.goal.id, sessionId: this.sessionId, args }, 'Spawning CLI subprocess');
 
-    this.child = spawn(cliBinary, args, {
+    this.child = spawn(resolveClaudePath(cliBinary), args, {
       cwd: this.goal.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
       env: { ...process.env },
     });
 
@@ -183,10 +200,9 @@ export class SessionRunner implements Killable {
 
     logger.info({ goalId: this.goal.id, sessionId: this.sessionId }, 'Spawning follow-up CLI subprocess');
 
-    this.child = spawn(cliBinary, args, {
+    this.child = spawn(resolveClaudePath(cliBinary), args, {
       cwd: this.goal.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
       env: { ...process.env },
     });
 
