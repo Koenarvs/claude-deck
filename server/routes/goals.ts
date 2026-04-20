@@ -43,7 +43,10 @@ const AdoptSessionBodySchema = z.object({
  *
  * @param goalService - The GoalService instance
  */
-export function createGoalsRouter(goalService: GoalService): Router {
+export function createGoalsRouter(
+  goalService: GoalService,
+  spawnSession?: (goalId: string, prompt: string) => string,
+): Router {
   const router = Router();
 
   /**
@@ -187,10 +190,15 @@ export function createGoalsRouter(goalService: GoalService): Router {
           return;
         }
 
-        // B1 integration: processRegistry.get(id)?.sendFollowup(prompt)
-        // or spawn new SessionRunner if none exists.
-        // For now, return the current session_id (or null).
-        res.json({ session_id: goal.current_session_id });
+        const prompt = req.body.prompt as string;
+
+        if (spawnSession) {
+          const sessionId = spawnSession(goal.id, prompt);
+          res.json({ session_id: sessionId });
+        } else {
+          // No session spawner configured
+          res.json({ session_id: goal.current_session_id });
+        }
       } catch (err) {
         logger.error({ err }, 'Failed to send message');
         res.status(500).json({ error: 'Failed to send message' });

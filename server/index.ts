@@ -14,6 +14,8 @@ import { HookIngest } from './hook-ingest';
 import { createHooksRouter } from './routes/hooks';
 import { createApprovalsRouter } from './routes/approvals';
 import { processRegistry } from './process-registry';
+import { SessionRunner } from './session-runner';
+import type { MessageService as RunnerMessageService, GoalService as RunnerGoalService, TraceWriter as RunnerTraceWriter } from './session-runner';
 import { SessionService } from './services/session-service';
 import { MessageService } from './services/message-service';
 import { createSessionsRouter } from './routes/sessions';
@@ -46,9 +48,84 @@ function createGoal(input: import('../src/shared/types').CreateGoalInput): { id:
 const sessionService = new SessionService(db, broadcast);
 const messageService = new MessageService(db, broadcast);
 
+/**
+ * Spawns or resumes a Claude CLI session for a goal.
+ * Called by the goals route POST /goals/:id/messages.
+ */
+function spawnGoalSession(goalId: string, prompt: string): string {
+  const goal = goalService.get(goalId);
+  if (!goal) throw new Error('Goal not found');
+
+  // Check for existing runner
+  const existing = processRegistry.get(goalId);
+  if (existing) {
+    const runner = existing as SessionRunner;
+    void runner.sendFollowup(prompt);
+    return runner.getSessionId() ?? 'resuming';
+  }
+
+  // Create adapter for SessionRunner dependencies
+  const noopTraceWriter: RunnerTraceWriter = {
+    appendStream() {},
+    appendStderr() {},
+    async close() {},
+  };
+
+  const msgAdapter: RunnerMessageService = {
+    createSession(session) {
+      sessionService.create({
+        id: session.id,
+        origin: session.origin,
+        cwd: session.cwd ?? undefined,
+        model: session.model ?? undefined,
+        started_at: session.started_at ?? Date.now(),
+        goal_id: session.goal_id,
+      });
+    },
+    saveMessage(message) {
+      messageService.add({
+        session_id: message.session_id,
+        role: message.role,
+        content: message.content,
+        tool_name: message.tool_name,
+        tool_args: message.tool_args,
+        tool_result: message.tool_result,
+        tool_use_id: message.tool_use_id,
+        token_in: message.token_in,
+        token_out: message.token_out,
+      });
+    },
+    endSession(sessionId, data) {
+      sessionService.end(sessionId, { total_cost_usd: data.total_cost_usd });
+    },
+    incrementStreamEventCount(sessionId) {
+      sessionService.incrementCounters(sessionId, { stream: 1 });
+    },
+  };
+
+  const goalAdapter: RunnerGoalService = {
+    setCurrentSession(gId, sId) {
+      goalService.setCurrentSession(gId, sId);
+    },
+    setStatus(gId, status) {
+      goalService.update(gId, { status });
+    },
+  };
+
+  const runner = new SessionRunner(goal, {
+    traceWriter: noopTraceWriter,
+    messageService: msgAdapter,
+    goalService: goalAdapter,
+    broadcast,
+  });
+
+  void runner.start(prompt);
+  return runner.getSessionId() ?? 'starting';
+}
+
 const scheduler = new Scheduler(scheduledTaskService, createGoal);
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
-const goalsRouter = createGoalsRouter(goalService);
+const goalsRouter = createGoalsRouter(goalService, spawnGoalSession);
 const sessionsRouter = createSessionsRouter(sessionService, messageService);
 const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
