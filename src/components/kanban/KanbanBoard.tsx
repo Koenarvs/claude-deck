@@ -163,7 +163,7 @@ export default function KanbanBoard() {
           patch,
           GoalSchema,
         );
-        upsertGoal(updated);
+        upsertGoal(updated as Goal);
       } catch {
         // Rollback on failure
         upsertGoal(draggedGoal);

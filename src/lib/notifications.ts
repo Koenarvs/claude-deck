@@ -51,12 +51,12 @@ export function notify(
   if (!isSupported()) return null;
   if (Notification.permission !== 'granted') return null;
 
-  const notification = new Notification(title, {
-    body,
-    icon: options?.icon,
-    tag: options?.tag,
-    requireInteraction: options?.requireInteraction,
-  });
+  const notifOpts: NotificationOptions = { body };
+  if (options?.icon !== undefined) notifOpts.icon = options.icon;
+  if (options?.tag !== undefined) notifOpts.tag = options.tag;
+  if (options?.requireInteraction !== undefined) notifOpts.requireInteraction = options.requireInteraction;
+
+  const notification = new Notification(title, notifOpts);
 
   if (options?.onClick) {
     notification.onclick = options.onClick;

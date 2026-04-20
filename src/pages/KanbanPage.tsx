@@ -23,7 +23,7 @@ export default function KanbanPage() {
       try {
         const goals = await apiGet<Goal[]>(
           '/api/goals',
-          GoalsArraySchema,
+          GoalsArraySchema as z.ZodType<Goal[]>,
           controller.signal,
         );
         setGoals(goals);

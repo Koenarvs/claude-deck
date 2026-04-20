@@ -30,12 +30,11 @@ async function request<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal,
-  });
+  const fetchInit: RequestInit = { method, headers };
+  if (body !== undefined) fetchInit.body = JSON.stringify(body);
+  if (signal !== undefined) fetchInit.signal = signal;
+
+  const res = await fetch(`${API_BASE}${path}`, fetchInit);
 
   if (!res.ok) {
     let errorBody: unknown;
@@ -62,7 +61,10 @@ export function apiGet<T>(
   schema?: z.ZodType<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  return request<T>('GET', path, { schema, signal });
+  const opts: { schema?: z.ZodType<T>; signal?: AbortSignal } = {};
+  if (schema !== undefined) opts.schema = schema;
+  if (signal !== undefined) opts.signal = signal;
+  return request<T>('GET', path, opts);
 }
 
 /** Type-safe POST request. */
@@ -72,7 +74,10 @@ export function apiPost<T>(
   schema?: z.ZodType<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  return request<T>('POST', path, { body, schema, signal });
+  const opts: { body: unknown; schema?: z.ZodType<T>; signal?: AbortSignal } = { body };
+  if (schema !== undefined) opts.schema = schema;
+  if (signal !== undefined) opts.signal = signal;
+  return request<T>('POST', path, opts);
 }
 
 /** Type-safe PATCH request. */
@@ -82,7 +87,10 @@ export function apiPatch<T>(
   schema?: z.ZodType<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  return request<T>('PATCH', path, { body, schema, signal });
+  const opts: { body: unknown; schema?: z.ZodType<T>; signal?: AbortSignal } = { body };
+  if (schema !== undefined) opts.schema = schema;
+  if (signal !== undefined) opts.signal = signal;
+  return request<T>('PATCH', path, opts);
 }
 
 /** Type-safe DELETE request. */
@@ -91,5 +99,8 @@ export function apiDelete<T>(
   schema?: z.ZodType<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  return request<T>('DELETE', path, { schema, signal });
+  const opts: { schema?: z.ZodType<T>; signal?: AbortSignal } = {};
+  if (schema !== undefined) opts.schema = schema;
+  if (signal !== undefined) opts.signal = signal;
+  return request<T>('DELETE', path, opts);
 }

@@ -34,7 +34,7 @@ function MessageRow({
 }
 
 export default function MessageStream({ messages }: MessageStreamProps) {
-  const listRef = useListRef();
+  const listRef = useListRef(null);
   const prevCountRef = useRef(messages.length);
 
   // Auto-scroll to bottom when new messages arrive

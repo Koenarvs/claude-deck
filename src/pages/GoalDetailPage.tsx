@@ -50,13 +50,13 @@ export default function GoalDetailPage() {
           useMessagesStore.setState((state) => ({
             byGoalId: {
               ...state.byGoalId,
-              [id]: data.messages,
+              [id as string]: data.messages,
             },
           }));
         }
 
         if (data.plan) {
-          setPlan(id, data.plan);
+          setPlan(id as string, data.plan);
         }
       } catch (err) {
         if (!cancelled) {

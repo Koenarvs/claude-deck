@@ -95,7 +95,7 @@ function parseNextFireTimes(expr: string, count: number): Date[] | null {
   return results.length > 0 ? results : null;
 }
 
-/** Validates a single cron field (e.g., "*/5", "1-3,7", "0"). */
+/** Validates a single cron field (e.g., star-slash-5, "1-3,7", "0"). */
 function isValidCronField(field: string, min: number, max: number): boolean {
   if (field === '*') return true;
 

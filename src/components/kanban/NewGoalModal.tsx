@@ -124,7 +124,7 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
         const created = await apiPost('/api/goals', input, GoalSchema);
         // Remove optimistic, insert real
         useGoalsStore.getState().removeGoal(tempId);
-        upsertGoal(created);
+        upsertGoal(created as Goal);
         handleClose();
       } catch (err) {
         // Rollback optimistic insert
