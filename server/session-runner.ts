@@ -155,6 +155,41 @@ export class SessionRunner implements Killable {
       started_at: Date.now(),
     });
 
+    // Save the user's prompt as a message
+    this.deps.messageService.saveMessage({
+      id: uuidv4(),
+      session_id: this.sessionId,
+      role: 'user',
+      content: initialPrompt,
+      tool_name: null,
+      tool_args: null,
+      tool_result: null,
+      tool_use_id: null,
+      token_in: null,
+      token_out: null,
+      created_at: Date.now(),
+    });
+
+    // Broadcast the user message to the UI
+    this.deps.broadcast({
+      type: 'message:added',
+      goal_id: this.goal.id,
+      session_id: this.sessionId,
+      message: {
+        id: uuidv4(),
+        session_id: this.sessionId,
+        role: 'user',
+        content: initialPrompt,
+        tool_name: null,
+        tool_args: null,
+        tool_result: null,
+        tool_use_id: null,
+        token_in: null,
+        token_out: null,
+        created_at: Date.now(),
+      },
+    });
+
     // Update goal to point to this session
     this.deps.goalService.setCurrentSession(this.goal.id, this.sessionId);
     this.deps.goalService.setStatus(this.goal.id, 'active');
@@ -195,6 +230,40 @@ export class SessionRunner implements Killable {
 
     this.exited = false;
     this.streamEventCount = 0;
+
+    // Save the follow-up prompt as a user message
+    this.deps.messageService.saveMessage({
+      id: uuidv4(),
+      session_id: this.sessionId,
+      role: 'user',
+      content: prompt,
+      tool_name: null,
+      tool_args: null,
+      tool_result: null,
+      tool_use_id: null,
+      token_in: null,
+      token_out: null,
+      created_at: Date.now(),
+    });
+
+    this.deps.broadcast({
+      type: 'message:added',
+      goal_id: this.goal.id,
+      session_id: this.sessionId,
+      message: {
+        id: uuidv4(),
+        session_id: this.sessionId,
+        role: 'user',
+        content: prompt,
+        tool_name: null,
+        tool_args: null,
+        tool_result: null,
+        tool_use_id: null,
+        token_in: null,
+        token_out: null,
+        created_at: Date.now(),
+      },
+    });
 
     const args = this.buildArgs(this.sessionId, true, prompt);
 
