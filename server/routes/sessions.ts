@@ -71,7 +71,7 @@ export function createSessionsRouter(
     '/sessions',
     validateQuery(ListSessionsQuerySchema),
     (req, res) => {
-      const query = req.query as z.infer<typeof ListSessionsQuerySchema>;
+      const query = (req as Record<string, unknown>)['validatedQuery'] as z.infer<typeof ListSessionsQuerySchema>;
       const sessions = sessionService.list({
         origin: query.origin,
         active: query.active,
@@ -115,7 +115,7 @@ export function createSessionsRouter(
         return;
       }
 
-      const query = req.query as z.infer<typeof ListMessagesQuerySchema>;
+      const query = (req as Record<string, unknown>)['validatedQuery'] as z.infer<typeof ListMessagesQuerySchema>;
       const messages = messageService.listBySession(sessionId, {
         limit: query.limit,
         before: query.before,

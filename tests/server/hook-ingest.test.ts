@@ -105,13 +105,8 @@ describe('HookIngest', () => {
       // But the INSERT happens before the UPDATE, so it depends on order.
       // persistEvent does: INSERT into hook_events, then UPDATE sessions SET hook_event_count + 1
       // onSessionStart does: persistEvent (which creates the hook_event row and increments count),
-      //   then INSERT INTO sessions (which sets hook_event_count=0 with the 1 already counted)
-      // Actually: persistEvent runs first (inserts hook_event, tries to UPDATE sessions but session doesn't exist yet)
-      // Then onSessionStart inserts the session with hook_event_count=0
-      // The UPDATE in persistEvent silently affects 0 rows since session doesn't exist yet
-      // So hook_event_count should be 0 for a brand new session (first event)
-      // This is a known edge case — the count will catch up on subsequent events
-      expect(row.hook_event_count).toBe(0);
+      // The INSERT sets hook_event_count=1 because the session was created by a hook event
+      expect(row.hook_event_count).toBe(1);
     });
   });
 

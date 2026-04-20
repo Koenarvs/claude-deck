@@ -57,6 +57,9 @@ beforeEach(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api', createGoalsRouter(goalService));
+  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status(500).json({ error: err.message });
+  });
 
   server = http.createServer(app);
   port = await new Promise<number>((resolve) => {

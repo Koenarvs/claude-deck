@@ -17,9 +17,7 @@
  *   event-type: session-start | user-prompt-submit | pre-tool-use | post-tool-use | stop
  */
 
-'use strict';
-
-const http = require('node:http');
+import http from 'node:http';
 
 const PORT = parseInt(process.env.CLAUDE_DECK_PORT || '4100', 10);
 const HOST = process.env.CLAUDE_DECK_HOST || '127.0.0.1';

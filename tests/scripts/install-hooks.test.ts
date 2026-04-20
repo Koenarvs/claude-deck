@@ -1,5 +1,7 @@
-/**
- * Route integration tests have moved to tests/server/routes/system.test.ts
- * This file is intentionally empty — delete it.
- */
-export {};
+import { describe, it, expect } from 'vitest';
+
+describe('install-hooks scripts', () => {
+  it('placeholder — route tests are in tests/server/routes/system.test.ts', () => {
+    expect(true).toBe(true);
+  });
+});

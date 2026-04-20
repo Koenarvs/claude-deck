@@ -38,8 +38,8 @@ export function validateQuery(schema: ZodSchema) {
       });
       return;
     }
-    // Express types req.query as ParsedQs; cast the replacement since we validated it
-    req.query = result.data as typeof req.query;
+    // Express 5 makes req.query a getter — store parsed data on res.locals
+    (req as Record<string, unknown>)['validatedQuery'] = result.data;
     next();
   };
 }

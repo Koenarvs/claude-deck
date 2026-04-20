@@ -36,6 +36,10 @@ describe('Sessions Routes', () => {
     app.use(express.json());
     const router = createSessionsRouter(sessionService, messageService);
     app.use('/api', router);
+    // Express 5 error handler — prevents HTML error responses
+    app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      res.status(500).json({ error: err.message });
+    });
 
     port = await new Promise<number>((resolve) => {
       server = http.createServer(app);
@@ -73,8 +77,11 @@ describe('Sessions Routes', () => {
 
     it('returns all sessions as JSON array', async () => {
       const res = await api('/api/sessions');
-      const body = (await res.json()) as Session[];
+      const body = (await res.json()) as Session[] & { error?: string };
 
+      if (res.status !== 200) {
+        console.error('GET /api/sessions failed:', JSON.stringify(body));
+      }
       expect(res.status).toBe(200);
       expect(Array.isArray(body)).toBe(true);
       expect(body.length).toBeGreaterThanOrEqual(3);
