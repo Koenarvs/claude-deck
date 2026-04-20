@@ -111,7 +111,7 @@ describe('SessionsTable', () => {
         <SessionsTable sessions={sessions} originFilter="all" activeOnly={false} />
       </MemoryRouter>,
     );
-    expect(screen.getByText('test-sessi...')).toBeDefined();
+    expect(screen.getByText('test-session...')).toBeDefined();
   });
 
   it('renders 500 rows without error', () => {
