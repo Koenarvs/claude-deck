@@ -1,8 +1,95 @@
 import { Router } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { hookInstallerService } from '../services/hook-installer-service';
 import logger from '../logger';
 
 const router = Router();
+
+/**
+ * GET /api/skills
+ * Scans for Claude Code skills in known locations.
+ */
+router.get('/skills', (_req, res) => {
+  const skills: Array<{ name: string; description: string; scope: string; type: string; path: string }> = [];
+
+  // Scan common skill locations
+  const locations = [
+    { dir: path.join(process.cwd(), '.claude', 'skills'), scope: 'project' },
+    { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
+  ];
+
+  for (const loc of locations) {
+    try {
+      if (!fs.existsSync(loc.dir)) continue;
+      const entries = fs.readdirSync(loc.dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const skillFile = path.join(loc.dir, entry.name, 'SKILL.md');
+          if (fs.existsSync(skillFile)) {
+            const content = fs.readFileSync(skillFile, 'utf-8');
+            // Extract description from frontmatter
+            const descMatch = content.match(/description:\s*(.+)/);
+            const desc = descMatch ? descMatch[1].trim() : '';
+            skills.push({
+              name: entry.name,
+              description: desc,
+              scope: loc.scope,
+              type: 'skill',
+              path: skillFile,
+            });
+          }
+        } else if (entry.isFile() && entry.name.endsWith('.md')) {
+          const content = fs.readFileSync(path.join(loc.dir, entry.name), 'utf-8');
+          const descMatch = content.match(/description:\s*(.+)/);
+          const desc = descMatch ? descMatch[1].trim() : '';
+          skills.push({
+            name: entry.name.replace('.md', ''),
+            description: desc,
+            scope: loc.scope,
+            type: 'skill',
+            path: path.join(loc.dir, entry.name),
+          });
+        }
+      }
+    } catch {
+      // Skip inaccessible directories
+    }
+  }
+
+  res.json(skills);
+});
+
+/**
+ * GET /api/extensions
+ * Returns MCP servers, plugins, and hooks from Claude settings.
+ */
+router.get('/extensions', (_req, res) => {
+  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+  try {
+    if (!fs.existsSync(settingsPath)) {
+      res.json({ mcp: [], plugins: [], hooks: [] });
+      return;
+    }
+    const raw = fs.readFileSync(settingsPath, 'utf-8');
+    const settings = JSON.parse(raw) as Record<string, unknown>;
+
+    const plugins = Object.entries(settings.enabledPlugins as Record<string, boolean> ?? {}).map(
+      ([name, enabled]) => ({ name, enabled }),
+    );
+
+    const hookTypes = Object.keys(settings.hooks as Record<string, unknown> ?? {});
+
+    res.json({
+      mcp: [],
+      plugins,
+      hooks: hookTypes,
+    });
+  } catch {
+    res.json({ mcp: [], plugins: [], hooks: [] });
+  }
+});
 
 /**
  * GET /api/config

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useMessagesStore } from '@/stores/useMessagesStore';
 import type { GoalStatus, Message } from '@shared/types';
 import MessageStream from './MessageStream';
