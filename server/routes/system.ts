@@ -14,11 +14,14 @@ const router = Router();
 router.get('/skills', (req, res) => {
   const skills: Array<{ name: string; description: string; scope: string; type: string; path: string }> = [];
 
-  // Scan common skill locations + custom directories from query param
-  const locations = [
-    { dir: path.join(process.cwd(), '.claude', 'skills'), scope: 'project' },
-    { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
-  ];
+  // Scan skills, agents, hooks, and commands directories
+  const surfaceTypes = ['skills', 'agents', 'hooks', 'commands'] as const;
+  const locations: Array<{ dir: string; scope: string; surfaceType: string }> = [];
+
+  for (const surface of surfaceTypes) {
+    locations.push({ dir: path.join(process.cwd(), '.claude', surface), scope: 'project', surfaceType: surface });
+    locations.push({ dir: path.join(os.homedir(), '.claude', surface), scope: 'user', surfaceType: surface });
+  }
 
   // ?dir= can be a single path or comma-separated list of paths to scan
   const extraDirs = req.query['dir'];
@@ -27,8 +30,10 @@ router.get('/skills', (req, res) => {
       const trimmed = d.trim();
       if (trimmed) {
         // Support both direct .claude/skills path and project root path
-        const skillsDir = trimmed.endsWith('skills') ? trimmed : path.join(trimmed, '.claude', 'skills');
-        locations.push({ dir: skillsDir, scope: 'custom' });
+        for (const surface of surfaceTypes) {
+          const surfaceDir = path.join(trimmed, '.claude', surface);
+          locations.push({ dir: surfaceDir, scope: 'custom', surfaceType: surface });
+        }
       }
     }
   }
@@ -49,7 +54,7 @@ router.get('/skills', (req, res) => {
               name: entry.name,
               description: desc,
               scope: loc.scope,
-              type: 'skill',
+              type: loc.surfaceType,
               path: skillFile,
             });
           }
@@ -61,7 +66,7 @@ router.get('/skills', (req, res) => {
             name: entry.name.replace('.md', ''),
             description: desc,
             scope: loc.scope,
-            type: 'skill',
+            type: loc.surfaceType,
             path: path.join(loc.dir, entry.name),
           });
         }
@@ -184,6 +189,102 @@ router.get('/system/hook-status', async (_req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err: message }, 'Hook status check failed');
     res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * GET /api/hook-events
+ * Returns recent hook events from the database.
+ */
+router.get('/hook-events', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) {
+      res.json([]);
+      return;
+    }
+    const limit = Math.min(Number(req.query['limit'] ?? 500), 5000);
+    const rows = db.prepare('SELECT * FROM hook_events ORDER BY created_at DESC LIMIT ?').all(limit);
+    res.json(rows);
+  } catch {
+    res.json([]);
+  }
+});
+
+/**
+ * GET /api/analytics/totals
+ * Returns aggregate totals from sessions.
+ */
+router.get('/analytics/totals', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) {
+      res.json({ sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
+      return;
+    }
+    const row = db.prepare(`
+      SELECT
+        COUNT(*) as sessions,
+        COALESCE(SUM(total_cost_usd), 0) as cost,
+        COALESCE(SUM(total_tokens_in), 0) as tokensIn,
+        COALESCE(SUM(total_tokens_out), 0) as tokensOut
+      FROM sessions
+    `).get() as Record<string, number>;
+    res.json(row);
+  } catch {
+    res.json({ sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
+  }
+});
+
+/**
+ * GET /api/analytics/tool-usage
+ * Returns tool usage counts from hook events.
+ */
+router.get('/analytics/tool-usage', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) {
+      res.json([]);
+      return;
+    }
+    const rows = db.prepare(`
+      SELECT tool_name as name, COUNT(*) as count
+      FROM hook_events
+      WHERE tool_name IS NOT NULL AND event_type IN ('PreToolUse', 'PostToolUse')
+      GROUP BY tool_name
+      ORDER BY count DESC
+      LIMIT 20
+    `).all();
+    res.json(rows);
+  } catch {
+    res.json([]);
+  }
+});
+
+/**
+ * GET /api/analytics/daily-costs
+ * Returns daily cost aggregates from sessions.
+ */
+router.get('/analytics/daily-costs', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) {
+      res.json([]);
+      return;
+    }
+    const rows = db.prepare(`
+      SELECT
+        date(started_at / 1000, 'unixepoch') as date,
+        COALESCE(SUM(total_cost_usd), 0) as cost,
+        COUNT(*) as sessions
+      FROM sessions
+      WHERE started_at > (strftime('%s', 'now', '-30 days') * 1000)
+      GROUP BY date(started_at / 1000, 'unixepoch')
+      ORDER BY date
+    `).all();
+    res.json(rows);
+  } catch {
+    res.json([]);
   }
 });
 
