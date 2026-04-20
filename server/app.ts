@@ -1,15 +1,23 @@
 import express from 'express';
 import cors from 'cors';
-import type { Request, Response, NextFunction } from 'express';
+import type { Router, Request, Response, NextFunction } from 'express';
 import healthRouter from './routes/health';
+import systemRouter from './routes/system';
 import logger from './logger';
+
+export interface AppRouters {
+  /** Additional routers to mount under /api. */
+  apiRouters?: Router[];
+}
 
 /**
  * Creates and configures the Express application.
  * Applies CORS (localhost only), JSON body parsing, route mounts,
  * 404 handler, and error handler.
+ *
+ * @param options - Optional additional routers to mount (e.g. scheduled tasks).
  */
-export function createApp(): express.Express {
+export function createApp(options?: AppRouters): express.Express {
   const app = express();
 
   // CORS — localhost origins only
@@ -29,6 +37,14 @@ export function createApp(): express.Express {
 
   // Mount API routes
   app.use('/api', healthRouter);
+  app.use('/api', systemRouter);
+
+  // Mount any additional API routers
+  if (options?.apiRouters) {
+    for (const router of options.apiRouters) {
+      app.use('/api', router);
+    }
+  }
 
   // 404 handler for unmatched routes
   app.use((_req: Request, res: Response) => {

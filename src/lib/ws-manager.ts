@@ -74,8 +74,18 @@ function dispatch(event: ServerEvent): void {
       useFeedStore.getState().addEvent(event.event);
       break;
 
-    // No-op events for now (consumed by F2/F3/S4 bursts)
-    case 'session:ended':
+    case 'session:ended': {
+      const allSessions = useSessionsStore.getState().sessions;
+      const endedSession = allSessions.find((s) => s.id === event.id);
+      if (endedSession) {
+        useSessionsStore.getState().upsertSession({
+          ...endedSession,
+          ended_at: Date.now(),
+        });
+      }
+      break;
+    }
+
     case 'subprocess:error':
     case 'ping':
       break;

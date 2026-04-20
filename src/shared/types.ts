@@ -177,6 +177,56 @@ export interface GoalDetail {
   plan: PlanJson | null;
 }
 
+// ── Analytics API Responses ──────────────────────────────────────────────────
+
+export interface TokenDataPoint {
+  timestamp: number;
+  model: string;
+  tokens_in: number;
+  tokens_out: number;
+}
+
+export interface TokenSeries {
+  data: TokenDataPoint[];
+  from: number;
+  to: number;
+}
+
+export interface ToolFrequencyEntry {
+  tool_name: string;
+  count: number;
+}
+
+export interface ToolFrequency {
+  data: ToolFrequencyEntry[];
+  from: number;
+  to: number;
+}
+
+export interface HeatmapDay {
+  date: string;
+  count: number;
+}
+
+export interface HeatmapData {
+  data: HeatmapDay[];
+  from: number;
+  to: number;
+}
+
+export interface CostDataPoint {
+  timestamp: number;
+  model: string;
+  cost_usd: number;
+}
+
+export interface CostSeries {
+  data: CostDataPoint[];
+  from: number;
+  to: number;
+  total_usd: number;
+}
+
 // ── App Config ────────────────────────────────────────────────────────────────
 
 export interface AppConfig {

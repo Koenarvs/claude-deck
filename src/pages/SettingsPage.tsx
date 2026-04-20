@@ -1,10 +1,217 @@
+import { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, Settings } from 'lucide-react';
+import HookInstallerSection from '../components/settings/HookInstallerSection';
+import DataDirSection from '../components/settings/DataDirSection';
+import HomeRouteToggle from '../components/settings/HomeRouteToggle';
+import { useConfigStore } from '../stores/useConfigStore';
+import type { AppConfig, GoalModel, PermissionMode } from '../shared/types';
+
+const MODEL_OPTIONS: Array<{ value: GoalModel; label: string }> = [
+  { value: 'default', label: 'Default' },
+  { value: 'opus', label: 'Opus' },
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'haiku', label: 'Haiku' },
+];
+
+const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string; description: string }> = [
+  {
+    value: 'supervised',
+    label: 'Supervised',
+    description: 'Tools require approval via the dashboard',
+  },
+  {
+    value: 'autonomous',
+    label: 'Autonomous',
+    description: 'Tools are auto-approved',
+  },
+];
+
 export default function SettingsPage() {
+  const config = useConfigStore((s) => s.config);
+  const setConfig = useConfigStore((s) => s.setConfig);
+  const [loading, setLoading] = useState(!config);
+  const [error, setError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
+  const fetchConfig = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch('/api/config');
+      if (!res.ok) throw new Error(`Failed to fetch config: ${res.statusText}`);
+      const data: AppConfig = await res.json();
+      setConfig(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load config');
+    } finally {
+      setLoading(false);
+    }
+  }, [setConfig]);
+
+  useEffect(() => {
+    if (!config) {
+      void fetchConfig();
+    }
+  }, [config, fetchConfig]);
+
+  const updateConfig = async (updates: Partial<AppConfig>) => {
+    try {
+      setSaveStatus(null);
+      const res = await fetch('/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error(`Failed to save: ${res.statusText}`);
+      const data: AppConfig = await res.json();
+      setConfig(data);
+      setSaveStatus('Saved');
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <RefreshCw size={20} className="animate-spin text-deck-muted" />
+        <span className="ml-2 text-sm text-deck-muted">Loading settings...</span>
+      </div>
+    );
+  }
+
+  if (!config) {
+    return (
+      <div className="rounded-md border border-deck-danger/30 bg-deck-danger/10 px-4 py-3 text-sm text-deck-danger">
+        {error ?? 'Unable to load configuration.'}
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-deck-text">Settings</h1>
-      <p className="mt-2 text-deck-muted">
-        Application configuration, hook installation, and preferences. Implementation in burst F6.
-      </p>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-deck-text">
+            <Settings size={24} />
+            Settings
+          </h1>
+          <p className="mt-1 text-sm text-deck-muted">
+            Application configuration and hook management.
+          </p>
+        </div>
+        {saveStatus && (
+          <span className="rounded-full bg-deck-success/10 px-3 py-1 text-xs font-medium text-deck-success">
+            {saveStatus}
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-deck-danger/30 bg-deck-danger/10 px-4 py-3 text-sm text-deck-danger">
+          {error}
+        </div>
+      )}
+
+      {/* Hook Installation */}
+      <HookInstallerSection
+        hooksInstalled={config.hooksInstalled}
+        onStatusChange={() => void fetchConfig()}
+      />
+
+      {/* Home Route */}
+      <HomeRouteToggle
+        currentRoute={config.homeRoute}
+        onRouteChange={(route) => {
+          setConfig({ ...config, homeRoute: route });
+        }}
+      />
+
+      {/* Data Directory */}
+      <DataDirSection dataDir={config.dataDir} />
+
+      {/* Defaults */}
+      <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
+        <h3 className="text-sm font-semibold text-deck-text">Defaults</h3>
+        <p className="mt-1 text-xs text-deck-muted">
+          Default values applied when creating new goals.
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-4">
+          {/* Default model */}
+          <div>
+            <label
+              htmlFor="default-model"
+              className="mb-1 block text-xs font-medium text-deck-muted"
+            >
+              Default Model
+            </label>
+            <select
+              id="default-model"
+              value={config.defaultModel}
+              onChange={(e) => void updateConfig({ defaultModel: e.target.value as GoalModel })}
+              className="w-full rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
+            >
+              {MODEL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Default permission mode */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-deck-muted">
+              Default Permission Mode
+            </label>
+            <div className="flex gap-2">
+              {PERMISSION_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => void updateConfig({ defaultPermissionMode: opt.value })}
+                  className={`flex-1 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                    config.defaultPermissionMode === opt.value
+                      ? 'border-deck-accent bg-deck-accent/10 text-deck-text'
+                      : 'border-deck-border text-deck-muted hover:text-deck-text'
+                  }`}
+                  aria-pressed={config.defaultPermissionMode === opt.value}
+                >
+                  <span className="block font-medium">{opt.label}</span>
+                  <span className="block text-xs text-deck-muted">{opt.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Trace Retention */}
+      <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
+        <h3 className="text-sm font-semibold text-deck-text">Trace Retention</h3>
+        <p className="mt-1 text-xs text-deck-muted">
+          Traces older than this threshold are pruned automatically.
+        </p>
+
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={config.tracePruneDays}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              if (!isNaN(val) && val >= 1) {
+                void updateConfig({ tracePruneDays: val });
+              }
+            }}
+            className="w-24 rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
+          />
+          <span className="text-sm text-deck-muted">days</span>
+        </div>
+      </div>
     </div>
   );
 }

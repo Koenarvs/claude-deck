@@ -24,6 +24,6 @@
     },
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src/**/*", "tests/shared/**/*"],
+  "include": ["src/**/*", "tests/shared/**/*", "tests/client/**/*"],
   "exclude": ["server/"]
 }

@@ -4,6 +4,16 @@ import { getDb, closeDb } from './db/connection';
 import { runMigrations } from './db/migrate';
 import { createApp } from './app';
 import { setupWss } from './ws';
+import { ScheduledTaskService } from './services/scheduled-task-service';
+import { createGoalService } from './services/goal-service';
+import { Scheduler } from './scheduler';
+import { createScheduledRouter } from './routes/scheduled';
+import { createGoalsRouter } from './routes/goals';
+import { ApprovalCoordinator } from './approval-coordinator';
+import { HookIngest } from './hook-ingest';
+import { createHooksRouter } from './routes/hooks';
+import { createApprovalsRouter } from './routes/approvals';
+import { processRegistry } from './process-registry';
 import logger from './logger';
 
 const env = loadEnv();
@@ -13,12 +23,36 @@ const db = getDb(env.dataDir);
 runMigrations(db);
 logger.info({ dataDir: env.dataDir }, 'Database initialized');
 
+// Initialize services
+const scheduledTaskService = new ScheduledTaskService(db);
+const goalService = createGoalService(db);
+const approvalCoordinator = new ApprovalCoordinator(db);
+const hookIngest = new HookIngest(db, approvalCoordinator);
+
+/**
+ * Goal creator — delegates to the real goal service.
+ * Scheduler calls this when a scheduled task fires.
+ */
+function createGoal(input: import('../src/shared/types').CreateGoalInput): { id: string } {
+  const goal = goalService.create(input);
+  return { id: goal.id };
+}
+
+const scheduler = new Scheduler(scheduledTaskService, createGoal);
+const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
+const goalsRouter = createGoalsRouter(goalService);
+const hooksRouter = createHooksRouter(hookIngest);
+const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
+
 // Create Express app and HTTP server
-const app = createApp();
+const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, hooksRouter, approvalsRouter] });
 const server = http.createServer(app);
 
 // Attach WebSocket server
 setupWss(server);
+
+// Start scheduler
+scheduler.start();
 
 // Start listening
 server.listen(env.port, () => {
@@ -28,6 +62,24 @@ server.listen(env.port, () => {
 // Graceful shutdown
 function shutdown(signal: string): void {
   logger.info({ signal }, 'Shutdown signal received');
+
+  // Stop the scheduler first — no more cron fires
+  scheduler.stop();
+  logger.info('Scheduler stopped');
+
+  // Deny all pending approvals so blocked hooks unblock
+  approvalCoordinator.shutdown();
+  logger.info('ApprovalCoordinator shut down');
+
+  // Kill all CLI subprocesses managed by the process registry
+  processRegistry
+    .killAll()
+    .then(() => {
+      logger.info('All CLI subprocesses killed');
+    })
+    .catch((err: unknown) => {
+      logger.error({ err }, 'Error killing CLI subprocesses');
+    });
 
   // Force-kill fallback after 5s
   const forceKillTimer = setTimeout(() => {
