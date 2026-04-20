@@ -541,9 +541,9 @@ describe('CommandPalette', () => {
     );
 
     const input = screen.getByLabelText('Search commands');
-    await userEvent.type(input, 'board');
+    await userEvent.type(input, 'sched');
 
-    expect(screen.getByText('Board')).toBeInTheDocument();
+    expect(screen.getByText('Scheduled')).toBeInTheDocument();
     expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
   });
 

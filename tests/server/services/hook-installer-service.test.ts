@@ -348,14 +348,15 @@ describe('HookInstallerService', () => {
   describe('mergeHooks()', () => {
     const hookClientPath = '/test/hooks/client.js';
 
-    it('creates all 5 event types from empty hooks object', () => {
+    it('creates all 6 event types from empty hooks object', () => {
       const result = service.mergeHooks({}, hookClientPath);
 
-      expect(Object.keys(result)).toHaveLength(5);
+      expect(Object.keys(result)).toHaveLength(6);
       expect(result.SessionStart).toHaveLength(1);
       expect(result.UserPromptSubmit).toHaveLength(1);
       expect(result.PreToolUse).toHaveLength(1);
       expect(result.PostToolUse).toHaveLength(1);
+      expect(result.PermissionRequest).toHaveLength(1);
       expect(result.Stop).toHaveLength(1);
     });
 

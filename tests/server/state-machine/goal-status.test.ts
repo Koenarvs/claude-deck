@@ -72,12 +72,12 @@ describe('goal-status state machine', () => {
       expect(canTransition('planning', 'waiting')).toBe(false);
     });
 
-    it('active → planning is blocked (no backward to planning)', () => {
-      expect(canTransition('active', 'planning')).toBe(false);
+    it('active → planning is allowed (return to planning)', () => {
+      expect(canTransition('active', 'planning')).toBe(true);
     });
 
-    it('waiting → planning is blocked', () => {
-      expect(canTransition('waiting', 'planning')).toBe(false);
+    it('waiting → planning is allowed (return to planning)', () => {
+      expect(canTransition('waiting', 'planning')).toBe(true);
     });
 
     it('complete → planning is blocked', () => {
@@ -107,20 +107,22 @@ describe('goal-status state machine', () => {
       expect(targets).toHaveLength(3);
     });
 
-    it('active can reach waiting, complete, archived', () => {
+    it('active can reach planning, waiting, complete, archived', () => {
       const targets = allowedTransitions('active');
+      expect(targets).toContain('planning');
       expect(targets).toContain('waiting');
       expect(targets).toContain('complete');
       expect(targets).toContain('archived');
-      expect(targets).toHaveLength(3);
+      expect(targets).toHaveLength(4);
     });
 
-    it('waiting can reach active, complete, archived', () => {
+    it('waiting can reach planning, active, complete, archived', () => {
       const targets = allowedTransitions('waiting');
+      expect(targets).toContain('planning');
       expect(targets).toContain('active');
       expect(targets).toContain('complete');
       expect(targets).toContain('archived');
-      expect(targets).toHaveLength(3);
+      expect(targets).toHaveLength(4);
     });
 
     it('complete can reach active, archived', () => {

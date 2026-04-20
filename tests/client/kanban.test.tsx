@@ -287,11 +287,11 @@ describe('KanbanPage', () => {
     const { default: KanbanPage } = await import('../../src/pages/KanbanPage');
 
     const goals = [
-      makeGoal({ id: 'g1', title: 'Plan A', status: 'planning', kanban_order: 1 }),
-      makeGoal({ id: 'g2', title: 'Active B', status: 'active', kanban_order: 1 }),
-      makeGoal({ id: 'g3', title: 'Active C', status: 'active', kanban_order: 2 }),
-      makeGoal({ id: 'g4', title: 'Wait D', status: 'waiting', kanban_order: 1 }),
-      makeGoal({ id: 'g5', title: 'Done E', status: 'complete', kanban_order: 1 }),
+      makeGoal({ id: '00000000-0000-4000-8000-000000000001', title: 'Plan A', status: 'planning', kanban_order: 1 }),
+      makeGoal({ id: '00000000-0000-4000-8000-000000000002', title: 'Active B', status: 'active', kanban_order: 1 }),
+      makeGoal({ id: '00000000-0000-4000-8000-000000000003', title: 'Active C', status: 'active', kanban_order: 2 }),
+      makeGoal({ id: '00000000-0000-4000-8000-000000000004', title: 'Wait D', status: 'waiting', kanban_order: 1 }),
+      makeGoal({ id: '00000000-0000-4000-8000-000000000005', title: 'Done E', status: 'complete', kanban_order: 1 }),
     ];
 
     fetchMock.mockResolvedValueOnce({
@@ -320,7 +320,7 @@ describe('NewGoalModal', () => {
     const user = userEvent.setup();
 
     const createdGoal = makeGoal({
-      id: 'created-1',
+      id: '00000000-0000-4000-8000-000000000099',
       title: 'New test goal',
       cwd: '/test/dir',
     });

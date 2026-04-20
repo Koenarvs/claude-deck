@@ -13,3 +13,24 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 if (typeof Element.prototype.scrollIntoView === 'undefined') {
   Element.prototype.scrollIntoView = function () {};
 }
+
+// Polyfill Notification API for jsdom
+if (typeof globalThis.Notification === 'undefined') {
+  globalThis.Notification = class MockNotification {
+    static permission = 'default' as NotificationPermission;
+    static async requestPermission(): Promise<NotificationPermission> {
+      return 'granted';
+    }
+    title: string;
+    onclick: (() => void) | null = null;
+    constructor(title: string, _options?: NotificationOptions) {
+      this.title = title;
+    }
+    close() {}
+  } as unknown as typeof Notification;
+}
+
+// Mock fetch globally for component tests that don't provide their own mock
+if (typeof globalThis.fetch === 'undefined') {
+  globalThis.fetch = (() => Promise.resolve({ ok: true, json: () => Promise.resolve([]) })) as typeof fetch;
+}

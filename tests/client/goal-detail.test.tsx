@@ -68,6 +68,7 @@ const mockFetch = vi.fn();
 
 beforeEach(() => {
   vi.stubGlobal('fetch', mockFetch);
+  localStorage.clear();
   // Reset stores
   useGoalsStore.setState({ goals: [] });
   useMessagesStore.setState({ byGoalId: {}, bySessionId: {} });
