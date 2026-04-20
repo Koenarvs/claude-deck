@@ -329,4 +329,71 @@ router.get('/goals/:id/document', (req, res) => {
   }
 });
 
+/**
+ * GET /api/analytics/activity-heatmap
+ * Returns session counts per day for the last 90 days (for GitHub-style heatmap).
+ */
+router.get('/analytics/activity-heatmap', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) { res.json([]); return; }
+    const rows = db.prepare(`
+      SELECT date(started_at / 1000, 'unixepoch') as date, COUNT(*) as count
+      FROM sessions
+      WHERE started_at > (strftime('%s', 'now', '-90 days') * 1000)
+      GROUP BY date(started_at / 1000, 'unixepoch')
+      ORDER BY date
+    `).all();
+    res.json(rows);
+  } catch { res.json([]); }
+});
+
+/**
+ * GET /api/analytics/sessions-per-day
+ * Returns daily session counts for trend chart.
+ */
+router.get('/analytics/sessions-per-day', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) { res.json([]); return; }
+    const rows = db.prepare(`
+      SELECT date(started_at / 1000, 'unixepoch') as date, COUNT(*) as sessions,
+        SUM(CASE WHEN origin = 'dashboard' THEN 1 ELSE 0 END) as dashboard,
+        SUM(CASE WHEN origin = 'external' THEN 1 ELSE 0 END) as external
+      FROM sessions
+      WHERE started_at > (strftime('%s', 'now', '-30 days') * 1000)
+      GROUP BY date(started_at / 1000, 'unixepoch')
+      ORDER BY date
+    `).all();
+    res.json(rows);
+  } catch { res.json([]); }
+});
+
+/**
+ * GET /api/analytics/session-durations
+ * Returns session duration distribution buckets.
+ */
+router.get('/analytics/session-durations', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) { res.json([]); return; }
+    const rows = db.prepare(`
+      SELECT
+        CASE
+          WHEN (ended_at - started_at) < 300000 THEN '< 5m'
+          WHEN (ended_at - started_at) < 900000 THEN '5-15m'
+          WHEN (ended_at - started_at) < 1800000 THEN '15-30m'
+          WHEN (ended_at - started_at) < 3600000 THEN '30-60m'
+          ELSE '60m+'
+        END as bucket,
+        COUNT(*) as count
+      FROM sessions
+      WHERE ended_at IS NOT NULL
+      GROUP BY bucket
+      ORDER BY MIN(ended_at - started_at)
+    `).all();
+    res.json(rows);
+  } catch { res.json([]); }
+});
+
 export default router;
