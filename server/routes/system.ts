@@ -5,6 +5,29 @@ import logger from '../logger';
 const router = Router();
 
 /**
+ * GET /api/config
+ * Returns the current app configuration.
+ */
+router.get('/config', (_req, res) => {
+  res.json({
+    homeRoute: '/board',
+    defaultModel: 'default',
+    defaultPermissionMode: 'supervised',
+    traceRetentionDays: 90,
+  });
+});
+
+/**
+ * PUT /api/config
+ * Updates app configuration.
+ */
+router.put('/config', (req, res) => {
+  // For now, accept the update but don't persist (config persistence is a v1.1 feature)
+  logger.info({ config: req.body }, 'Config update received');
+  res.json({ ...req.body, updated: true });
+});
+
+/**
  * POST /api/system/install-hooks
  *
  * Installs claude-deck hooks into ~/.claude/settings.json.

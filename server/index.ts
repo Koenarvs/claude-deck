@@ -14,6 +14,7 @@ import { HookIngest } from './hook-ingest';
 import { createHooksRouter } from './routes/hooks';
 import { createApprovalsRouter } from './routes/approvals';
 import { processRegistry } from './process-registry';
+import systemRouter from './routes/system';
 import logger from './logger';
 
 const env = loadEnv();
@@ -45,7 +46,7 @@ const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
 
 // Create Express app and HTTP server
-const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, hooksRouter, approvalsRouter] });
+const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, hooksRouter, approvalsRouter, systemRouter] });
 const server = http.createServer(app);
 
 // Attach WebSocket server
