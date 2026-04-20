@@ -28,28 +28,15 @@ export default function GoalConversation({
   const messages = useMessagesStore(
     (state) => state.byGoalId[goalId] ?? EMPTY_MESSAGES,
   );
-  const addMessage = useMessagesStore((state) => state.addMessage);
+  // addMessage not needed — server saves + broadcasts user messages
 
   const handleSend = useCallback(
     async (prompt: string) => {
       setIsSending(true);
       setError(null);
 
-      // Optimistic: add user message immediately
-      const optimisticMessage: Message = {
-        id: `optimistic-${Date.now()}`,
-        session_id: '',
-        role: 'user',
-        content: prompt,
-        tool_name: null,
-        tool_args: null,
-        tool_result: null,
-        tool_use_id: null,
-        token_in: null,
-        token_out: null,
-        created_at: Date.now(),
-      };
-      addMessage(goalId, '', optimisticMessage);
+      // User message is saved + broadcast by SessionRunner on the server side.
+      // No optimistic add needed — the WS event will update the store.
 
       try {
         const res = await fetch(`/api/goals/${goalId}/messages`, {
@@ -68,7 +55,7 @@ export default function GoalConversation({
         setIsSending(false);
       }
     },
-    [goalId, addMessage],
+    [goalId],
   );
 
   return (

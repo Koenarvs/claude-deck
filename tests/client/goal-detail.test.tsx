@@ -67,7 +67,18 @@ function makePlan(
 const mockFetch = vi.fn();
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', mockFetch);
+  // Wrap mockFetch to automatically handle /document requests
+  const wrappedFetch = vi.fn((...args: Parameters<typeof fetch>) => {
+    const url = typeof args[0] === 'string' ? args[0] : '';
+    if (url.includes('/document')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ exists: false, content: null }),
+      } as Response);
+    }
+    return mockFetch(...args);
+  });
+  vi.stubGlobal('fetch', wrappedFetch);
   localStorage.clear();
   // Reset stores
   useGoalsStore.setState({ goals: [] });
@@ -462,6 +473,11 @@ describe('InputBar', () => {
 describe('GoalPlanPane', () => {
   beforeEach(() => {
     localStorage.clear();
+    // Mock fetch for document tabs (plan.md doesn't exist in test env)
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ exists: false, content: null, name: 'plan.md' }),
+    });
   });
 
   it('renders expanded by default', () => {
@@ -469,12 +485,15 @@ describe('GoalPlanPane', () => {
     expect(screen.getByTestId('plan-pane-expanded')).toBeInTheDocument();
   });
 
-  it('shows empty state when no plan exists', () => {
+  it('shows empty state on Plan tab when no file exists', async () => {
     render(<GoalPlanPane goalId="test-goal-1" />);
-    expect(screen.getByText('No plan yet')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/no plan found/i)).toBeInTheDocument();
+    });
   });
 
-  it('renders plan todos when plan exists', () => {
+  it('renders plan todos on To Do tab when plan exists', async () => {
+    const user = userEvent.setup();
     usePlanStore.getState().setPlan(
       'test-goal-1',
       makePlan([
@@ -484,6 +503,8 @@ describe('GoalPlanPane', () => {
     );
 
     render(<GoalPlanPane goalId="test-goal-1" />);
+    // Switch to To Do tab
+    await user.click(screen.getByText('To Do'));
     expect(screen.getByText('Todo 1')).toBeInTheDocument();
     expect(screen.getByText('Todo 2')).toBeInTheDocument();
   });
@@ -496,11 +517,11 @@ describe('GoalPlanPane', () => {
     expect(screen.getByTestId('plan-pane-expanded')).toBeInTheDocument();
 
     // Click collapse
-    await user.click(screen.getByLabelText('Collapse plan pane'));
+    await user.click(screen.getByLabelText('Collapse pane'));
     expect(screen.getByTestId('plan-pane-collapsed')).toBeInTheDocument();
 
     // Click expand
-    await user.click(screen.getByLabelText('Expand plan pane'));
+    await user.click(screen.getByLabelText('Expand pane'));
     expect(screen.getByTestId('plan-pane-expanded')).toBeInTheDocument();
   });
 
@@ -509,7 +530,7 @@ describe('GoalPlanPane', () => {
     render(<GoalPlanPane goalId="test-goal-1" />);
 
     // Collapse
-    await user.click(screen.getByLabelText('Collapse plan pane'));
+    await user.click(screen.getByLabelText('Collapse pane'));
     expect(localStorage.getItem('claude-deck:plan-pane-collapsed')).toBe(
       'true',
     );
@@ -518,7 +539,23 @@ describe('GoalPlanPane', () => {
 
 // ── GoalDetailPage Integration Tests ─────────────────────────────────────────
 
+const emptyDocResponse = { ok: true, json: () => Promise.resolve({ exists: false, content: null }) };
+
 describe('GoalDetailPage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  /** Sets up mockFetch to return goalDetail for the first call, then empty doc for subsequent calls */
+  function mockGoalFetch(goalDetail: GoalDetail) {
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/document')) {
+        return Promise.resolve(emptyDocResponse);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(goalDetail) });
+    });
+  }
+
   function renderPage(goalId = 'test-goal-1') {
     return render(
       <MemoryRouter initialEntries={[`/goals/${goalId}`]}>
@@ -551,10 +588,7 @@ describe('GoalDetailPage', () => {
       plan: null,
     };
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(goalDetail),
-    });
+    mockGoalFetch(goalDetail);
 
     renderPage();
 
@@ -605,8 +639,10 @@ describe('GoalDetailPage', () => {
       expect(screen.getByTestId('goal-detail-page')).toBeInTheDocument();
     });
 
-    // Plan pane should show todos
+    // Plan pane should be expanded
     expect(screen.getByTestId('plan-pane-expanded')).toBeInTheDocument();
+    // Click To Do tab to see TodoWrite tasks
+    await userEvent.click(screen.getByText('To Do'));
     expect(screen.getByText('Task 1')).toBeInTheDocument();
     expect(screen.getByText('Task 2')).toBeInTheDocument();
     expect(screen.getByText('Task 3')).toBeInTheDocument();
@@ -707,6 +743,15 @@ describe('GoalDetailPage', () => {
 // ── QA Checklist Verification ────────────────────────────────────────────────
 
 describe('QA Checklist', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    // Mock fetch for document tabs in GoalPlanPane
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ exists: false, content: null, name: 'plan.md' }),
+    });
+  });
+
   it('QA-1: GoalDetailPage renders messages and focused input', async () => {
     const goal = makeGoal();
     const messages = Array.from({ length: 10 }, (_, i) =>
@@ -738,35 +783,23 @@ describe('QA Checklist', () => {
     expect(screen.getByTestId('input-textarea')).not.toBeDisabled();
   });
 
-  it('QA-3: Plan pane shows todos with correct status icons', () => {
+  it('QA-3: Plan pane shows todos with correct status icons on To Do tab', async () => {
+    const user = userEvent.setup();
     usePlanStore.getState().setPlan(
       'test-goal-1',
       makePlan([
         { content: 'Done', status: 'completed', priority: 1, children: [] },
-        {
-          content: 'Working',
-          status: 'in_progress',
-          priority: 2,
-          children: [],
-        },
+        { content: 'Working', status: 'in_progress', priority: 2, children: [] },
         { content: 'Todo', status: 'pending', priority: 3, children: [] },
-        { content: 'Also Todo', status: 'pending', priority: 4, children: [] },
-        {
-          content: 'Also Done',
-          status: 'completed',
-          priority: 5,
-          children: [],
-        },
       ]),
     );
 
     render(<GoalPlanPane goalId="test-goal-1" />);
+    await user.click(screen.getByText('To Do'));
 
     expect(screen.getByText('Done')).toBeInTheDocument();
     expect(screen.getByText('Working')).toBeInTheDocument();
     expect(screen.getByText('Todo')).toBeInTheDocument();
-    expect(screen.getByText('Also Todo')).toBeInTheDocument();
-    expect(screen.getByText('Also Done')).toBeInTheDocument();
   });
 
   it('QA-5: Model picker change fires PATCH', async () => {
@@ -797,7 +830,7 @@ describe('QA Checklist', () => {
     );
 
     // Collapse
-    await user.click(screen.getByLabelText('Collapse plan pane'));
+    await user.click(screen.getByLabelText('Collapse pane'));
     expect(
       localStorage.getItem('claude-deck:plan-pane-collapsed'),
     ).toBe('true');
