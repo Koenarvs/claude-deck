@@ -1,0 +1,297 @@
+import { z } from 'zod';
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+export const GoalStatusSchema = z.enum([
+  'planning',
+  'active',
+  'waiting',
+  'complete',
+  'archived',
+]);
+
+export const GoalModelSchema = z.enum(['opus', 'sonnet', 'haiku', 'default']);
+
+export const PermissionModeSchema = z.enum(['autonomous', 'supervised']);
+
+export const SessionOriginSchema = z.enum(['dashboard', 'external']);
+
+export const MessageRoleSchema = z.enum([
+  'user',
+  'assistant',
+  'system',
+  'tool_use',
+  'tool_result',
+]);
+
+export const HookEventTypeSchema = z.enum([
+  'SessionStart',
+  'PreToolUse',
+  'PostToolUse',
+  'UserPromptSubmit',
+  'Stop',
+]);
+
+export const ApprovalStatusSchema = z.enum(['pending', 'approved', 'denied', 'timeout']);
+
+export const ApprovalDecisionSchema = z.enum(['approved', 'denied', 'timeout']);
+
+export const PlanTodoStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
+
+// ── Plan ──────────────────────────────────────────────────────────────────────
+
+export const PlanTodoSchema: z.ZodType<{
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  priority: number;
+  children: Array<{
+    content: string;
+    status: 'pending' | 'in_progress' | 'completed';
+    priority: number;
+    children: Array<unknown>;
+  }>;
+}> = z.lazy(() =>
+  z.object({
+    content: z.string(),
+    status: PlanTodoStatusSchema,
+    priority: z.number(),
+    children: z.array(PlanTodoSchema),
+  }),
+);
+
+export const PlanJsonSchema = z.object({
+  todos: z.array(PlanTodoSchema),
+  raw_content: z.string(),
+});
+
+// ── Goal ──────────────────────────────────────────────────────────────────────
+
+export const GoalSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1),
+  description: z.string().nullable(),
+  cwd: z.string().min(1),
+  status: GoalStatusSchema,
+  priority: z.number().int(),
+  tags: z.array(z.string()),
+  current_session_id: z.string().nullable(),
+  model: GoalModelSchema.nullable(),
+  permission_mode: PermissionModeSchema,
+  plan_json: PlanJsonSchema.nullable(),
+  kanban_order: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  completed_at: z.number().nullable(),
+});
+
+export const CreateGoalInputSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+  cwd: z.string().min(1),
+  model: GoalModelSchema.optional(),
+  permission_mode: PermissionModeSchema.optional(),
+  tags: z.array(z.string()).optional(),
+  initialPrompt: z.string().optional(),
+});
+
+export const UpdateGoalInputSchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
+  status: GoalStatusSchema.optional(),
+  priority: z.number().int().optional(),
+  tags: z.array(z.string()).optional(),
+  model: GoalModelSchema.nullable().optional(),
+  permission_mode: PermissionModeSchema.optional(),
+  kanban_order: z.number().optional(),
+});
+
+// ── Session ───────────────────────────────────────────────────────────────────
+
+export const SessionSchema = z.object({
+  id: z.string(),
+  goal_id: z.string().nullable(),
+  origin: SessionOriginSchema,
+  cwd: z.string().nullable(),
+  model: z.string().nullable(),
+  trace_dir: z.string().nullable(),
+  stream_event_count: z.number().int(),
+  hook_event_count: z.number().int(),
+  stderr_bytes: z.number().int(),
+  total_cost_usd: z.number().nullable(),
+  total_tokens_in: z.number().int().nullable(),
+  total_tokens_out: z.number().int().nullable(),
+  started_at: z.number().nullable(),
+  ended_at: z.number().nullable(),
+});
+
+// ── Message ───────────────────────────────────────────────────────────────────
+
+export const MessageSchema = z.object({
+  id: z.string().uuid(),
+  session_id: z.string(),
+  role: MessageRoleSchema,
+  content: z.string().nullable(),
+  tool_name: z.string().nullable(),
+  tool_args: z.string().nullable(),
+  tool_result: z.string().nullable(),
+  tool_use_id: z.string().nullable(),
+  token_in: z.number().int().nullable(),
+  token_out: z.number().int().nullable(),
+  created_at: z.number(),
+});
+
+// ── Hook Event ────────────────────────────────────────────────────────────────
+
+export const HookEventSchema = z.object({
+  id: z.string(),
+  session_id: z.string().nullable(),
+  event_type: HookEventTypeSchema,
+  tool_name: z.string().nullable(),
+  payload_json: z.string(),
+  created_at: z.number(),
+});
+
+// ── Approval ──────────────────────────────────────────────────────────────────
+
+export const ApprovalSchema = z.object({
+  id: z.string(),
+  session_id: z.string().nullable(),
+  goal_id: z.string().nullable(),
+  tool_name: z.string(),
+  tool_args: z.string(),
+  status: ApprovalStatusSchema,
+  decided_reason: z.string().nullable(),
+  requested_at: z.number(),
+  resolved_at: z.number().nullable(),
+});
+
+// ── Scheduled Task ────────────────────────────────────────────────────────────
+
+export const GoalTemplateSchema = z.object({
+  title: z.string().min(1),
+  cwd: z.string().min(1),
+  model: GoalModelSchema.optional(),
+  initialPrompt: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+export const ScheduledTaskSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  cron_expr: z.string().min(1),
+  goal_template_json: z.string(),
+  enabled: z.boolean(),
+  last_run_at: z.number().nullable(),
+  next_run_at: z.number().nullable(),
+  created_at: z.number(),
+});
+
+export const CreateScheduledTaskInputSchema = z.object({
+  name: z.string().min(1),
+  cron_expr: z.string().min(1),
+  goal_template_json: GoalTemplateSchema,
+  enabled: z.boolean().optional(),
+});
+
+export const UpdateScheduledTaskInputSchema = z.object({
+  name: z.string().min(1).optional(),
+  cron_expr: z.string().min(1).optional(),
+  goal_template_json: GoalTemplateSchema.optional(),
+  enabled: z.boolean().optional(),
+});
+
+// ── Goal Detail ───────────────────────────────────────────────────────────────
+
+export const GoalDetailSchema = z.object({
+  goal: GoalSchema,
+  messages: z.array(MessageSchema),
+  plan: PlanJsonSchema.nullable(),
+});
+
+// ── App Config ────────────────────────────────────────────────────────────────
+
+export const AppConfigSchema = z.object({
+  homeRoute: z.string(),
+  dataDir: z.string(),
+  hooksInstalled: z.boolean(),
+  tracePruneDays: z.number().int().min(1),
+  defaultModel: GoalModelSchema,
+  defaultPermissionMode: PermissionModeSchema,
+});
+
+// ── Stream JSON Events ────────────────────────────────────────────────────────
+
+export const AssistantTextBlockSchema = z.object({
+  type: z.literal('text'),
+  text: z.string(),
+});
+
+export const AssistantToolUseBlockSchema = z.object({
+  type: z.literal('tool_use'),
+  id: z.string(),
+  name: z.string(),
+  input: z.record(z.unknown()),
+});
+
+export const AssistantThinkingBlockSchema = z.object({
+  type: z.literal('thinking'),
+  thinking: z.string(),
+});
+
+export const AssistantContentBlockSchema = z.discriminatedUnion('type', [
+  AssistantTextBlockSchema,
+  AssistantToolUseBlockSchema,
+  AssistantThinkingBlockSchema,
+]);
+
+export const StreamJsonInitEventSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('init'),
+  session_id: z.string(),
+  tools: z.array(z.string()),
+  model: z.string(),
+});
+
+export const StreamJsonAssistantEventSchema = z.object({
+  type: z.literal('assistant'),
+  message: z.object({
+    content: z.array(AssistantContentBlockSchema),
+  }),
+});
+
+export const StreamJsonToolResultBlockSchema = z.object({
+  type: z.literal('tool_result'),
+  tool_use_id: z.string(),
+  content: z.string(),
+});
+
+export const StreamJsonUserEventSchema = z.object({
+  type: z.literal('user'),
+  message: z.object({
+    content: z.array(StreamJsonToolResultBlockSchema),
+  }),
+});
+
+export const StreamJsonCompactEventSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('compact_boundary'),
+  compact_metadata: z.record(z.unknown()),
+});
+
+export const StreamJsonResultEventSchema = z.object({
+  type: z.literal('result'),
+  subtype: z.string(),
+  total_cost_usd: z.number(),
+  num_turns: z.number().int(),
+  session_id: z.string(),
+});
+
+// StreamJsonEvent: cannot use z.discriminatedUnion because 'system' has two subtypes.
+// Use z.union with refinement instead.
+export const StreamJsonEventSchema = z.union([
+  StreamJsonInitEventSchema,
+  StreamJsonAssistantEventSchema,
+  StreamJsonUserEventSchema,
+  StreamJsonCompactEventSchema,
+  StreamJsonResultEventSchema,
+]);

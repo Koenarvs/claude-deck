@@ -1,0 +1,14 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-deck-bg: #0f1117;
+  --color-deck-surface: #1a1d27;
+  --color-deck-border: #2a2d3a;
+  --color-deck-text: #e2e4e9;
+  --color-deck-muted: #6b7280;
+  --color-deck-accent: #6366f1;
+  --color-deck-accent-hover: #818cf8;
+  --color-deck-success: #22c55e;
+  --color-deck-warning: #f59e0b;
+  --color-deck-danger: #ef4444;
+}
