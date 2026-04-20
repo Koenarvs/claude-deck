@@ -75,7 +75,8 @@ export default function GoalDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, upsertGoal, setPlan]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- store actions are stable singletons
+  }, [id]);
 
   // Title update handler (optimistic)
   const handleTitleUpdate = useCallback(
