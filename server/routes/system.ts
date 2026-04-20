@@ -11,14 +11,27 @@ const router = Router();
  * GET /api/skills
  * Scans for Claude Code skills in known locations.
  */
-router.get('/skills', (_req, res) => {
+router.get('/skills', (req, res) => {
   const skills: Array<{ name: string; description: string; scope: string; type: string; path: string }> = [];
 
-  // Scan common skill locations
+  // Scan common skill locations + custom directories from query param
   const locations = [
     { dir: path.join(process.cwd(), '.claude', 'skills'), scope: 'project' },
     { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
   ];
+
+  // ?dir= can be a single path or comma-separated list of paths to scan
+  const extraDirs = req.query['dir'];
+  if (typeof extraDirs === 'string' && extraDirs.length > 0) {
+    for (const d of extraDirs.split(',')) {
+      const trimmed = d.trim();
+      if (trimmed) {
+        // Support both direct .claude/skills path and project root path
+        const skillsDir = trimmed.endsWith('skills') ? trimmed : path.join(trimmed, '.claude', 'skills');
+        locations.push({ dir: skillsDir, scope: 'custom' });
+      }
+    }
+  }
 
   for (const loc of locations) {
     try {

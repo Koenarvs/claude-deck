@@ -16,19 +16,33 @@ interface ExtensionData {
 
 type TabId = 'skills' | 'extensions';
 
+const STORAGE_KEY = 'claude-deck:skill-dirs';
+
+function loadSavedDirs(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function SkillsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('skills');
   const [skills, setSkills] = useState<Skill[]>([]);
   const [extensions, setExtensions] = useState<ExtensionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [skillDirs, setSkillDirs] = useState<string[]>(loadSavedDirs);
+  const [newDir, setNewDir] = useState('');
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (dirs: string[] = []) => {
     setLoading(true);
     setError(null);
     try {
+      const dirParam = dirs.length > 0 ? `?dir=${encodeURIComponent(dirs.join(','))}` : '';
       const [skillsRes, extRes] = await Promise.all([
-        fetch('/api/skills'),
+        fetch(`/api/skills${dirParam}`),
         fetch('/api/extensions'),
       ]);
 
@@ -48,9 +62,26 @@ export default function SkillsPage() {
     }
   }, []);
 
+  const addDir = useCallback(() => {
+    if (!newDir.trim()) return;
+    const updated = [...skillDirs, newDir.trim()];
+    setSkillDirs(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    setNewDir('');
+    void fetchData(updated);
+  }, [newDir, skillDirs, fetchData]);
+
+  const removeDir = useCallback((index: number) => {
+    const updated = skillDirs.filter((_, i) => i !== index);
+    setSkillDirs(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    void fetchData(updated);
+  }, [skillDirs, fetchData]);
+
   useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+    void fetchData(skillDirs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount
+  }, []);
 
   const tabs: Array<{ id: TabId; label: string; icon: typeof Sparkles }> = [
     { id: 'skills', label: 'Skills', icon: Sparkles },
@@ -68,7 +99,7 @@ export default function SkillsPage() {
         </div>
         <button
           type="button"
-          onClick={() => void fetchData()}
+          onClick={() => void fetchData(skillDirs)}
           disabled={loading}
           className="rounded-md border border-deck-border p-2 text-deck-muted hover:bg-deck-border hover:text-deck-text disabled:opacity-50"
           aria-label="Refresh"
@@ -104,6 +135,39 @@ export default function SkillsPage() {
           );
         })}
       </div>
+
+      {activeTab === 'skills' && (
+        <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
+          <h3 className="mb-2 text-sm font-medium text-deck-text">Scan Directories</h3>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newDir}
+              onChange={(e) => setNewDir(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addDir(); }}
+              placeholder="e.g. C:\CTDW Repository\cpt-dwdi"
+              className="flex-1 rounded border border-deck-border bg-deck-bg px-3 py-1.5 text-sm text-deck-text placeholder:text-deck-muted"
+            />
+            <button
+              type="button"
+              onClick={addDir}
+              className="rounded bg-deck-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-deck-accent-hover"
+            >
+              Add
+            </button>
+          </div>
+          {skillDirs.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {skillDirs.map((dir, i) => (
+                <span key={i} className="flex items-center gap-1 rounded-full bg-deck-border px-3 py-1 text-xs text-deck-text">
+                  {dir}
+                  <button type="button" onClick={() => removeDir(i)} className="ml-1 text-deck-muted hover:text-deck-danger">×</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
