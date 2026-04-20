@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useMessagesStore } from '@/stores/useMessagesStore';
 import type { GoalStatus, Message } from '@shared/types';
 import MessageStream from './MessageStream';
 import InputBar from './InputBar';
+
+const EMPTY_MESSAGES: Message[] = [];
 
 interface GoalConversationProps {
   goalId: string;
@@ -24,7 +26,7 @@ export default function GoalConversation({
   const [error, setError] = useState<string | null>(null);
 
   const messages = useMessagesStore(
-    (state) => state.byGoalId[goalId] ?? [],
+    (state) => state.byGoalId[goalId] ?? EMPTY_MESSAGES,
   );
   const addMessage = useMessagesStore((state) => state.addMessage);
 
