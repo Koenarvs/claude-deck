@@ -1,0 +1,12 @@
+services:
+  claude-deck:
+    build: .
+    ports:
+      - "4100:4100"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=4100
+      - DATA_DIR=/app/data
+    restart: unless-stopped

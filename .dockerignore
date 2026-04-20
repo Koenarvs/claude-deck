@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+.git
+.claude
+docs
+tests
+mcp/node_modules
+mcp/dist
+*.md
