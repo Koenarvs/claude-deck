@@ -144,8 +144,8 @@ export class SessionRunner implements Killable {
     // Register in process registry
     processRegistry.set(this.goal.id, this);
 
-    // Build spawn args
-    const args = this.buildArgs(this.sessionId);
+    // Build spawn args with prompt
+    const args = this.buildArgs(this.sessionId, false, initialPrompt);
 
     logger.info({ goalId: this.goal.id, sessionId: this.sessionId, args }, 'Spawning CLI subprocess');
 
@@ -156,7 +156,6 @@ export class SessionRunner implements Killable {
     });
 
     this.setupProcessHandlers();
-    this.sendStdinMessage(initialPrompt);
   }
 
   /**
@@ -179,7 +178,7 @@ export class SessionRunner implements Killable {
     this.exited = false;
     this.streamEventCount = 0;
 
-    const args = this.buildArgs(this.sessionId, true);
+    const args = this.buildArgs(this.sessionId, true, prompt);
 
     logger.info({ goalId: this.goal.id, sessionId: this.sessionId }, 'Spawning follow-up CLI subprocess');
 
@@ -190,7 +189,6 @@ export class SessionRunner implements Killable {
     });
 
     this.setupProcessHandlers();
-    this.sendStdinMessage(prompt);
   }
 
   /**
@@ -241,11 +239,10 @@ export class SessionRunner implements Killable {
   /**
    * Builds the CLI argument array per spec section 7.1.
    */
-  private buildArgs(sessionId: string, resume = false): string[] {
+  private buildArgs(sessionId: string, resume = false, prompt?: string): string[] {
     const args = [
       '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--print',
+      '--verbose',
     ];
 
     if (resume) {
@@ -256,6 +253,11 @@ export class SessionRunner implements Killable {
 
     if (this.goal.model && this.goal.model !== 'default') {
       args.push('--model', this.goal.model);
+    }
+
+    // Pass prompt directly via -p flag (non-interactive mode)
+    if (prompt) {
+      args.push('-p', prompt);
     }
 
     return args;
@@ -519,6 +521,7 @@ export class SessionRunner implements Killable {
   /**
    * Writes a user prompt to the child's stdin in stream-json format.
    */
+  // @ts-expect-error reserved for stream-json input mode (v1.1)
   private sendStdinMessage(prompt: string): void {
     if (!this.child?.stdin) {
       logger.error({ goalId: this.goal.id }, 'Cannot write to stdin: no child process');
