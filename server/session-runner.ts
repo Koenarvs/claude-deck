@@ -151,7 +151,8 @@ export class SessionRunner implements Killable {
 
     this.child = spawn(cliBinary, args, {
       cwd: this.goal.cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
       env: { ...process.env },
     });
 
@@ -184,7 +185,8 @@ export class SessionRunner implements Killable {
 
     this.child = spawn(cliBinary, args, {
       cwd: this.goal.cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
       env: { ...process.env },
     });
 
