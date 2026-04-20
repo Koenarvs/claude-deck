@@ -5,7 +5,7 @@ import type { ServerEvent } from '../../src/shared/events';
 import logger from '../logger';
 
 /** Maximum character length for content and tool_result stored in the database. */
-const DB_CONTENT_CAP = 4000;
+const DB_CONTENT_CAP = 100_000;
 
 /** Truncation suffix appended when content exceeds the cap. */
 const TRUNCATION_SUFFIX = '\u2026 [truncated; see trace]';
