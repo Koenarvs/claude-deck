@@ -113,6 +113,34 @@ export function createHooksRouter(hookIngest: HookIngest): Router {
   });
 
   /**
+   * POST /hook/subagent-start
+   * Links child session to parent session and goal.
+   */
+  router.post('/hook/subagent-start', validateBody(HookPayloadSchema), (req, res) => {
+    try {
+      hookIngest.onSubagentStart(req.body);
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error({ err }, 'Error in subagent-start hook handler');
+      res.json({ ok: true }); // fail-open
+    }
+  });
+
+  /**
+   * POST /hook/subagent-stop
+   * Marks child session as ended.
+   */
+  router.post('/hook/subagent-stop', validateBody(HookPayloadSchema), (req, res) => {
+    try {
+      hookIngest.onSubagentStop(req.body);
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error({ err }, 'Error in subagent-stop hook handler');
+      res.json({ ok: true }); // fail-open
+    }
+  });
+
+  /**
    * POST /hook/stop
    * Marks the session as ended.
    */

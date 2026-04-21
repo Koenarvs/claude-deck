@@ -122,14 +122,17 @@ export class HookIngest {
       return;
     }
 
-    // Create new external session
+    // Create new external session with display_name from cwd basename
     const now = Date.now();
+    const cwd = payload.cwd ?? null;
+    const displayName = cwd ? cwd.replace(/\\/g, '/').split('/').pop() ?? cwd : null;
+
     this.db
       .prepare(
-        `INSERT INTO sessions (id, goal_id, origin, cwd, model, trace_dir, stream_event_count, hook_event_count, stderr_bytes, total_cost_usd, total_tokens_in, total_tokens_out, started_at, ended_at)
-         VALUES (?, NULL, 'external', ?, ?, NULL, 0, 1, 0, NULL, NULL, NULL, ?, NULL)`,
+        `INSERT INTO sessions (id, goal_id, origin, cwd, model, display_name, trace_dir, stream_event_count, hook_event_count, stderr_bytes, total_cost_usd, total_tokens_in, total_tokens_out, started_at, ended_at)
+         VALUES (?, NULL, 'external', ?, ?, ?, NULL, 0, 1, 0, NULL, NULL, NULL, ?, NULL)`,
       )
-      .run(sessionId, payload.cwd ?? null, payload.model ?? null, now);
+      .run(sessionId, cwd, payload.model ?? null, displayName, now);
 
     const session = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
     if (session) {
@@ -248,6 +251,70 @@ export class HookIngest {
       },
       isAutonomous,
     );
+  }
+
+  /**
+   * Handles a SubagentStart hook event.
+   * Links the child session to the parent session and goal.
+   */
+  onSubagentStart(payload: HookPayload): void {
+    this.persistEvent('SubagentStart', payload);
+
+    const parentSessionId = payload.session_id ?? null;
+    const childSessionId = (payload as Record<string, unknown>).subagent_session_id as string | undefined
+      ?? (payload as Record<string, unknown>).child_session_id as string | undefined;
+    const agentDescription = (payload as Record<string, unknown>).description as string | undefined
+      ?? (payload as Record<string, unknown>).name as string | undefined;
+
+    logger.info({
+      event: 'SubagentStart',
+      parentSessionId,
+      childSessionId,
+      agentDescription,
+      payloadKeys: Object.keys(payload).join(', '),
+      rawPayload: JSON.stringify(payload).substring(0, 1000),
+    }, 'Hook: SubagentStart — linking child to parent');
+
+    if (childSessionId && parentSessionId) {
+      // Set parent_session_id on the child session
+      this.db.prepare(`UPDATE sessions SET parent_session_id = ? WHERE id = ?`)
+        .run(parentSessionId, childSessionId);
+
+      // Set display_name from agent description
+      if (agentDescription) {
+        this.db.prepare(`UPDATE sessions SET display_name = ? WHERE id = ?`)
+          .run(agentDescription, childSessionId);
+      }
+
+      // Link child to parent's goal
+      const parentGoalId = this.getGoalIdForSession(parentSessionId);
+      if (parentGoalId) {
+        this.db.prepare(`UPDATE sessions SET goal_id = ? WHERE id = ? AND goal_id IS NULL`)
+          .run(parentGoalId, childSessionId);
+      }
+    }
+  }
+
+  /**
+   * Handles a SubagentStop hook event.
+   */
+  onSubagentStop(payload: HookPayload): void {
+    this.persistEvent('SubagentStop', payload);
+
+    const childSessionId = (payload as Record<string, unknown>).subagent_session_id as string | undefined
+      ?? (payload as Record<string, unknown>).child_session_id as string | undefined;
+
+    logger.info({
+      event: 'SubagentStop',
+      childSessionId,
+      payloadKeys: Object.keys(payload).join(', '),
+    }, 'Hook: SubagentStop');
+
+    if (childSessionId) {
+      const now = Date.now();
+      this.db.prepare(`UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL`)
+        .run(now, childSessionId);
+    }
   }
 
   /**

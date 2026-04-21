@@ -32,6 +32,8 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     cwd: '/home/user/project',
     model: 'sonnet',
     trace_dir: null,
+    display_name: null,
+    parent_session_id: null,
     stream_event_count: 42,
     hook_event_count: 10,
     stderr_bytes: 0,

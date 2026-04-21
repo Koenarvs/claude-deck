@@ -75,7 +75,7 @@ function spawnGoalSession(goalId: string, prompt: string): string {
     createSession(session) {
       sessionService.create({
         id: session.id,
-        origin: session.origin,
+        origin: session.origin as 'dashboard' | 'external',
         cwd: session.cwd ?? undefined,
         model: session.model ?? undefined,
         started_at: session.started_at ?? Date.now(),

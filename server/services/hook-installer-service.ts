@@ -66,6 +66,8 @@ const HOOK_EVENT_TYPES: readonly string[] = [
   'PreToolUse',
   'PostToolUse',
   'PermissionRequest',
+  'SubagentStart',
+  'SubagentStop',
   'Stop',
 ] as const;
 

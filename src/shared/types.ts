@@ -56,6 +56,8 @@ export interface Session {
   cwd: string | null;
   model: string | null;
   trace_dir: string | null;
+  display_name: string | null;
+  parent_session_id: string | null;
   stream_event_count: number;
   hook_event_count: number;
   stderr_bytes: number;
@@ -91,6 +93,8 @@ export type HookEventType =
   | 'PreToolUse'
   | 'PostToolUse'
   | 'PermissionRequest'
+  | 'SubagentStart'
+  | 'SubagentStop'
   | 'UserPromptSubmit'
   | 'Stop';
 

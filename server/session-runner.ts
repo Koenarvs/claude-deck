@@ -1,6 +1,6 @@
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
-import type { Goal, StreamJsonEvent, Message, Session, AssistantContentBlock } from '../src/shared/types';
+import type { Goal, StreamJsonEvent, Message, AssistantContentBlock } from '../src/shared/types';
 import type { ServerEvent } from '../src/shared/events';
 import { createStreamParser } from './stream-parser';
 import { processRegistry } from './process-registry';
@@ -54,7 +54,7 @@ export interface TraceWriter {
  */
 export interface MessageService {
   /** Creates a session row in the database. */
-  createSession(session: Omit<Session, 'stream_event_count' | 'hook_event_count' | 'stderr_bytes' | 'total_cost_usd' | 'total_tokens_in' | 'total_tokens_out' | 'ended_at'>): void;
+  createSession(session: { id: string; goal_id: string; origin: string; cwd: string | null; model: string | null; trace_dir: string | null; started_at: number; display_name?: string | null }): void;
   /** Saves a message row to the database. */
   saveMessage(message: Message): void;
   /** Marks a session as ended with cost/token stats. */
@@ -146,7 +146,7 @@ export class SessionRunner implements Killable {
     this.processedBlockCount = 0;
     this.exited = false;
 
-    // Create session row
+    // Create session row with display_name from goal title
     this.deps.messageService.createSession({
       id: this.sessionId,
       goal_id: this.goal.id,
@@ -155,6 +155,7 @@ export class SessionRunner implements Killable {
       model: this.goal.model,
       trace_dir: null,
       started_at: Date.now(),
+      display_name: this.goal.title,
     });
 
     // Save the user's prompt as a message (MessageService broadcasts via WS)

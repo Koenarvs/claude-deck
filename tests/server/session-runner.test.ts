@@ -64,7 +64,7 @@ function createMockDeps(): {
 } {
   const streamLines: string[] = [];
   const stderrChunks: string[] = [];
-  const sessions: Array<Omit<Session, 'stream_event_count' | 'hook_event_count' | 'stderr_bytes' | 'total_cost_usd' | 'total_tokens_in' | 'total_tokens_out' | 'ended_at'>> = [];
+  const sessions: unknown[] = [];
   const savedMessages: Message[] = [];
   const endedSessions: Array<{ sessionId: string; data: { ended_at: number; total_cost_usd: number; stream_event_count: number } }> = [];
   const incrementedSessions: string[] = [];
@@ -79,7 +79,7 @@ function createMockDeps(): {
   };
 
   const messageService: MessageService = {
-    createSession(session) { sessions.push(session); },
+    createSession(session: unknown) { sessions.push(session); },
     saveMessage(message: Message) { savedMessages.push(message); },
     endSession(sessionId: string, data: { ended_at: number; total_cost_usd: number; stream_event_count: number }) {
       endedSessions.push({ sessionId, data });
@@ -101,7 +101,7 @@ function createMockDeps(): {
   return {
     deps: { traceWriter, messageService, goalService, broadcast },
     traces: { streamLines, stderrChunks },
-    messages: { sessions, savedMessages, endedSessions, incrementedSessions },
+    messages: { sessions: sessions as never[], savedMessages, endedSessions, incrementedSessions },
     goals: { sessionUpdates, statusUpdates },
     broadcasts,
   };

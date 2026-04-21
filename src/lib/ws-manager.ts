@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { ServerEventSchema } from '../shared/events';
 import type { ServerEvent } from '../shared/events';
-import type { Goal, PlanJson } from '../shared/types';
+import type { Goal, PlanJson, Session } from '../shared/types';
 import { useGoalsStore } from '../stores/useGoalsStore';
 import { useSessionsStore } from '../stores/useSessionsStore';
 import { useMessagesStore } from '../stores/useMessagesStore';
@@ -67,7 +67,7 @@ function dispatch(event: ServerEvent): void {
       break;
 
     case 'session:observed':
-      useSessionsStore.getState().upsertSession(event.session);
+      useSessionsStore.getState().upsertSession(event.session as Session);
       break;
 
     case 'hook:event':
