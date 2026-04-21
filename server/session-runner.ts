@@ -547,6 +547,13 @@ export class SessionRunner implements Killable {
       tokens_out: totalOutputTokens,
     } as import('../src/shared/events').ServerEvent);
 
+    // Close stdin so the CLI process exits cleanly
+    try {
+      this.child?.stdin?.end();
+    } catch {
+      // Already closed or process exited
+    }
+
     // Move goal to waiting (needs user input for next turn)
     this.deps.goalService.setStatus(this.goal.id, 'waiting');
 
@@ -617,7 +624,7 @@ export class SessionRunner implements Killable {
     }
   }
 
-  /** Writes a user prompt to stdin in stream-json format and closes stdin. */
+  /** Writes a user prompt to stdin in stream-json format. Keeps stdin open for multi-turn. */
   private sendStdinMessage(prompt: string): void {
     if (!this.child?.stdin) {
       logger.error({ goalId: this.goal.id }, 'Cannot write to stdin: no child process');
@@ -637,9 +644,14 @@ export class SessionRunner implements Killable {
       },
     });
 
+    logger.info({ goalId: this.goal.id, promptLength: prompt.length }, 'Sending prompt via stdin');
+
     try {
       this.child.stdin.write(stdinPayload + '\n');
-      this.child.stdin.end();
+      // DO NOT call stdin.end() — keep stdin open so the CLI completes
+      // the full reasoning loop (think → tools → results → synthesize).
+      // stdin.end() causes the CLI to exit after tool execution without
+      // generating the final response.
     } catch (err) {
       if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EPIPE') {
         logger.warn({ goalId: this.goal.id }, 'EPIPE on stdin write — process likely exited');
