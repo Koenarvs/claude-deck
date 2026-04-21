@@ -180,18 +180,19 @@ export class SessionRunner implements Killable {
     // Register in process registry
     processRegistry.set(this.goal.id, this);
 
-    // Build spawn args with prompt
-    const args = this.buildArgs(this.sessionId, false, initialPrompt);
+    // Build spawn args — prompt sent via stdin, not -p
+    const args = this.buildArgs(this.sessionId, false);
 
     logger.info({ goalId: this.goal.id, sessionId: this.sessionId, args }, 'Spawning CLI subprocess');
 
     this.child = spawn(resolveClaudePath(cliBinary), args, {
       cwd: this.goal.cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
     });
 
     this.setupProcessHandlers();
+    this.sendStdinMessage(initialPrompt);
   }
 
   /**
@@ -229,17 +230,18 @@ export class SessionRunner implements Killable {
       created_at: Date.now(),
     });
 
-    const args = this.buildArgs(this.sessionId, true, prompt);
+    const args = this.buildArgs(this.sessionId, true);
 
     logger.info({ goalId: this.goal.id, sessionId: this.sessionId }, 'Spawning follow-up CLI subprocess');
 
     this.child = spawn(resolveClaudePath(cliBinary), args, {
       cwd: this.goal.cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
     });
 
     this.setupProcessHandlers();
+    this.sendStdinMessage(prompt);
   }
 
   /**
@@ -290,9 +292,10 @@ export class SessionRunner implements Killable {
   /**
    * Builds the CLI argument array per spec section 7.1.
    */
-  private buildArgs(sessionId: string, resume = false, prompt?: string): string[] {
+  private buildArgs(sessionId: string, resume = false): string[] {
     const args = [
       '--output-format', 'stream-json',
+      '--input-format', 'stream-json',
       '--verbose',
       '--dangerously-skip-permissions',
     ];
@@ -305,11 +308,6 @@ export class SessionRunner implements Killable {
 
     if (this.goal.model && this.goal.model !== 'default') {
       args.push('--model', this.goal.model);
-    }
-
-    // Pass prompt directly via -p flag (non-interactive mode)
-    if (prompt) {
-      args.push('-p', prompt);
     }
 
     return args;
@@ -498,15 +496,18 @@ export class SessionRunner implements Killable {
       rawResultEvent: JSON.stringify(event).substring(0, 2000),
     }, 'CLI turn completed — raw result event');
 
-    const totalInputTokens = event.total_input_tokens ?? 0;
-    const totalOutputTokens = event.total_output_tokens ?? 0;
+    // Extract token counts from the usage object (actual CLI field names)
+    const usage = (event as unknown as Record<string, unknown>).usage as Record<string, unknown> | undefined;
+    const totalInputTokens = (usage?.input_tokens as number ?? 0)
+      + (usage?.cache_read_input_tokens as number ?? 0)
+      + (usage?.cache_creation_input_tokens as number ?? 0);
+    const totalOutputTokens = usage?.output_tokens as number ?? 0;
 
     logger.info({
       goalId: this.goal.id,
       totalInputTokens,
       totalOutputTokens,
-      hasInputField: 'total_input_tokens' in event,
-      hasOutputField: 'total_output_tokens' in event,
+      rawUsage: usage ? JSON.stringify(usage).substring(0, 500) : 'none',
       eventKeys: Object.keys(event).join(', '),
     }, 'Token extraction from result event');
 
@@ -616,10 +617,7 @@ export class SessionRunner implements Killable {
     }
   }
 
-  /**
-   * Writes a user prompt to the child's stdin in stream-json format.
-   */
-  // @ts-expect-error reserved for stream-json input mode (v1.1)
+  /** Writes a user prompt to stdin in stream-json format and closes stdin. */
   private sendStdinMessage(prompt: string): void {
     if (!this.child?.stdin) {
       logger.error({ goalId: this.goal.id }, 'Cannot write to stdin: no child process');
