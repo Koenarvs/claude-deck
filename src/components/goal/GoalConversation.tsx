@@ -59,7 +59,7 @@ export default function GoalConversation({
   );
 
   return (
-    <div className="flex flex-1 flex-col" data-testid="goal-conversation">
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden" data-testid="goal-conversation">
       {error && (
         <div className="mx-4 mt-2 rounded-lg border border-deck-danger/30 bg-deck-danger/10 px-4 py-2 text-sm text-deck-danger">
           {error}

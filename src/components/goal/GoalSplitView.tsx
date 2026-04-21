@@ -59,7 +59,7 @@ export default function GoalSplitView({
       data-testid="goal-split-view"
     >
       {/* Left: Conversation */}
-      <div className="flex min-w-0 flex-[3] flex-col">
+      <div className="flex min-w-0 min-h-0 flex-[3] flex-col">
         <GoalConversation goalId={goalId} goalStatus={goalStatus} />
       </div>
 
