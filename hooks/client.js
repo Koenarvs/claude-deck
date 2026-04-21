@@ -109,8 +109,8 @@ async function main() {
     process.exit(0); // fail-open
   }
 
-  var isPreToolUse = eventType === 'pre-tool-use';
-  var timeoutMs = isPreToolUse ? PRE_TOOL_USE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+  var isBlocking = eventType === 'pre-tool-use' || eventType === 'permission-request';
+  var timeoutMs = isBlocking ? PRE_TOOL_USE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
   var endpoint = '/api/hook/' + eventType;
 
   var payload;
@@ -128,7 +128,7 @@ async function main() {
   try {
     var response = await httpPostJson(endpoint, payload, timeoutMs);
 
-    if (isPreToolUse) {
+    if (isBlocking) {
       if (response && response.decision === 'deny') {
         var reason = response.reason || 'Denied by claude-deck';
         process.stderr.write(reason + '\n');
