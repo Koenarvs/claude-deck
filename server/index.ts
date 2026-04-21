@@ -96,7 +96,11 @@ function spawnGoalSession(goalId: string, prompt: string): string {
       });
     },
     endSession(sessionId, data) {
-      sessionService.end(sessionId, { total_cost_usd: data.total_cost_usd });
+      sessionService.end(sessionId, {
+        total_cost_usd: data.total_cost_usd,
+        total_tokens_in: data.total_tokens_in ?? null,
+        total_tokens_out: data.total_tokens_out ?? null,
+      });
     },
     incrementStreamEventCount(sessionId) {
       sessionService.incrementCounters(sessionId, { stream: 1 });

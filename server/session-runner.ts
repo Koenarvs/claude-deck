@@ -58,7 +58,7 @@ export interface MessageService {
   /** Saves a message row to the database. */
   saveMessage(message: Message): void;
   /** Marks a session as ended with cost/token stats. */
-  endSession(sessionId: string, data: { ended_at: number; total_cost_usd: number; stream_event_count: number }): void;
+  endSession(sessionId: string, data: { ended_at: number; total_cost_usd: number; stream_event_count: number; total_tokens_in?: number; total_tokens_out?: number }): void;
   /** Increments the stream_event_count for a session. */
   incrementStreamEventCount(sessionId: string): void;
 }
@@ -490,12 +490,9 @@ export class SessionRunner implements Killable {
         ended_at: Date.now(),
         total_cost_usd: event.total_cost_usd,
         stream_event_count: this.streamEventCount,
+        total_tokens_in: totalInputTokens,
+        total_tokens_out: totalOutputTokens,
       });
-
-      // Update session token counts
-      if (totalInputTokens > 0 || totalOutputTokens > 0) {
-        this.deps.messageService.incrementStreamEventCount(this.sessionId);
-      }
     }
 
     // Broadcast session cost/token update for live dashboards
