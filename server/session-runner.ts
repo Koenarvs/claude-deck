@@ -102,7 +102,7 @@ export class SessionRunner implements Killable {
   private child: ChildProcess | null = null;
   private sessionId: string | null = null;
   private streamEventCount = 0;
-  private processedBlockCount = 0; // tracks how many content blocks we've already saved
+  private savedBlockHashes = new Set<string>(); // dedup content blocks by hash
   private exited = false;
   private exitResolve: (() => void) | null = null;
 
@@ -143,7 +143,7 @@ export class SessionRunner implements Killable {
 
     this.sessionId = uuidv4();
     this.streamEventCount = 0;
-    this.processedBlockCount = 0;
+    this.savedBlockHashes = new Set();
     this.exited = false;
 
     // Create session row with display_name from goal title
@@ -429,25 +429,27 @@ export class SessionRunner implements Killable {
   private handleAssistantEvent(event: StreamJsonEvent): void {
     if (event.type !== 'assistant') return;
 
-    // Stream-json emits cumulative assistant events — each contains ALL blocks so far.
-    // Only process blocks we haven't seen yet.
     const allBlocks = event.message.content;
-    const newBlocks = allBlocks.slice(this.processedBlockCount);
 
     logger.debug({
       goalId: this.goal.id,
-      totalBlocks: allBlocks.length,
-      previouslyProcessed: this.processedBlockCount,
-      newBlocks: newBlocks.length,
-      blockTypes: newBlocks.map((b) => b.type).join(', '),
-    }, 'Assistant event — processing new blocks');
+      blockCount: allBlocks.length,
+      blockTypes: allBlocks.map((b) => b.type).join(', '),
+    }, 'Assistant event — processing blocks');
 
-    this.processedBlockCount = allBlocks.length;
+    // Each assistant event contains the block(s) for this step.
+    // Process all blocks in the event — dedup by tracking saved content hashes.
+    for (const block of allBlocks) {
+      // Skip blocks we've already saved (dedup by content hash)
+      const hash = block.type + ':' + ('text' in block ? (block as { text: string }).text?.substring(0, 100) : 'tool_use_id' in block ? (block as { tool_use_id: string }).tool_use_id : '');
+      if (this.savedBlockHashes.has(hash)) {
+        logger.debug({ hash: hash.substring(0, 50) }, 'Skipping duplicate block');
+        continue;
+      }
+      this.savedBlockHashes.add(hash);
 
-    for (const block of newBlocks) {
       const message = this.contentBlockToMessage(block);
       if (message) {
-        // saveMessage broadcasts via MessageService — no explicit broadcast needed
         this.deps.messageService.saveMessage(message);
       }
     }
@@ -547,12 +549,9 @@ export class SessionRunner implements Killable {
       tokens_out: totalOutputTokens,
     } as import('../src/shared/events').ServerEvent);
 
-    // Close stdin so the CLI process exits cleanly
-    try {
-      this.child?.stdin?.end();
-    } catch {
-      // Already closed or process exited
-    }
+    // Don't close stdin here — the CLI may still be flushing the final
+    // text response to stdout. The process stays alive and can accept
+    // follow-up messages. It gets killed on cleanup or new message.
 
     // Move goal to waiting (needs user input for next turn)
     this.deps.goalService.setStatus(this.goal.id, 'waiting');
