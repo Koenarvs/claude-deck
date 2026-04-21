@@ -434,13 +434,8 @@ export class SessionRunner implements Killable {
     for (const block of newBlocks) {
       const message = this.contentBlockToMessage(block);
       if (message) {
+        // saveMessage broadcasts via MessageService — no explicit broadcast needed
         this.deps.messageService.saveMessage(message);
-        this.deps.broadcast({
-          type: 'message:added',
-          goal_id: this.goal.id,
-          session_id: this.sessionId ?? '',
-          message,
-        });
       }
     }
   }
@@ -467,13 +462,8 @@ export class SessionRunner implements Killable {
           created_at: Date.now(),
         };
 
+        // saveMessage broadcasts via MessageService — no explicit broadcast needed
         this.deps.messageService.saveMessage(message);
-        this.deps.broadcast({
-          type: 'message:added',
-          goal_id: this.goal.id,
-          session_id: this.sessionId ?? '',
-          message,
-        });
       }
     }
   }
