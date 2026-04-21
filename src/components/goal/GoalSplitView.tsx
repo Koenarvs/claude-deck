@@ -103,8 +103,8 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
       data-testid="goal-split-view"
       style={isDragging ? { cursor: 'col-resize', userSelect: 'none' } : undefined}
     >
-      {/* Left: Conversation */}
-      <div className="flex min-w-0 min-h-0 flex-col" style={{ width: leftPercent }}>
+      {/* Left: Conversation — flex-1 expands to fill when pane collapses */}
+      <div className="flex flex-1 min-w-0 min-h-0 flex-col">
         <GoalConversation goalId={goalId} goalStatus={goalStatus} />
       </div>
 
@@ -119,8 +119,8 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
         title="Drag to resize"
       />
 
-      {/* Right: Tabbed pane */}
-      <div className="flex min-h-0 flex-col overflow-hidden" style={{ width: rightPercent }}>
+      {/* Right: Tabbed pane — fixed width, conversation takes the rest */}
+      <div className="flex min-h-0 flex-col overflow-hidden shrink-0" style={{ width: rightPercent }}>
         <GoalPlanPane
           goalId={goalId}
           sessionHealth={{
