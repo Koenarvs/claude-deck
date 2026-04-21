@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import type { GoalStatus } from '@shared/types';
 import GoalConversation from './GoalConversation';
 import GoalPlanPane from './GoalPlanPane';
-import ContextHealth from './ContextHealth';
 
 interface GoalSplitViewProps {
   goalId: string;
@@ -16,20 +15,31 @@ interface SessionCostData {
   turnCount: number;
 }
 
-/**
- * 60/40 split layout: conversation on the left, plan pane on the right.
- * The plan pane is collapsible (to a narrow 40px strip).
- * Uses CSS grid for the split. Resizable divider is a v1.1 enhancement.
- */
-export default function GoalSplitView({
-  goalId,
-  goalStatus,
-}: GoalSplitViewProps) {
+const DIVIDER_STORAGE_KEY = 'claude-deck:split-ratio';
+const DEFAULT_RATIO = 0.6; // 60% conversation, 40% pane
+const MIN_RATIO = 0.3;
+const MAX_RATIO = 0.85;
+
+function readRatio(): number {
+  try {
+    const raw = localStorage.getItem(DIVIDER_STORAGE_KEY);
+    if (raw) {
+      const val = parseFloat(raw);
+      if (val >= MIN_RATIO && val <= MAX_RATIO) return val;
+    }
+  } catch {}
+  return DEFAULT_RATIO;
+}
+
+export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps) {
   const [sessionCost, setSessionCost] = useState<SessionCostData>({
     totalTokensIn: 0, totalTokensOut: 0, totalCost: 0, turnCount: 0,
   });
+  const [splitRatio, setSplitRatio] = useState(readRatio);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch session cost data for this goal
+  // Fetch session cost data
   useEffect(() => {
     fetch(`/api/goals/${goalId}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -53,29 +63,73 @@ export default function GoalSplitView({
       .catch(() => {});
   }, [goalId]);
 
+  // Drag handler for resizable divider
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    function handleMouseMove(e: MouseEvent) {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const ratio = Math.min(MAX_RATIO, Math.max(MIN_RATIO, (e.clientX - rect.left) / rect.width));
+      setSplitRatio(ratio);
+    }
+
+    function handleMouseUp() {
+      setIsDragging(false);
+      // Persist ratio
+      try { localStorage.setItem(DIVIDER_STORAGE_KEY, String(splitRatio)); } catch {}
+    }
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, splitRatio]);
+
+  const leftPercent = `${(splitRatio * 100).toFixed(1)}%`;
+  const rightPercent = `${((1 - splitRatio) * 100).toFixed(1)}%`;
+
   return (
     <div
+      ref={containerRef}
       className="flex flex-1 overflow-hidden"
       data-testid="goal-split-view"
+      style={isDragging ? { cursor: 'col-resize', userSelect: 'none' } : undefined}
     >
       {/* Left: Conversation */}
-      <div className="flex min-w-0 min-h-0 flex-[3] flex-col">
+      <div className="flex min-w-0 min-h-0 flex-col" style={{ width: leftPercent }}>
         <GoalConversation goalId={goalId} goalStatus={goalStatus} />
       </div>
 
-      {/* Right: Context Health + Document Pane */}
-      <div className="flex flex-[2] flex-col">
-        <div className="shrink-0 border-b border-deck-border p-2">
-          <ContextHealth
-            tokensIn={sessionCost.totalTokensIn}
-            tokensOut={sessionCost.totalTokensOut}
-            cost={sessionCost.totalCost}
-            turnCount={sessionCost.turnCount}
-          />
-        </div>
-        <div className="flex-1 overflow-hidden">
-          <GoalPlanPane goalId={goalId} />
-        </div>
+      {/* Resizable divider */}
+      <div
+        className={`flex w-1.5 shrink-0 cursor-col-resize items-center justify-center transition-colors
+          ${isDragging ? 'bg-deck-accent' : 'bg-deck-border hover:bg-deck-accent/50'}`}
+        onMouseDown={handleMouseDown}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize pane divider"
+        title="Drag to resize"
+      />
+
+      {/* Right: Tabbed pane */}
+      <div className="flex min-h-0 flex-col overflow-hidden" style={{ width: rightPercent }}>
+        <GoalPlanPane
+          goalId={goalId}
+          sessionHealth={{
+            tokensIn: sessionCost.totalTokensIn,
+            tokensOut: sessionCost.totalTokensOut,
+            cost: sessionCost.totalCost,
+            turnCount: sessionCost.turnCount,
+          }}
+        />
       </div>
     </div>
   );

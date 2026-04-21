@@ -492,7 +492,10 @@ describe('GoalPlanPane', () => {
   });
 
   it('shows empty state on Plan tab when no file exists', async () => {
+    const user = userEvent.setup();
     render(<GoalPlanPane goalId="test-goal-1" />);
+    // Default tab is now Health — click Plan tab
+    await user.click(screen.getByText('Plan'));
     await waitFor(() => {
       expect(screen.getByText(/no plan found/i)).toBeInTheDocument();
     });

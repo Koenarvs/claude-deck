@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   ChevronLeft,
   ChevronRight,
@@ -7,25 +9,34 @@ import {
   Search,
   StickyNote,
   CheckSquare,
+  Activity,
   Loader2,
 } from 'lucide-react';
 import { usePlanStore } from '@/stores/usePlanStore';
 import { PlanRenderer } from './PlanRenderer';
+import ContextHealth from './ContextHealth';
 
 interface GoalPlanPaneProps {
   goalId: string;
+  sessionHealth?: {
+    tokensIn: number;
+    tokensOut: number;
+    cost: number;
+    turnCount: number;
+  };
 }
 
-type TabId = 'plan' | 'research' | 'notes' | 'todo';
+type TabId = 'health' | 'plan' | 'research' | 'notes' | 'todo';
 
 interface TabDef {
   id: TabId;
   label: string;
   icon: typeof FileText;
-  fileName?: string; // undefined = store-driven (todo)
+  fileName?: string;
 }
 
 const TABS: TabDef[] = [
+  { id: 'health', label: 'Health', icon: Activity },
   { id: 'plan', label: 'Plan', icon: FileText, fileName: 'plan.md' },
   { id: 'research', label: 'Research', icon: Search, fileName: 'research.md' },
   { id: 'notes', label: 'Notes', icon: StickyNote, fileName: 'notes.md' },
@@ -54,9 +65,9 @@ interface DocumentState {
   content: string | null;
 }
 
-export default function GoalPlanPane({ goalId }: GoalPlanPaneProps) {
+export default function GoalPlanPane({ goalId, sessionHealth }: GoalPlanPaneProps) {
   const [collapsed, setCollapsed] = useState(readCollapsed);
-  const [activeTab, setActiveTab] = useState<TabId>('plan');
+  const [activeTab, setActiveTab] = useState<TabId>('health');
   const [doc, setDoc] = useState<DocumentState>({ loading: false, exists: false, content: null });
   const plan = usePlanStore((state) => state.byGoalId[goalId] ?? null);
 
@@ -68,11 +79,10 @@ export default function GoalPlanPane({ goalId }: GoalPlanPaneProps) {
     });
   }, []);
 
-  // Fetch document whenever active tab changes (not just on mount)
+  // Fetch document whenever active tab changes
   useEffect(() => {
     const tab = TABS.find((t) => t.id === activeTab);
     if (!tab?.fileName) {
-      // Todo tab — no file to fetch
       setDoc({ loading: false, exists: false, content: null });
       return;
     }
@@ -92,18 +102,13 @@ export default function GoalPlanPane({ goalId }: GoalPlanPaneProps) {
         }
       })
       .catch(() => {
-        if (!cancelled) {
-          setDoc({ loading: false, exists: false, content: null });
-        }
+        if (!cancelled) setDoc({ loading: false, exists: false, content: null });
       });
 
     return () => { cancelled = true; };
   }, [activeTab, goalId]);
 
-  // Sync collapse state from localStorage on mount
-  useEffect(() => {
-    setCollapsed(readCollapsed());
-  }, []);
+  useEffect(() => { setCollapsed(readCollapsed()); }, []);
 
   if (collapsed) {
     return (
@@ -134,8 +139,8 @@ export default function GoalPlanPane({ goalId }: GoalPlanPaneProps) {
       data-testid="plan-pane-expanded"
     >
       {/* Header with tabs */}
-      <div className="flex items-center justify-between border-b border-deck-border px-2 py-1">
-        <div className="flex gap-1">
+      <div className="flex items-center justify-between border-b border-deck-border px-1 py-1 shrink-0">
+        <div className="flex gap-0.5 overflow-x-auto">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             return (
@@ -143,14 +148,14 @@ export default function GoalPlanPane({ goalId }: GoalPlanPaneProps) {
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1 rounded px-2 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
                   activeTab === tab.id
                     ? 'bg-deck-accent/20 text-deck-accent'
                     : 'text-deck-muted hover:text-deck-text hover:bg-deck-border'
                 }`}
                 title={tab.label}
               >
-                <Icon size={13} />
+                <Icon size={12} />
                 {tab.label}
               </button>
             );
@@ -159,7 +164,7 @@ export default function GoalPlanPane({ goalId }: GoalPlanPaneProps) {
         <button
           type="button"
           onClick={toggleCollapse}
-          className="rounded p-1 text-deck-muted hover:bg-deck-border hover:text-deck-text transition-colors"
+          className="shrink-0 rounded p-1 text-deck-muted hover:bg-deck-border hover:text-deck-text transition-colors"
           aria-label="Collapse pane"
         >
           <ChevronRight size={16} />
@@ -167,9 +172,15 @@ export default function GoalPlanPane({ goalId }: GoalPlanPaneProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {activeTab === 'todo' ? (
-          // To Do tab — from TodoWrite store
+      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-3">
+        {activeTab === 'health' ? (
+          <ContextHealth
+            tokensIn={sessionHealth?.tokensIn ?? 0}
+            tokensOut={sessionHealth?.tokensOut ?? 0}
+            cost={sessionHealth?.cost ?? 0}
+            turnCount={sessionHealth?.turnCount ?? 0}
+          />
+        ) : activeTab === 'todo' ? (
           plan ? (
             <PlanRenderer todos={plan.todos} />
           ) : (
@@ -180,7 +191,20 @@ export default function GoalPlanPane({ goalId }: GoalPlanPaneProps) {
             <Loader2 size={20} className="animate-spin text-deck-muted" />
           </div>
         ) : doc.exists && doc.content ? (
-          <MarkdownContent content={doc.content} />
+          <div className="prose prose-invert prose-sm max-w-none
+            prose-headings:text-deck-text prose-p:text-deck-text/80
+            prose-a:text-deck-accent prose-strong:text-deck-text
+            prose-code:text-deck-accent prose-code:bg-deck-bg prose-code:px-1 prose-code:rounded
+            prose-pre:bg-deck-bg prose-pre:border prose-pre:border-deck-border
+            prose-table:border-collapse
+            prose-th:border prose-th:border-deck-border prose-th:bg-deck-bg prose-th:px-3 prose-th:py-1.5 prose-th:text-left prose-th:text-xs prose-th:text-deck-muted
+            prose-td:border prose-td:border-deck-border prose-td:px-3 prose-td:py-1.5 prose-td:text-sm
+            prose-li:text-deck-text/80
+            prose-hr:border-deck-border
+            prose-blockquote:border-deck-accent/40 prose-blockquote:text-deck-muted
+          ">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
+          </div>
         ) : (
           <EmptyState
             icon={currentTab?.icon ?? FileText}
@@ -199,48 +223,6 @@ function EmptyState({ icon: Icon, message, detail }: { icon: typeof FileText; me
       <Icon size={24} className="mb-2 opacity-40" />
       <p className="text-sm">{message}</p>
       <p className="mt-1 text-xs opacity-60">{detail}</p>
-    </div>
-  );
-}
-
-function MarkdownContent({ content }: { content: string }) {
-  // Simple markdown rendering — headers, bold, lists, code blocks
-  const lines = content.split('\n');
-
-  return (
-    <div className="prose prose-invert prose-sm max-w-none space-y-1">
-      {lines.map((line, i) => {
-        const trimmed = line.trimStart();
-
-        // Headers
-        if (trimmed.startsWith('### ')) return <h4 key={i} className="text-sm font-semibold text-deck-text mt-3">{trimmed.slice(4)}</h4>;
-        if (trimmed.startsWith('## ')) return <h3 key={i} className="text-base font-semibold text-deck-text mt-4">{trimmed.slice(3)}</h3>;
-        if (trimmed.startsWith('# ')) return <h2 key={i} className="text-lg font-bold text-deck-text mt-4">{trimmed.slice(2)}</h2>;
-
-        // Horizontal rule
-        if (trimmed.match(/^---+$/)) return <hr key={i} className="border-deck-border my-3" />;
-
-        // List items
-        if (trimmed.startsWith('- [ ] ')) return <div key={i} className="flex items-start gap-2 text-sm text-deck-text"><span className="text-deck-muted mt-0.5">☐</span><span>{trimmed.slice(6)}</span></div>;
-        if (trimmed.startsWith('- [x] ')) return <div key={i} className="flex items-start gap-2 text-sm text-deck-text line-through opacity-60"><span className="text-deck-success mt-0.5">☑</span><span>{trimmed.slice(6)}</span></div>;
-        if (trimmed.startsWith('- ')) return <div key={i} className="flex items-start gap-2 text-sm text-deck-text"><span className="text-deck-muted">•</span><span>{trimmed.slice(2)}</span></div>;
-
-        // Numbered list
-        const numMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
-        if (numMatch) return <div key={i} className="flex items-start gap-2 text-sm text-deck-text"><span className="text-deck-muted shrink-0 w-4 text-right">{numMatch[1]}.</span><span>{numMatch[2]}</span></div>;
-
-        // Code block markers
-        if (trimmed.startsWith('```')) return <div key={i} className="border-t border-deck-border mt-1" />;
-
-        // Bold text
-        if (trimmed.startsWith('**') && trimmed.endsWith('**')) return <p key={i} className="text-sm font-semibold text-deck-text">{trimmed.slice(2, -2)}</p>;
-
-        // Empty line
-        if (trimmed === '') return <div key={i} className="h-2" />;
-
-        // Regular text
-        return <p key={i} className="text-sm text-deck-text/80">{line}</p>;
-      })}
     </div>
   );
 }
