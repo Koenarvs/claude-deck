@@ -1,6 +1,4 @@
 import { useRef, useEffect } from 'react';
-import { List, useListRef } from 'react-window';
-import type { RowComponentProps } from 'react-window';
 import type { Message } from '@shared/types';
 import { MessageBubble } from './MessageBubble';
 
@@ -8,45 +6,17 @@ interface MessageStreamProps {
   messages: Message[];
 }
 
-/** Custom props passed to each row via `rowProps`. */
-interface MessageRowProps {
-  messages: Message[];
-}
-
-/** Estimated row height for virtualization. Messages vary in height but
- *  react-window v2's List handles this well. A dynamic row height via
- *  `useDynamicRowHeight` is a v1.1 enhancement. */
-const ROW_HEIGHT = 120;
-
-function MessageRow({
-  index,
-  style,
-  messages,
-}: RowComponentProps<MessageRowProps>) {
-  const message = messages[index];
-  return (
-    <div style={style}>
-      <div className="px-1 py-1">
-        <MessageBubble message={message} />
-      </div>
-    </div>
-  );
-}
-
 export default function MessageStream({ messages }: MessageStreamProps) {
-  const listRef = useListRef(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(messages.length);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (messages.length > prevCountRef.current && messages.length > 0) {
-      listRef.current?.scrollToRow({
-        index: messages.length - 1,
-        align: 'end',
-      });
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
     prevCountRef.current = messages.length;
-  }, [messages.length, listRef]);
+  }, [messages.length]);
 
   if (messages.length === 0) {
     return (
@@ -61,18 +31,13 @@ export default function MessageStream({ messages }: MessageStreamProps) {
 
   return (
     <div
-      className="flex-1 overflow-hidden"
+      className="flex-1 overflow-y-auto px-2 py-2 space-y-2"
       data-testid="message-stream"
     >
-      <List
-        listRef={listRef}
-        rowCount={messages.length}
-        rowHeight={ROW_HEIGHT}
-        rowComponent={MessageRow}
-        rowProps={{ messages }}
-        overscanCount={5}
-        style={{ height: '100%' }}
-      />
+      {messages.map((message) => (
+        <MessageBubble key={message.id} message={message} />
+      ))}
+      <div ref={bottomRef} />
     </div>
   );
 }

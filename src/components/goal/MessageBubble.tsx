@@ -83,12 +83,12 @@ function ToolUseContent({ message }: { message: Message }) {
         <span className="font-mono">{message.tool_name ?? 'unknown'}</span>
       </button>
       {expanded && parsedArgs && (
-        <pre className="mt-2 rounded-md bg-deck-bg p-3 text-xs text-deck-muted overflow-x-auto max-h-48 overflow-y-auto">
+        <pre className="mt-2 rounded-md bg-deck-bg p-3 text-xs text-deck-muted overflow-x-auto max-h-96 overflow-y-auto">
           {JSON.stringify(parsedArgs, null, 2)}
         </pre>
       )}
       {expanded && !parsedArgs && message.tool_args && (
-        <pre className="mt-2 rounded-md bg-deck-bg p-3 text-xs text-deck-muted overflow-x-auto max-h-48 overflow-y-auto">
+        <pre className="mt-2 rounded-md bg-deck-bg p-3 text-xs text-deck-muted overflow-x-auto max-h-96 overflow-y-auto">
           {message.tool_args}
         </pre>
       )}
@@ -118,7 +118,7 @@ function ToolResultContent({ message }: { message: Message }) {
         )}
       </button>
       {expanded && (
-        <pre className="mt-2 rounded-md bg-deck-bg p-3 text-xs text-deck-muted overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
+        <pre className="mt-2 rounded-md bg-deck-bg p-3 text-xs text-deck-muted overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-words">
           {resultText}
         </pre>
       )}
@@ -141,7 +141,7 @@ function ThinkingContent({ text }: { text: string }) {
         <span className="italic">Thinking...</span>
       </button>
       {expanded && (
-        <pre className="mt-2 rounded-md bg-deck-bg/50 border border-deck-border p-3 text-xs text-deck-muted overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-words">
+        <pre className="mt-2 rounded-md bg-deck-bg/50 border border-deck-border p-3 text-xs text-deck-muted overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-words">
           {text}
         </pre>
       )}

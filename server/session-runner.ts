@@ -102,6 +102,7 @@ export class SessionRunner implements Killable {
   private child: ChildProcess | null = null;
   private sessionId: string | null = null;
   private streamEventCount = 0;
+  private processedBlockCount = 0; // tracks how many content blocks we've already saved
   private exited = false;
   private exitResolve: (() => void) | null = null;
 
@@ -142,6 +143,7 @@ export class SessionRunner implements Killable {
 
     this.sessionId = uuidv4();
     this.streamEventCount = 0;
+    this.processedBlockCount = 0;
     this.exited = false;
 
     // Create session row
@@ -423,7 +425,13 @@ export class SessionRunner implements Killable {
   private handleAssistantEvent(event: StreamJsonEvent): void {
     if (event.type !== 'assistant') return;
 
-    for (const block of event.message.content) {
+    // Stream-json emits cumulative assistant events — each contains ALL blocks so far.
+    // Only process blocks we haven't seen yet.
+    const allBlocks = event.message.content;
+    const newBlocks = allBlocks.slice(this.processedBlockCount);
+    this.processedBlockCount = allBlocks.length;
+
+    for (const block of newBlocks) {
       const message = this.contentBlockToMessage(block);
       if (message) {
         this.deps.messageService.saveMessage(message);
@@ -449,10 +457,10 @@ export class SessionRunner implements Killable {
           id: uuidv4(),
           session_id: this.sessionId ?? '',
           role: 'tool_result',
-          content: block.content.length > 4000 ? block.content.substring(0, 4000) : block.content,
+          content: block.content,
           tool_name: null,
           tool_args: null,
-          tool_result: block.content.length > 4000 ? block.content.substring(0, 4000) : block.content,
+          tool_result: block.content,
           tool_use_id: block.tool_use_id,
           token_in: null,
           token_out: null,
