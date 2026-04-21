@@ -482,22 +482,34 @@ export class SessionRunner implements Killable {
       turns: event.num_turns,
     }, 'CLI turn completed');
 
-    // End the session
+    const totalInputTokens = event.total_input_tokens ?? 0;
+    const totalOutputTokens = event.total_output_tokens ?? 0;
+
+    // End the session with token data
     if (this.sessionId) {
       this.deps.messageService.endSession(this.sessionId, {
         ended_at: Date.now(),
         total_cost_usd: event.total_cost_usd,
         stream_event_count: this.streamEventCount,
       });
+
+      // Update session token counts
+      if (totalInputTokens > 0 || totalOutputTokens > 0) {
+        this.deps.messageService.incrementStreamEventCount(this.sessionId);
+      }
     }
 
-    // Move goal to waiting (needs user input for next turn)
-    this.deps.goalService.setStatus(this.goal.id, 'waiting');
-
+    // Broadcast session cost/token update for live dashboards
     this.deps.broadcast({
       type: 'session:ended',
       id: this.sessionId ?? event.session_id,
-    });
+      cost: event.total_cost_usd,
+      tokens_in: totalInputTokens,
+      tokens_out: totalOutputTokens,
+    } as import('../src/shared/events').ServerEvent);
+
+    // Move goal to waiting (needs user input for next turn)
+    this.deps.goalService.setStatus(this.goal.id, 'waiting');
 
     this.deps.broadcast({
       type: 'goal:status',

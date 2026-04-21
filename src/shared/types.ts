@@ -303,6 +303,11 @@ export interface StreamJsonResultEvent {
   total_cost_usd: number;
   num_turns: number;
   session_id: string;
+  // Extended fields from CLI (may not always be present)
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_cache_read_tokens?: number;
+  total_cache_creation_tokens?: number;
 }
 
 export type StreamJsonEvent =

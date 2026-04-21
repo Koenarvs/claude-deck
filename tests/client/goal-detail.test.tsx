@@ -67,13 +67,19 @@ function makePlan(
 const mockFetch = vi.fn();
 
 beforeEach(() => {
-  // Wrap mockFetch to automatically handle /document requests
+  // Wrap mockFetch to handle ancillary requests automatically
   const wrappedFetch = vi.fn((...args: Parameters<typeof fetch>) => {
     const url = typeof args[0] === 'string' ? args[0] : '';
     if (url.includes('/document')) {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ exists: false, content: null }),
+      } as Response);
+    }
+    if (url.includes('/api/sessions/')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ total_tokens_in: 0, total_tokens_out: 0, total_cost_usd: 0, stream_event_count: 0 }),
       } as Response);
     }
     return mockFetch(...args);
@@ -601,7 +607,7 @@ describe('GoalDetailPage', () => {
   });
 
   it('shows error state for 404', async () => {
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: false,
       status: 404,
     });
@@ -628,7 +634,7 @@ describe('GoalDetailPage', () => {
       plan,
     };
 
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(goalDetail),
     });
@@ -653,7 +659,7 @@ describe('GoalDetailPage', () => {
     const goal = makeGoal();
 
     // First fetch: load goal detail
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({ goal, messages: [], plan: null } as GoalDetail),
@@ -666,7 +672,7 @@ describe('GoalDetailPage', () => {
     });
 
     // Setup PATCH response
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({ ...goal, title: 'New Title' }),
@@ -693,7 +699,7 @@ describe('GoalDetailPage', () => {
     const user = userEvent.setup();
     const goal = makeGoal();
 
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({ goal, messages: [], plan: null } as GoalDetail),
@@ -706,7 +712,7 @@ describe('GoalDetailPage', () => {
     });
 
     // Setup interrupt response
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ killed: true }),
     });
@@ -724,7 +730,7 @@ describe('GoalDetailPage', () => {
   it('disables input bar when goal is complete', async () => {
     const goal = makeGoal({ status: 'complete' });
 
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({ goal, messages: [], plan: null } as GoalDetail),
@@ -761,7 +767,7 @@ describe('QA Checklist', () => {
       }),
     );
 
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({ goal, messages, plan: null } as GoalDetail),

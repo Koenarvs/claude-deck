@@ -48,22 +48,22 @@ describe('MessageService', () => {
       expect(service.truncateForDb(short)).toBe(short);
     });
 
-    it('returns exactly 4000-char strings unchanged', () => {
-      const exact = 'x'.repeat(4000);
+    it('returns exactly 100000-char strings unchanged', () => {
+      const exact = 'x'.repeat(100000);
       expect(service.truncateForDb(exact)).toBe(exact);
     });
 
-    it('truncates strings exceeding 4000 chars and appends suffix', () => {
-      const long = 'a'.repeat(10000);
+    it('truncates strings exceeding 100000 chars and appends suffix', () => {
+      const long = 'a'.repeat(200000);
       const result = service.truncateForDb(long);
       expect(result).not.toBeNull();
-      expect(result!.length).toBe(4000);
+      expect(result!.length).toBe(100000);
       expect(result!).toContain('[truncated; see trace]');
     });
 
     it('preserves content before truncation point', () => {
       const prefix = 'PREFIX_';
-      const long = prefix + 'x'.repeat(10000);
+      const long = prefix + 'x'.repeat(200000);
       const result = service.truncateForDb(long);
       expect(result).not.toBeNull();
       expect(result!.startsWith(prefix)).toBe(true);
@@ -98,26 +98,26 @@ describe('MessageService', () => {
       expect(msg.created_at).toBe(1700000001000);
     });
 
-    it('truncates content exceeding 4000 chars in the DB', () => {
-      const longContent = 'c'.repeat(10000);
+    it('truncates content exceeding 100000 chars in the DB', () => {
+      const longContent = 'c'.repeat(200000);
       const msg = service.add({
         session_id: 'sess-1',
         role: 'assistant',
         content: longContent,
       });
 
-      expect(msg.content!.length).toBe(4000);
+      expect(msg.content!.length).toBe(100000);
       expect(msg.content!).toContain('[truncated; see trace]');
 
       // Verify DB also has the truncated version
       const dbRow = db
         .prepare('SELECT content FROM messages WHERE id = ?')
         .get(msg.id) as { content: string };
-      expect(dbRow.content.length).toBe(4000);
+      expect(dbRow.content.length).toBe(100000);
     });
 
-    it('truncates tool_result exceeding 4000 chars in the DB', () => {
-      const longResult = 'r'.repeat(10000);
+    it('truncates tool_result exceeding 100000 chars in the DB', () => {
+      const longResult = 'r'.repeat(200000);
       const msg = service.add({
         session_id: 'sess-1',
         role: 'tool_result',
@@ -125,7 +125,7 @@ describe('MessageService', () => {
         tool_use_id: 'tu-1',
       });
 
-      expect(msg.tool_result!.length).toBe(4000);
+      expect(msg.tool_result!.length).toBe(100000);
       expect(msg.tool_result!).toContain('[truncated; see trace]');
     });
 
