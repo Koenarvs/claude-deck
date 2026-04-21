@@ -10,6 +10,7 @@ import {
   StickyNote,
   CheckSquare,
   Activity,
+  GitBranch,
   Loader2,
 } from 'lucide-react';
 import { usePlanStore } from '@/stores/usePlanStore';
@@ -28,7 +29,7 @@ interface GoalPlanPaneProps {
   };
 }
 
-type TabId = 'health' | 'plan' | 'research' | 'notes' | 'todo';
+type TabId = 'health' | 'plan' | 'research' | 'notes' | 'todo' | 'agents';
 
 interface TabDef {
   id: TabId;
@@ -43,6 +44,7 @@ const TABS: TabDef[] = [
   { id: 'research', label: 'Research', icon: Search, fileName: 'research.md' },
   { id: 'notes', label: 'Notes', icon: StickyNote, fileName: 'notes.md' },
   { id: 'todo', label: 'To Do', icon: CheckSquare },
+  { id: 'agents', label: 'Agents', icon: GitBranch },
 ];
 
 const COLLAPSE_KEY = 'claude-deck:plan-pane-collapsed';
@@ -188,6 +190,8 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
           ) : (
             <EmptyState icon={CheckSquare} message="No tasks yet" detail="Tasks appear when TodoWrite is called" />
           )
+        ) : activeTab === 'agents' ? (
+          <AgentTree goalId={goalId} />
         ) : doc.loading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 size={20} className="animate-spin text-deck-muted" />
@@ -226,5 +230,132 @@ function EmptyState({ icon: Icon, message, detail }: { icon: typeof FileText; me
       <p className="text-sm">{message}</p>
       <p className="mt-1 text-xs opacity-60">{detail}</p>
     </div>
+  );
+}
+
+// ── Agent Tree ──────────────────────────────────────────────────────────────
+
+interface AgentSession {
+  id: string;
+  display_name: string | null;
+  parent_session_id: string | null;
+  origin: string;
+  model: string | null;
+  total_cost_usd: number | null;
+  stream_event_count: number;
+  started_at: number | null;
+  ended_at: number | null;
+}
+
+interface AgentNode {
+  session: AgentSession;
+  children: AgentNode[];
+}
+
+function AgentTree({ goalId }: { goalId: string }) {
+  const [tree, setTree] = useState<AgentNode[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    fetch(`/api/sessions?goal_id=${goalId}&limit=200`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((sessions: AgentSession[]) => {
+        if (cancelled || !Array.isArray(sessions)) return;
+
+        // Build tree
+        const byId = new Map(sessions.map((s) => [s.id, s]));
+        const childrenMap = new Map<string, AgentSession[]>();
+        const roots: AgentSession[] = [];
+
+        for (const s of sessions) {
+          if (s.parent_session_id && byId.has(s.parent_session_id)) {
+            const siblings = childrenMap.get(s.parent_session_id) ?? [];
+            siblings.push(s);
+            childrenMap.set(s.parent_session_id, siblings);
+          } else {
+            roots.push(s);
+          }
+        }
+
+        function buildNode(s: AgentSession): AgentNode {
+          const kids = (childrenMap.get(s.id) ?? [])
+            .sort((a, b) => (a.started_at ?? 0) - (b.started_at ?? 0));
+          return { session: s, children: kids.map(buildNode) };
+        }
+
+        setTree(roots.sort((a, b) => (a.started_at ?? 0) - (b.started_at ?? 0)).map(buildNode));
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [goalId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 size={20} className="animate-spin text-deck-muted" />
+      </div>
+    );
+  }
+
+  if (tree.length === 0) {
+    return <EmptyState icon={GitBranch} message="No sessions" detail="Sessions appear when the goal runs" />;
+  }
+
+  return (
+    <div className="space-y-1">
+      {tree.map((node) => (
+        <AgentNodeRow key={node.session.id} node={node} depth={0} />
+      ))}
+    </div>
+  );
+}
+
+function AgentNodeRow({ node, depth }: { node: AgentNode; depth: number }) {
+  const s = node.session;
+  const isActive = s.ended_at == null;
+  const name = s.display_name ?? s.id.slice(0, 12) + '...';
+
+  return (
+    <>
+      <div
+        className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-deck-border/50 transition-colors"
+        style={{ paddingLeft: `${8 + depth * 16}px` }}
+      >
+        {/* Status dot */}
+        <span className={`h-2 w-2 shrink-0 rounded-full ${isActive ? 'bg-deck-success animate-pulse' : 'bg-deck-muted'}`} />
+
+        {/* Connector line for children */}
+        {depth > 0 && <span className="text-deck-muted text-xs">└</span>}
+
+        {/* Name */}
+        <span className="text-sm font-medium text-deck-text truncate flex-1" title={s.id}>
+          {name}
+        </span>
+
+        {/* Cost badge */}
+        {s.total_cost_usd != null && s.total_cost_usd > 0 && (
+          <span className="text-[10px] font-mono text-deck-muted">
+            ${s.total_cost_usd.toFixed(4)}
+          </span>
+        )}
+
+        {/* Turn count */}
+        {s.stream_event_count > 0 && (
+          <span className="text-[10px] text-deck-muted">
+            {s.stream_event_count}t
+          </span>
+        )}
+      </div>
+
+      {/* Render children */}
+      {node.children.map((child) => (
+        <AgentNodeRow key={child.session.id} node={child} depth={depth + 1} />
+      ))}
+    </>
   );
 }

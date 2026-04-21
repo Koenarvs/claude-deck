@@ -72,6 +72,22 @@ export function createSessionsRouter(
     validateQuery(ListSessionsQuerySchema),
     (req, res) => {
       const query = (req as unknown as Record<string, unknown>)['validatedQuery'] as z.infer<typeof ListSessionsQuerySchema>;
+
+      // Check for goal_id filter (not in zod schema, passed as raw query param)
+      const goalId = typeof req.query['goal_id'] === 'string' ? req.query['goal_id'] : undefined;
+
+      if (goalId) {
+        // Direct DB query for goal-scoped sessions (includes children)
+        const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+        if (db) {
+          const rows = db.prepare(
+            'SELECT * FROM sessions WHERE goal_id = ? ORDER BY started_at ASC LIMIT ?'
+          ).all(goalId, query.limit ?? 200);
+          res.json(rows);
+          return;
+        }
+      }
+
       const sessions = sessionService.list({
         origin: query.origin,
         active: query.active,

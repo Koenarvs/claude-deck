@@ -88,7 +88,7 @@ describe('SessionsTable', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('Origin')).toBeDefined();
-    expect(screen.getByText('Session ID')).toBeDefined();
+    expect(screen.getByText('Name')).toBeDefined();
     expect(screen.getByText('Working Dir')).toBeDefined();
     expect(screen.getByText('Model')).toBeDefined();
     expect(screen.getByText(/Started/)).toBeDefined();
@@ -113,7 +113,8 @@ describe('SessionsTable', () => {
         <SessionsTable sessions={sessions} originFilter="all" activeOnly={false} />
       </MemoryRouter>,
     );
-    expect(screen.getByText('test-session...')).toBeDefined();
+    // display_name is null, so it falls back to cwd basename
+    expect(screen.getByText('project')).toBeDefined();
   });
 
   it('renders 500 rows without error', () => {

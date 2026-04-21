@@ -62,10 +62,11 @@ function formatTokens(tokens: number | null): string {
   return tokens.toString();
 }
 
-function truncateId(id: string, len: number = 12): string {
-  if (id.length <= len) return id;
-  return id.slice(0, len) + '...';
-}
+// truncateId kept for potential future use
+// function truncateId(id: string, len: number = 12): string {
+//   if (id.length <= len) return id;
+//   return id.slice(0, len) + '...';
+// }
 
 function truncatePath(path: string | null, maxLen: number = 30): string {
   if (path == null) return '--';
@@ -113,6 +114,68 @@ function compareByField(a: Session, b: Session, field: SortField): number {
   }
 }
 
+// ── Tree Builder ────────────────────────────────────────────────────────────
+
+interface FlattenedSession {
+  session: Session;
+  depth: number;
+  hasChildren: boolean;
+}
+
+function buildSessionTree(sessions: Session[]): FlattenedSession[] {
+  // Group children by parent
+  const childrenMap = new Map<string, Session[]>();
+  const roots: Session[] = [];
+
+  for (const s of sessions) {
+    if (s.parent_session_id) {
+      const siblings = childrenMap.get(s.parent_session_id) ?? [];
+      siblings.push(s);
+      childrenMap.set(s.parent_session_id, siblings);
+    } else {
+      roots.push(s);
+    }
+  }
+
+  // Flatten tree with depth
+  const result: FlattenedSession[] = [];
+
+  function addNode(session: Session, depth: number) {
+    const children = childrenMap.get(session.id) ?? [];
+    result.push({ session, depth, hasChildren: children.length > 0 });
+    // Sort children by started_at
+    children.sort((a, b) => (a.started_at ?? 0) - (b.started_at ?? 0));
+    for (const child of children) {
+      addNode(child, depth + 1);
+    }
+  }
+
+  // Sort roots by started_at descending
+  roots.sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0));
+  for (const root of roots) {
+    addNode(root, 0);
+  }
+
+  // Add orphaned children (parent not in current set)
+  const addedIds = new Set(result.map((r) => r.session.id));
+  for (const s of sessions) {
+    if (!addedIds.has(s.id)) {
+      result.push({ session: s, depth: 0, hasChildren: false });
+    }
+  }
+
+  return result;
+}
+
+function getDisplayName(session: Session): string {
+  if (session.display_name) return session.display_name;
+  if (session.cwd) {
+    const parts = session.cwd.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] ?? session.id.slice(0, 12);
+  }
+  return session.id.slice(0, 12) + '...';
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function SessionsTable({ sessions, originFilter, activeOnly }: SessionsTableProps) {
@@ -140,6 +203,9 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
 
     return sorted;
   }, [sessions, originFilter, activeOnly, sort]);
+
+  // Build tree from filtered sessions
+  const treeRows = useMemo(() => buildSessionTree(filteredAndSorted), [filteredAndSorted]);
 
   const handleSort = useCallback((field: SortField) => {
     setSort((prev) => {
@@ -184,7 +250,7 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
         <thead>
           <tr className="border-b border-deck-border bg-deck-surface text-left text-deck-muted">
             <th className="px-4 py-3 font-medium">Origin</th>
-            <th className="px-4 py-3 font-medium">Session ID</th>
+            <th className="px-4 py-3 font-medium">Name</th>
             <th className="px-4 py-3 font-medium">Working Dir</th>
             <th className="px-4 py-3 font-medium">Model</th>
             <th
@@ -231,14 +297,14 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
           </tr>
         </thead>
         <tbody>
-          {filteredAndSorted.length === 0 ? (
+          {treeRows.length === 0 ? (
             <tr>
               <td colSpan={10} className="px-4 py-8 text-center text-deck-muted">
                 No sessions found.
               </td>
             </tr>
           ) : (
-            filteredAndSorted.map((session) => (
+            treeRows.map(({ session, depth }) => (
               <tr
                 key={session.id}
                 className="cursor-pointer border-b border-deck-border transition-colors last:border-b-0 hover:bg-deck-surface"
@@ -250,8 +316,11 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
                 <td className="px-4 py-3">
                   <OriginBadge origin={session.origin} />
                 </td>
-                <td className="px-4 py-3 font-mono text-xs text-deck-text" title={session.id}>
-                  {truncateId(session.id)}
+                <td className="px-4 py-3 text-sm text-deck-text" title={session.id}>
+                  <div className="flex items-center gap-1" style={{ paddingLeft: `${depth * 20}px` }}>
+                    {depth > 0 && <span className="text-deck-muted text-xs">└</span>}
+                    <span className="font-medium">{getDisplayName(session)}</span>
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-deck-muted" title={session.cwd ?? undefined}>
                   {truncatePath(session.cwd)}
