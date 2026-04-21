@@ -183,6 +183,14 @@ export class HookIngest {
     const goalId = this.getGoalIdForSession(sessionId);
     const isAutonomous = this.getGoalPermissionMode(goalId) === 'autonomous';
 
+    logger.debug({
+      event: 'PreToolUse',
+      toolName,
+      sessionId,
+      goalId,
+      isAutonomous,
+    }, 'Hook: PreToolUse — routing to approval coordinator');
+
     return this.approvalCoordinator.request(
       {
         session_id: sessionId,
@@ -221,6 +229,15 @@ export class HookIngest {
     const sessionId = payload.session_id ?? null;
     const goalId = this.getGoalIdForSession(sessionId);
     const isAutonomous = this.getGoalPermissionMode(goalId) === 'autonomous';
+
+    logger.info({
+      event: 'PermissionRequest',
+      toolName,
+      sessionId,
+      goalId,
+      isAutonomous,
+      payloadKeys: Object.keys(payload).join(', '),
+    }, 'Hook: PermissionRequest — routing to approval coordinator');
 
     return this.approvalCoordinator.request(
       {

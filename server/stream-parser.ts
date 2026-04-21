@@ -65,16 +65,28 @@ export function createStreamParser(
 ): ReadlineInterface {
   const rl = createInterface({ input, crlfDelay: Infinity });
 
+  let lineCount = 0;
+
   rl.on('line', (line: string) => {
+    lineCount++;
     callbacks.onRawLine(line);
 
     const result = parseLine(line);
     if (result.ok) {
+      logger.debug({
+        lineNum: lineCount,
+        eventType: result.event.type,
+        subtype: 'subtype' in result.event ? result.event.subtype : undefined,
+      }, 'Stream parser: parsed event');
       callbacks.onEvent(result.event);
     } else {
-      logger.debug({ error: result.error, raw: line }, 'Stream parser: skipping line');
+      logger.debug({ lineNum: lineCount, error: result.error, rawPreview: line.substring(0, 200) }, 'Stream parser: skipping line');
       callbacks.onParseError(result.error, line);
     }
+  });
+
+  rl.on('close', () => {
+    logger.info({ totalLines: lineCount }, 'Stream parser: stream closed');
   });
 
   return rl;

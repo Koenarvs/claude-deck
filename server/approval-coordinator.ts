@@ -56,6 +56,14 @@ export class ApprovalCoordinator {
     const id = uuidv4();
     const now = Date.now();
 
+    logger.info({
+      approvalId: id,
+      toolName: req.tool_name,
+      sessionId: req.session_id,
+      goalId: req.goal_id,
+      isAutonomous,
+    }, 'Approval requested');
+
     const approval: Approval = {
       id,
       session_id: req.session_id,

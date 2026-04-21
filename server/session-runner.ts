@@ -412,9 +412,14 @@ export class SessionRunner implements Killable {
   private handleSystemEvent(event: StreamJsonEvent): void {
     if (event.type !== 'system') return;
 
+    logger.debug({
+      goalId: this.goal.id,
+      subtype: event.subtype,
+      rawEvent: JSON.stringify(event).substring(0, 500),
+    }, 'System event received');
+
     if (event.subtype === 'init') {
       logger.info({ sessionId: event.session_id, model: event.model }, 'CLI session initialized');
-      // Session row already created in start() -- the init event confirms it
     }
     // compact_boundary events are traced but don't produce messages
   }
@@ -429,6 +434,15 @@ export class SessionRunner implements Killable {
     // Only process blocks we haven't seen yet.
     const allBlocks = event.message.content;
     const newBlocks = allBlocks.slice(this.processedBlockCount);
+
+    logger.debug({
+      goalId: this.goal.id,
+      totalBlocks: allBlocks.length,
+      previouslyProcessed: this.processedBlockCount,
+      newBlocks: newBlocks.length,
+      blockTypes: newBlocks.map((b) => b.type).join(', '),
+    }, 'Assistant event — processing new blocks');
+
     this.processedBlockCount = allBlocks.length;
 
     for (const block of newBlocks) {
@@ -474,15 +488,26 @@ export class SessionRunner implements Killable {
   private handleResultEvent(event: StreamJsonEvent): void {
     if (event.type !== 'result') return;
 
+    // Log the FULL result event so we can see what fields the CLI actually sends
     logger.info({
       goalId: this.goal.id,
       sessionId: event.session_id,
       cost: event.total_cost_usd,
       turns: event.num_turns,
-    }, 'CLI turn completed');
+      rawResultEvent: JSON.stringify(event).substring(0, 2000),
+    }, 'CLI turn completed — raw result event');
 
     const totalInputTokens = event.total_input_tokens ?? 0;
     const totalOutputTokens = event.total_output_tokens ?? 0;
+
+    logger.info({
+      goalId: this.goal.id,
+      totalInputTokens,
+      totalOutputTokens,
+      hasInputField: 'total_input_tokens' in event,
+      hasOutputField: 'total_output_tokens' in event,
+      eventKeys: Object.keys(event).join(', '),
+    }, 'Token extraction from result event');
 
     // End the session with token data
     if (this.sessionId) {
