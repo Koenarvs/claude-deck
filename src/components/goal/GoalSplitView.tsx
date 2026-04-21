@@ -37,6 +37,9 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
   });
   const [splitRatio, setSplitRatio] = useState(readRatio);
   const [isDragging, setIsDragging] = useState(false);
+  const [paneCollapsed, setPaneCollapsed] = useState(() => {
+    try { return localStorage.getItem('claude-deck:plan-pane-collapsed') === 'true'; } catch { return false; }
+  });
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Fetch session cost data
@@ -93,8 +96,7 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
     };
   }, [isDragging, splitRatio]);
 
-  const leftPercent = `${(splitRatio * 100).toFixed(1)}%`;
-  const rightPercent = `${((1 - splitRatio) * 100).toFixed(1)}%`;
+  const rightWidth = paneCollapsed ? '40px' : `${((1 - splitRatio) * 100).toFixed(1)}%`;
 
   return (
     <div
@@ -103,25 +105,29 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
       data-testid="goal-split-view"
       style={isDragging ? { cursor: 'col-resize', userSelect: 'none' } : undefined}
     >
-      {/* Left: Conversation — flex-1 expands to fill when pane collapses */}
+      {/* Left: Conversation — flex-1 fills remaining space */}
       <div className="flex flex-1 min-w-0 min-h-0 flex-col">
         <GoalConversation goalId={goalId} goalStatus={goalStatus} />
       </div>
 
-      {/* Resizable divider */}
-      <div
-        className={`flex w-1.5 shrink-0 cursor-col-resize items-center justify-center transition-colors
-          ${isDragging ? 'bg-deck-accent' : 'bg-deck-border hover:bg-deck-accent/50'}`}
-        onMouseDown={handleMouseDown}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize pane divider"
-        title="Drag to resize"
-      />
+      {/* Resizable divider — hidden when collapsed */}
+      {!paneCollapsed && (
+        <div
+          className={`flex w-1.5 shrink-0 cursor-col-resize items-center justify-center transition-colors
+            ${isDragging ? 'bg-deck-accent' : 'bg-deck-border hover:bg-deck-accent/50'}`}
+          onMouseDown={handleMouseDown}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize pane divider"
+          title="Drag to resize"
+        />
+      )}
 
-      {/* Right: Tabbed pane — fixed width, conversation takes the rest */}
-      <div className="flex min-h-0 flex-col overflow-hidden shrink-0" style={{ width: rightPercent }}>
+      {/* Right: Tabbed pane — shrinks to 40px when collapsed */}
+      <div className="flex min-h-0 flex-col overflow-hidden shrink-0 transition-all" style={{ width: rightWidth }}>
         <GoalPlanPane
+          collapsed={paneCollapsed}
+          onCollapseChange={setPaneCollapsed}
           goalId={goalId}
           sessionHealth={{
             tokensIn: sessionCost.totalTokensIn,

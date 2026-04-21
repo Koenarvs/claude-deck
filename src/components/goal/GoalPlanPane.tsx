@@ -18,6 +18,8 @@ import ContextHealth from './ContextHealth';
 
 interface GoalPlanPaneProps {
   goalId: string;
+  collapsed?: boolean;
+  onCollapseChange?: (collapsed: boolean) => void;
   sessionHealth?: {
     tokensIn: number;
     tokensOut: number;
@@ -65,19 +67,19 @@ interface DocumentState {
   content: string | null;
 }
 
-export default function GoalPlanPane({ goalId, sessionHealth }: GoalPlanPaneProps) {
-  const [collapsed, setCollapsed] = useState(readCollapsed);
+export default function GoalPlanPane({ goalId, sessionHealth, collapsed: controlledCollapsed, onCollapseChange }: GoalPlanPaneProps) {
+  const [internalCollapsed, setInternalCollapsed] = useState(readCollapsed);
+  const collapsed = controlledCollapsed ?? internalCollapsed;
   const [activeTab, setActiveTab] = useState<TabId>('health');
   const [doc, setDoc] = useState<DocumentState>({ loading: false, exists: false, content: null });
   const plan = usePlanStore((state) => state.byGoalId[goalId] ?? null);
 
   const toggleCollapse = useCallback(() => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      writeCollapsed(next);
-      return next;
-    });
-  }, []);
+    const next = !collapsed;
+    writeCollapsed(next);
+    setInternalCollapsed(next);
+    onCollapseChange?.(next);
+  }, [collapsed, onCollapseChange]);
 
   // Fetch document whenever active tab changes
   useEffect(() => {
@@ -108,7 +110,7 @@ export default function GoalPlanPane({ goalId, sessionHealth }: GoalPlanPaneProp
     return () => { cancelled = true; };
   }, [activeTab, goalId]);
 
-  useEffect(() => { setCollapsed(readCollapsed()); }, []);
+  useEffect(() => { setInternalCollapsed(readCollapsed()); }, []);
 
   if (collapsed) {
     return (
