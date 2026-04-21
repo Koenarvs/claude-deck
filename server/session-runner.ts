@@ -519,6 +519,22 @@ export class SessionRunner implements Killable {
         total_tokens_in: totalInputTokens,
         total_tokens_out: totalOutputTokens,
       });
+
+      // Add a completion system message so the user knows the turn is done
+      const completionMsg: Message = {
+        id: uuidv4(),
+        session_id: this.sessionId,
+        role: 'system',
+        content: `Turn complete — ${event.num_turns} turn${event.num_turns !== 1 ? 's' : ''}, $${event.total_cost_usd.toFixed(4)} cost. Send a follow-up message to continue.`,
+        tool_name: null,
+        tool_args: null,
+        tool_result: null,
+        tool_use_id: null,
+        token_in: totalInputTokens > 0 ? totalInputTokens : null,
+        token_out: totalOutputTokens > 0 ? totalOutputTokens : null,
+        created_at: Date.now(),
+      };
+      this.deps.messageService.saveMessage(completionMsg);
     }
 
     // Broadcast session cost/token update for live dashboards

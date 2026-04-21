@@ -326,16 +326,28 @@ function AgentNodeRow({ node, depth }: { node: AgentNode; depth: number }) {
         className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-deck-border/50 transition-colors"
         style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
-        {/* Status dot */}
-        <span className={`h-2 w-2 shrink-0 rounded-full ${isActive ? 'bg-deck-success animate-pulse' : 'bg-deck-muted'}`} />
-
         {/* Connector line for children */}
         {depth > 0 && <span className="text-deck-muted text-xs">└</span>}
 
+        {/* Status dot */}
+        <span className={`h-2 w-2 shrink-0 rounded-full ${isActive ? 'bg-deck-success animate-pulse' : 'bg-deck-muted'}`} />
+
         {/* Name */}
-        <span className="text-sm font-medium text-deck-text truncate flex-1" title={s.id}>
+        <span className="text-sm font-medium text-deck-text truncate" title={s.id}>
           {name}
         </span>
+
+        {/* Status label */}
+        <span className={`text-[10px] font-medium rounded px-1.5 py-0.5 ${
+          isActive
+            ? 'bg-deck-success/15 text-deck-success'
+            : 'bg-deck-muted/15 text-deck-muted'
+        }`}>
+          {isActive ? 'Active' : 'Done'}
+        </span>
+
+        {/* Spacer */}
+        <span className="flex-1" />
 
         {/* Cost badge */}
         {s.total_cost_usd != null && s.total_cost_usd > 0 && (
