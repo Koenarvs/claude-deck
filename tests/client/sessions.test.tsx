@@ -252,7 +252,7 @@ describe('SessionsTable', () => {
 describe('SessionFilters', () => {
   const defaultFilters: SessionFiltersState = {
     origin: 'all',
-    activeOnly: false,
+    activeOnly: true,
     dateRange: 'all',
   };
 
@@ -288,7 +288,7 @@ describe('SessionFilters', () => {
     const checkbox = screen.getByRole('checkbox');
     await user.click(checkbox);
     expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ activeOnly: true }),
+      expect.objectContaining({ activeOnly: false }),
     );
   });
 

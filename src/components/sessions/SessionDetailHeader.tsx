@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
-import { ArrowLeft, Clock, Cpu, DollarSign, FolderOpen, Target } from 'lucide-react';
+import { ArrowLeft, Clock, Cpu, DollarSign, FolderOpen, Target, Square } from 'lucide-react';
 import type { Session } from '../../shared/types';
 import { OriginBadge } from './OriginBadge';
 
 interface SessionDetailHeaderProps {
   session: Session;
+  onSessionEnded?: () => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -40,9 +42,10 @@ function getSessionDuration(session: Session): number | null {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function SessionDetailHeader({ session }: SessionDetailHeaderProps) {
+export default function SessionDetailHeader({ session, onSessionEnded }: SessionDetailHeaderProps) {
   const duration = getSessionDuration(session);
   const isActive = session.ended_at == null;
+  const [ending, setEnding] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -64,10 +67,28 @@ export default function SessionDetailHeader({ session }: SessionDetailHeaderProp
             <h1 className="font-mono text-lg font-semibold text-deck-text">{session.id}</h1>
             <OriginBadge origin={session.origin} />
             {isActive && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-deck-success/15 px-2.5 py-0.5 text-xs font-medium text-deck-success">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-deck-success" />
-                Active
-              </span>
+              <>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-deck-success/15 px-2.5 py-0.5 text-xs font-medium text-deck-success">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-deck-success" />
+                  Active
+                </span>
+                <button
+                  disabled={ending}
+                  onClick={async () => {
+                    setEnding(true);
+                    try {
+                      const res = await fetch(`/api/sessions/${session.id}/end`, { method: 'POST' });
+                      if (res.ok) onSessionEnded?.();
+                    } finally {
+                      setEnding(false);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border border-deck-danger/30 px-2 py-0.5 text-xs text-deck-danger transition-colors hover:bg-deck-danger/10 disabled:opacity-50"
+                >
+                  <Square size={12} />
+                  {ending ? 'Ending...' : 'Mark Ended'}
+                </button>
+              </>
             )}
           </div>
 

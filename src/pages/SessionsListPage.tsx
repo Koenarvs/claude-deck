@@ -5,6 +5,7 @@ import SessionsTable from '../components/sessions/SessionsTable';
 import SessionFilters from '../components/sessions/SessionFilters';
 import type { SessionFiltersState, DateRange } from '../components/sessions/SessionFilters';
 import type { Session } from '../shared/types';
+import type { EnrichedSession } from '../components/sessions/SessionsTable';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ const DEFAULT_LIMIT = 50;
 
 const DEFAULT_FILTERS: SessionFiltersState = {
   origin: 'all',
-  activeOnly: false,
+  activeOnly: true,
   dateRange: 'all',
 };
 
@@ -67,7 +68,7 @@ export default function SessionsListPage() {
         if (!res.ok) {
           throw new Error(`Failed to fetch sessions: ${res.status}`);
         }
-        const data: Session[] = await res.json() as Session[];
+        const data: EnrichedSession[] = await res.json() as EnrichedSession[];
         if (!cancelled) {
           setSessions(data);
         }

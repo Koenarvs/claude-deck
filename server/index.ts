@@ -14,6 +14,7 @@ import { HookIngest } from './hook-ingest';
 import { createHooksRouter } from './routes/hooks';
 import { createApprovalsRouter } from './routes/approvals';
 import { processRegistry } from './process-registry';
+import { hookInstallerService } from './services/hook-installer-service';
 import { SessionRunner } from './session-runner';
 import type { MessageService as RunnerMessageService, GoalService as RunnerGoalService, TraceWriter as RunnerTraceWriter } from './session-runner';
 import { SessionService } from './services/session-service';
@@ -29,6 +30,38 @@ const env = loadEnv();
 const db = getDb(env.dataDir);
 runMigrations(db);
 logger.info({ dataDir: env.dataDir }, 'Database initialized');
+
+// Close orphaned sessions (active for >4 hours with no recent events)
+const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000;
+const staleCutoff = Date.now() - STALE_THRESHOLD_MS;
+const staleResult = db.prepare(`
+  UPDATE sessions
+  SET ended_at = COALESCE(
+    (SELECT MAX(created_at) FROM hook_events WHERE session_id = sessions.id),
+    ?
+  )
+  WHERE ended_at IS NULL AND started_at < ?
+`).run(Date.now(), staleCutoff);
+if (staleResult.changes > 0) {
+  logger.info({ closedCount: staleResult.changes }, 'Closed orphaned sessions on startup');
+}
+
+// Auto-ensure hooks are installed in ~/.claude/settings.json
+hookInstallerService.status().then(async (hookStatus) => {
+  if (!hookStatus.installed) {
+    logger.info('Hooks not found in settings.json — auto-installing');
+    try {
+      await hookInstallerService.install();
+      logger.info('Hooks auto-installed successfully');
+    } catch (err) {
+      logger.error({ err }, 'Failed to auto-install hooks');
+    }
+  } else {
+    logger.info('Hooks verified in settings.json');
+  }
+}).catch((err) => {
+  logger.error({ err }, 'Failed to check hook status');
+});
 
 // Initialize services
 const scheduledTaskService = new ScheduledTaskService(db);

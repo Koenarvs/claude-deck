@@ -7,7 +7,6 @@ import { useSessionsStore } from '../stores/useSessionsStore';
 import { useMessagesStore } from '../stores/useMessagesStore';
 import { usePlanStore } from '../stores/usePlanStore';
 import { useApprovalsStore } from '../stores/useApprovalsStore';
-import { useFeedStore } from '../stores/useFeedStore';
 import { useConnectionStore } from '../stores/useConnectionStore';
 
 let ws: WebSocket | null = null;
@@ -71,7 +70,7 @@ function dispatch(event: ServerEvent): void {
       break;
 
     case 'hook:event':
-      useFeedStore.getState().addEvent(event.event);
+      // Feed store removed; hook:event still broadcast by server for other consumers
       break;
 
     case 'session:ended': {

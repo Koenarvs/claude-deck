@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import type Database from 'better-sqlite3';
 import { SessionOriginSchema } from '../../src/shared/schemas';
 import { validateQuery } from '../middleware/validate';
 import type { SessionService } from '../services/session-service';
@@ -44,12 +45,29 @@ const ListMessagesQuerySchema = z.object({
 });
 
 /**
+ * Query parameter schema for GET /api/sessions/:id/events.
+ */
+const ListEventsQuerySchema = z.object({
+  limit: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(1000))
+    .optional(),
+  offset: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().min(0))
+    .optional(),
+});
+
+/**
  * Creates the sessions router with injected service dependencies.
  *
  * Endpoints:
  * - GET /api/sessions — list sessions with optional origin/active/pagination filters
  * - GET /api/sessions/:id — get a single session by ID
  * - GET /api/sessions/:id/messages — list messages for a session with pagination
+ * - GET /api/sessions/:id/events — list hook events for a session with pagination
  */
 export function createSessionsRouter(
   sessionService: SessionService,
@@ -94,7 +112,57 @@ export function createSessionsRouter(
         limit: query.limit,
         offset: query.offset,
       });
-      res.json(sessions);
+
+      // Enrich sessions with last_event_at and current_tool
+      const db = (req.app as unknown as { locals: { db: Database.Database } }).locals?.db;
+      if (db && sessions.length > 0) {
+        const sessionIds = sessions.map((s) => s.id);
+        const placeholders = sessionIds.map(() => '?').join(',');
+
+        // Get last_event_at per session
+        const lastEventRows = db.prepare(
+          `SELECT session_id, MAX(created_at) as last_event_at
+           FROM hook_events
+           WHERE session_id IN (${placeholders})
+           GROUP BY session_id`
+        ).all(...sessionIds) as Array<{ session_id: string; last_event_at: number }>;
+
+        const lastEventMap = new Map(lastEventRows.map((r) => [r.session_id, r.last_event_at]));
+
+        // Get current_tool per session: most recent PreToolUse without a matching PostToolUse
+        // A tool is "currently executing" if there's a PreToolUse that came after the last PostToolUse
+        const currentToolRows = db.prepare(
+          `SELECT he.session_id, he.tool_name
+           FROM hook_events he
+           WHERE he.session_id IN (${placeholders})
+             AND he.event_type = 'PreToolUse'
+             AND he.tool_name IS NOT NULL
+             AND he.created_at = (
+               SELECT MAX(he2.created_at)
+               FROM hook_events he2
+               WHERE he2.session_id = he.session_id
+                 AND he2.event_type = 'PreToolUse'
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM hook_events he3
+               WHERE he3.session_id = he.session_id
+                 AND he3.event_type = 'PostToolUse'
+                 AND he3.created_at > he.created_at
+             )`
+        ).all(...sessionIds) as Array<{ session_id: string; tool_name: string }>;
+
+        const currentToolMap = new Map(currentToolRows.map((r) => [r.session_id, r.tool_name]));
+
+        const enriched = sessions.map((s) => ({
+          ...s,
+          last_event_at: lastEventMap.get(s.id) ?? null,
+          current_tool: currentToolMap.get(s.id) ?? null,
+        }));
+
+        res.json(enriched);
+      } else {
+        res.json(sessions.map((s) => ({ ...s, last_event_at: null, current_tool: null })));
+      }
     },
   );
 
@@ -137,6 +205,69 @@ export function createSessionsRouter(
         before: query.before,
       });
       res.json(messages);
+    },
+  );
+
+  /**
+   * POST /api/sessions/:id/end
+   * Manually marks a session as ended. Used for stale sessions that never received a Stop hook.
+   */
+  router.post('/sessions/:id/end', (req, res) => {
+    const sessionId = String(req.params['id']);
+    const session = sessionService.get(sessionId);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    if (session.ended_at != null) {
+      res.status(409).json({ error: 'Session already ended' });
+      return;
+    }
+    sessionService.end(sessionId, {
+      total_cost_usd: session.total_cost_usd ?? null,
+      total_tokens_in: session.total_tokens_in ?? null,
+      total_tokens_out: session.total_tokens_out ?? null,
+    });
+    res.json({ ok: true, ended_at: Date.now() });
+  });
+
+  /**
+   * GET /api/sessions/:id/events
+   * Returns hook events for a session, ordered by created_at descending.
+   *
+   * Query params:
+   * - limit: number (default 100, max 1000)
+   * - offset: number (default 0)
+   */
+  router.get(
+    '/sessions/:id/events',
+    validateQuery(ListEventsQuerySchema),
+    (req, res) => {
+      const sessionId = String(req.params['id']);
+      const session = sessionService.get(sessionId);
+      if (!session) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      const query = (req as unknown as Record<string, unknown>)['validatedQuery'] as z.infer<typeof ListEventsQuerySchema>;
+      const limit = query.limit ?? 100;
+      const offset = query.offset ?? 0;
+
+      const db = (req.app as unknown as { locals: { db: Database.Database } }).locals?.db;
+      if (!db) {
+        res.json([]);
+        return;
+      }
+
+      const events = db.prepare(
+        `SELECT * FROM hook_events
+         WHERE session_id = ?
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?`
+      ).all(sessionId, limit, offset);
+
+      res.json(events);
     },
   );
 

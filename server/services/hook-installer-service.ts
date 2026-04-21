@@ -259,14 +259,6 @@ export class HookInstallerService {
    * @returns Install result with backup path (null if already installed)
    */
   async install(): Promise<InstallResult> {
-    const markerPath = resolveMarkerPath(this.homeDir);
-
-    // Idempotency check
-    if (fs.existsSync(markerPath)) {
-      logger.info('claude-deck hooks already installed (marker found). Skipping.');
-      return { installed: true, backupPath: null };
-    }
-
     const settingsPath = resolveSettingsPath(this.homeDir);
     const hookClientPath = resolveHookClientPath(this.repoRoot, this.homeDir);
 
@@ -277,6 +269,16 @@ export class HookInstallerService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to read settings.json: ${msg}`);
+    }
+
+    // Merge hooks
+    const existingHooks: HooksObject = (settings.hooks as HooksObject) ?? {};
+    const mergedHooks = this.mergeHooks(existingHooks, hookClientPath);
+
+    // Check if anything actually changed
+    if (JSON.stringify(existingHooks) === JSON.stringify(mergedHooks)) {
+      logger.info('Hooks already present in settings.json. No changes needed.');
+      return { installed: true, backupPath: null };
     }
 
     // Create timestamped backup if settings.json exists
@@ -291,24 +293,20 @@ export class HookInstallerService {
       logger.info({ backupPath }, 'Backed up settings.json');
     }
 
-    // Merge hooks
-    const existingHooks: HooksObject = (settings.hooks as HooksObject) ?? {};
-    const mergedHooks = this.mergeHooks(existingHooks, hookClientPath);
-
     settings.hooks = mergedHooks;
 
     // Write atomically
     writeSettingsAtomic(settingsPath, settings);
-    logger.info({ settingsPath }, 'Wrote updated settings.json');
+    logger.info({ settingsPath }, 'Wrote updated settings.json with hooks');
 
     // Write marker
+    const markerPath = resolveMarkerPath(this.homeDir);
     const marker: InstallMarker = {
       installedAt: Date.now(),
       backupPath: backupPath ?? '',
       hookClientPath,
     };
     fs.writeFileSync(markerPath, JSON.stringify(marker, null, 2) + '\n', 'utf-8');
-    logger.info({ markerPath }, 'Wrote install marker');
 
     return { installed: true, backupPath };
   }
@@ -390,16 +388,30 @@ export class HookInstallerService {
    * @returns Whether hooks are installed and when they were installed
    */
   async status(): Promise<InstallStatus> {
-    const markerPath = resolveMarkerPath(this.homeDir);
-
-    if (!fs.existsSync(markerPath)) {
-      return { installed: false, installedAt: null };
-    }
+    const settingsPath = resolveSettingsPath(this.homeDir);
 
     try {
-      const markerRaw = fs.readFileSync(markerPath, 'utf-8');
-      const marker = JSON.parse(markerRaw) as InstallMarker;
-      return { installed: true, installedAt: marker.installedAt };
+      const settings = readSettings(settingsPath);
+      const hooks = settings.hooks as HooksObject | undefined;
+      if (!hooks) return { installed: false, installedAt: null };
+
+      const allPresent = HOOK_EVENT_TYPES.every((eventType) => {
+        const matchers = hooks[eventType] ?? [];
+        return matchers.some((m) => m.hooks.some((h) => isClaudeDeckHook(h.command)));
+      });
+
+      if (!allPresent) return { installed: false, installedAt: null };
+
+      const markerPath = resolveMarkerPath(this.homeDir);
+      if (fs.existsSync(markerPath)) {
+        try {
+          const marker = JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as InstallMarker;
+          return { installed: true, installedAt: marker.installedAt };
+        } catch {
+          // Marker corrupted but hooks are present — still installed
+        }
+      }
+      return { installed: true, installedAt: null };
     } catch {
       return { installed: false, installedAt: null };
     }

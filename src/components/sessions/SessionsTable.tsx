@@ -14,8 +14,14 @@ interface SortConfig {
   direction: SortDirection;
 }
 
+/** Session with optional enriched fields from the API. */
+export interface EnrichedSession extends Session {
+  last_event_at?: number | null;
+  current_tool?: string | null;
+}
+
 export interface SessionsTableProps {
-  sessions: Session[];
+  sessions: EnrichedSession[];
   originFilter: SessionOrigin | 'all';
   activeOnly: boolean;
 }
@@ -60,6 +66,20 @@ function formatTokens(tokens: number | null): string {
   if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
   return tokens.toString();
+}
+
+function formatRelativeTime(epochMs: number | null | undefined): string {
+  if (epochMs == null) return 'idle';
+  const diffMs = Date.now() - epochMs;
+  if (diffMs < 0) return 'just now';
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 // truncateId kept for potential future use
@@ -117,15 +137,15 @@ function compareByField(a: Session, b: Session, field: SortField): number {
 // ── Tree Builder ────────────────────────────────────────────────────────────
 
 interface FlattenedSession {
-  session: Session;
+  session: EnrichedSession;
   depth: number;
   hasChildren: boolean;
 }
 
-function buildSessionTree(sessions: Session[]): FlattenedSession[] {
+function buildSessionTree(sessions: EnrichedSession[]): FlattenedSession[] {
   // Group children by parent
-  const childrenMap = new Map<string, Session[]>();
-  const roots: Session[] = [];
+  const childrenMap = new Map<string, EnrichedSession[]>();
+  const roots: EnrichedSession[] = [];
 
   for (const s of sessions) {
     if (s.parent_session_id) {
@@ -140,7 +160,7 @@ function buildSessionTree(sessions: Session[]): FlattenedSession[] {
   // Flatten tree with depth
   const result: FlattenedSession[] = [];
 
-  function addNode(session: Session, depth: number) {
+  function addNode(session: EnrichedSession, depth: number) {
     const children = childrenMap.get(session.id) ?? [];
     result.push({ session, depth, hasChildren: children.length > 0 });
     // Sort children by started_at
@@ -167,7 +187,7 @@ function buildSessionTree(sessions: Session[]): FlattenedSession[] {
   return result;
 }
 
-function getDisplayName(session: Session): string {
+function getDisplayName(session: EnrichedSession): string {
   if (session.display_name) return session.display_name;
   if (session.cwd) {
     const parts = session.cwd.replace(/\\/g, '/').split('/');
@@ -261,6 +281,8 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
             >
               Started{renderSortIcon('started_at')}
             </th>
+            <th className="px-4 py-3 font-medium">Last Event</th>
+            <th className="px-4 py-3 font-medium">Current Tool</th>
             <th
               className="cursor-pointer select-none px-4 py-3 font-medium hover:text-deck-text"
               onClick={() => handleSort('duration')}
@@ -299,7 +321,7 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
         <tbody>
           {treeRows.length === 0 ? (
             <tr>
-              <td colSpan={10} className="px-4 py-8 text-center text-deck-muted">
+              <td colSpan={12} className="px-4 py-8 text-center text-deck-muted">
                 No sessions found.
               </td>
             </tr>
@@ -327,6 +349,14 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
                 </td>
                 <td className="px-4 py-3 text-deck-muted">{session.model ?? '--'}</td>
                 <td className="px-4 py-3 text-deck-muted">{formatTimestamp(session.started_at)}</td>
+                <td className="px-4 py-3 text-deck-muted">{formatRelativeTime(session.last_event_at)}</td>
+                <td className="px-4 py-3 text-deck-muted">
+                  {session.current_tool ? (
+                    <span className="rounded bg-deck-warning/15 px-1.5 py-0.5 text-xs font-medium text-deck-warning">
+                      {session.current_tool}
+                    </span>
+                  ) : null}
+                </td>
                 <td className="px-4 py-3 text-deck-muted">{formatDuration(getSessionDuration(session))}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-deck-muted">
                   {formatTokens(session.total_tokens_in)}

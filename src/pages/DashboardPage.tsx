@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useGoalsStore } from '../stores/useGoalsStore';
 import { useApprovalsStore } from '../stores/useApprovalsStore';
 import { useSessionsStore } from '../stores/useSessionsStore';
-import { useFeedStore } from '../stores/useFeedStore';
 import StatCards from '../components/dashboard/StatCards';
 import ActiveGoalsStrip from '../components/dashboard/ActiveGoalsStrip';
 import RecentActivityFeed from '../components/dashboard/RecentActivityFeed';
@@ -37,9 +36,8 @@ export default function DashboardPage() {
   const pendingApprovals = useApprovalsStore((s) => s.pending);
   const sessions = useSessionsStore((s) => s.sessions);
   const setSessions = useSessionsStore((s) => s.setSessions);
-  const feedEvents = useFeedStore((s) => s.events);
-  const setEvents = useFeedStore((s) => s.setEvents);
 
+  const [recentEvents, setRecentEvents] = useState<HookEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -50,10 +48,7 @@ export default function DashboardPage() {
         if (cancelled) return;
         setGoals(data.goals);
         setSessions(data.sessions);
-        // Seed feed store only if it was empty (don't overwrite WS-received events)
-        if (feedEvents.length === 0 && data.events.length > 0) {
-          setEvents(data.events);
-        }
+        setRecentEvents(data.events);
       })
       .catch(() => {
         // Server may not be running; stores stay at defaults
@@ -110,7 +105,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <GoalProgress statusCounts={statusCounts} />
-        <RecentActivityFeed events={feedEvents} />
+        <RecentActivityFeed events={recentEvents} />
       </div>
     </div>
   );

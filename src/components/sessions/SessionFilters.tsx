@@ -36,7 +36,7 @@ const DATE_RANGE_OPTIONS: Array<{ value: DateRange; label: string }> = [
 
 const DEFAULT_FILTERS: SessionFiltersState = {
   origin: 'all',
-  activeOnly: false,
+  activeOnly: true,
   dateRange: 'all',
 };
 
