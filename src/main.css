@@ -1,14 +1,293 @@
+/* Claude Deck — Tailwind v4 + design tokens
+ * Drop-in replacement for src/main.css
+ *
+ * Design system: three aesthetics (studio/console/mission) × two themes (dark/light)
+ * Applied via data-aesthetic + data-theme attrs on <html>.
+ * Tailwind v4 reads custom props via @theme inline, so `bg-surface`, `text-dim`, etc. work in JSX.
+ */
+
 @import 'tailwindcss';
 
-@theme {
-  --color-deck-bg: #0f1117;
-  --color-deck-surface: #1a1d27;
-  --color-deck-border: #2a2d3a;
-  --color-deck-text: #e2e4e9;
-  --color-deck-muted: #6b7280;
-  --color-deck-accent: #6366f1;
-  --color-deck-accent-hover: #818cf8;
-  --color-deck-success: #22c55e;
-  --color-deck-warning: #f59e0b;
-  --color-deck-danger: #ef4444;
+/* ───────────── Fonts ───────────── */
+@font-face {
+  font-family: 'Inter Tight';
+  font-display: swap;
+  src: local('Inter Tight'), local('Inter');
+}
+
+/* ───────────── Tailwind theme — semantic tokens ─────────────
+ * Use bg-bg, bg-surface, bg-card, text-fg, text-dim, border-line, etc.
+ * Values are CSS vars that switch per aesthetic/theme.
+ */
+@theme inline {
+  --color-bg: var(--cd-bg);
+  --color-surface: var(--cd-surface);
+  --color-card: var(--cd-card);
+  --color-hover: var(--cd-hover);
+  --color-inset: var(--cd-inset);
+
+  --color-line: var(--cd-line);
+  --color-line-strong: var(--cd-line-strong);
+
+  --color-fg: var(--cd-fg);
+  --color-dim: var(--cd-dim);
+  --color-faint: var(--cd-faint);
+
+  --color-accent: var(--cd-accent);
+  --color-accent-fg: var(--cd-accent-fg);
+  --color-accent-soft: var(--cd-accent-soft);
+
+  --color-ok: var(--cd-ok);
+  --color-warn: var(--cd-warn);
+  --color-danger: var(--cd-danger);
+  --color-info: var(--cd-info);
+
+  --font-sans: var(--cd-font-sans);
+  --font-mono: var(--cd-font-mono);
+
+  --radius-sm: var(--cd-radius-sm);
+  --radius-md: var(--cd-radius-md);
+  --radius-lg: var(--cd-radius-lg);
+}
+
+/* ───────────── Base vars ───────────── */
+:root {
+  --cd-font-sans:
+    'Inter Tight', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --cd-font-mono:
+    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --cd-radius-sm: 4px;
+  --cd-radius-md: 6px;
+  --cd-radius-lg: 10px;
+}
+
+/* ════════════════════ STUDIO ════════════════════ */
+[data-aesthetic='studio'][data-theme='dark'] {
+  --cd-bg: oklch(0.17 0.006 260);
+  --cd-surface: oklch(0.2 0.006 260);
+  --cd-card: oklch(0.22 0.007 260);
+  --cd-hover: oklch(0.24 0.008 260);
+  --cd-inset: oklch(0.15 0.005 260);
+  --cd-line: oklch(0.28 0.008 260);
+  --cd-line-strong: oklch(0.36 0.01 260);
+  --cd-fg: oklch(0.96 0.005 260);
+  --cd-dim: oklch(0.72 0.008 260);
+  --cd-faint: oklch(0.52 0.01 260);
+  --cd-accent: oklch(0.72 0.13 58);
+  --cd-accent-fg: oklch(0.18 0.04 58);
+  --cd-accent-soft: oklch(0.72 0.13 58 / 0.14);
+  --cd-ok: oklch(0.78 0.14 160);
+  --cd-warn: oklch(0.82 0.13 85);
+  --cd-danger: oklch(0.7 0.18 25);
+  --cd-info: oklch(0.75 0.11 240);
+  --cd-radius-sm: 4px;
+  --cd-radius-md: 8px;
+  --cd-radius-lg: 12px;
+}
+[data-aesthetic='studio'][data-theme='light'] {
+  --cd-bg: oklch(0.985 0.003 85);
+  --cd-surface: oklch(1 0 0);
+  --cd-card: oklch(1 0 0);
+  --cd-hover: oklch(0.96 0.004 85);
+  --cd-inset: oklch(0.96 0.003 85);
+  --cd-line: oklch(0.9 0.005 85);
+  --cd-line-strong: oklch(0.8 0.008 85);
+  --cd-fg: oklch(0.22 0.01 260);
+  --cd-dim: oklch(0.48 0.012 260);
+  --cd-faint: oklch(0.62 0.01 260);
+  --cd-accent: oklch(0.58 0.18 40);
+  --cd-accent-fg: oklch(1 0 0);
+  --cd-accent-soft: oklch(0.58 0.18 40 / 0.1);
+  --cd-ok: oklch(0.58 0.15 155);
+  --cd-warn: oklch(0.68 0.17 75);
+  --cd-danger: oklch(0.58 0.21 25);
+  --cd-info: oklch(0.55 0.15 240);
+  --cd-radius-sm: 4px;
+  --cd-radius-md: 8px;
+  --cd-radius-lg: 12px;
+}
+
+/* ════════════════════ CONSOLE ════════════════════ */
+[data-aesthetic='console'][data-theme='dark'] {
+  --cd-bg: oklch(0.14 0.008 250);
+  --cd-surface: oklch(0.16 0.009 250);
+  --cd-card: oklch(0.17 0.01 250);
+  --cd-hover: oklch(0.2 0.012 250);
+  --cd-inset: oklch(0.12 0.007 250);
+  --cd-line: oklch(0.28 0.012 250);
+  --cd-line-strong: oklch(0.42 0.014 250);
+  --cd-fg: oklch(0.92 0.01 120);
+  --cd-dim: oklch(0.68 0.03 120);
+  --cd-faint: oklch(0.48 0.02 120);
+  --cd-accent: oklch(0.8 0.18 130);
+  --cd-accent-fg: oklch(0.14 0.02 130);
+  --cd-accent-soft: oklch(0.8 0.18 130 / 0.14);
+  --cd-ok: oklch(0.8 0.18 130);
+  --cd-warn: oklch(0.85 0.14 90);
+  --cd-danger: oklch(0.72 0.2 25);
+  --cd-info: oklch(0.78 0.14 200);
+  --cd-font-sans: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --cd-radius-sm: 0px;
+  --cd-radius-md: 0px;
+  --cd-radius-lg: 2px;
+}
+[data-aesthetic='console'][data-theme='light'] {
+  --cd-bg: oklch(0.98 0.005 85);
+  --cd-surface: oklch(1 0 0);
+  --cd-card: oklch(1 0 0);
+  --cd-hover: oklch(0.96 0.006 85);
+  --cd-inset: oklch(0.955 0.005 85);
+  --cd-line: oklch(0.82 0.01 85);
+  --cd-line-strong: oklch(0.62 0.012 85);
+  --cd-fg: oklch(0.22 0.015 130);
+  --cd-dim: oklch(0.45 0.02 130);
+  --cd-faint: oklch(0.6 0.015 130);
+  --cd-accent: oklch(0.48 0.18 145);
+  --cd-accent-fg: oklch(1 0 0);
+  --cd-accent-soft: oklch(0.48 0.18 145 / 0.08);
+  --cd-ok: oklch(0.48 0.18 145);
+  --cd-warn: oklch(0.62 0.17 75);
+  --cd-danger: oklch(0.55 0.22 25);
+  --cd-info: oklch(0.48 0.16 240);
+  --cd-font-sans: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --cd-radius-sm: 0px;
+  --cd-radius-md: 0px;
+  --cd-radius-lg: 2px;
+}
+
+/* ════════════════════ MISSION (default) ════════════════════ */
+[data-aesthetic='mission'][data-theme='dark'],
+:root:not([data-aesthetic]) {
+  --cd-bg: oklch(0.11 0.015 240);
+  --cd-surface: oklch(0.14 0.016 240);
+  --cd-card: oklch(0.16 0.018 240);
+  --cd-hover: oklch(0.19 0.02 240);
+  --cd-inset: oklch(0.09 0.014 240);
+  --cd-line: oklch(0.26 0.03 240);
+  --cd-line-strong: oklch(0.4 0.04 240);
+  --cd-fg: oklch(0.95 0.01 220);
+  --cd-dim: oklch(0.7 0.02 220);
+  --cd-faint: oklch(0.52 0.025 220);
+  --cd-accent: oklch(0.78 0.18 200);
+  --cd-accent-fg: oklch(0.14 0.02 200);
+  --cd-accent-soft: oklch(0.78 0.18 200 / 0.14);
+  --cd-ok: oklch(0.8 0.18 150);
+  --cd-warn: oklch(0.84 0.16 80);
+  --cd-danger: oklch(0.7 0.22 20);
+  --cd-info: oklch(0.78 0.18 200);
+  --cd-radius-sm: 2px;
+  --cd-radius-md: 4px;
+  --cd-radius-lg: 6px;
+}
+[data-aesthetic='mission'][data-theme='light'] {
+  --cd-bg: oklch(0.97 0.008 220);
+  --cd-surface: oklch(1 0 0);
+  --cd-card: oklch(1 0 0);
+  --cd-hover: oklch(0.95 0.01 220);
+  --cd-inset: oklch(0.94 0.01 220);
+  --cd-line: oklch(0.84 0.015 220);
+  --cd-line-strong: oklch(0.68 0.02 220);
+  --cd-fg: oklch(0.18 0.02 240);
+  --cd-dim: oklch(0.44 0.02 240);
+  --cd-faint: oklch(0.6 0.018 240);
+  --cd-accent: oklch(0.5 0.17 220);
+  --cd-accent-fg: oklch(1 0 0);
+  --cd-accent-soft: oklch(0.5 0.17 220 / 0.1);
+  --cd-ok: oklch(0.52 0.18 150);
+  --cd-warn: oklch(0.66 0.17 75);
+  --cd-danger: oklch(0.55 0.22 25);
+  --cd-info: oklch(0.5 0.17 220);
+  --cd-radius-sm: 2px;
+  --cd-radius-md: 4px;
+  --cd-radius-lg: 6px;
+}
+
+/* ───────────── Base body ───────────── */
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  @apply bg-bg text-fg font-sans;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background-color 220ms,
+    color 220ms;
+}
+
+::selection {
+  background: var(--cd-accent-soft);
+  color: var(--cd-fg);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--cd-line);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--cd-line-strong);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* Live activity dot */
+@utility pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--cd-ok);
+}
+.pulse-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 2px solid var(--cd-ok);
+  opacity: 0.4;
+  animation: cd-pulse 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+@keyframes cd-pulse {
+  0% { transform: scale(0.6); opacity: 0.5; }
+  70% { transform: scale(1.6); opacity: 0; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+[data-live='off'] .pulse-dot::after { animation: none; opacity: 0; }
+[data-live='subtle'] .pulse-dot::after { animation-duration: 3.5s; opacity: 0.25; }
+
+/* Monospace tabular */
+@utility mono-tabular {
+  font-family: var(--cd-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────────── Backward compat: deck-* → semantic tokens ─────────────
+ * Legacy components use deck-* classes. These map to the new design tokens
+ * so everything works during incremental migration.
+ */
+@theme inline {
+  --color-deck-bg: var(--cd-bg);
+  --color-deck-surface: var(--cd-surface);
+  --color-deck-card: var(--cd-card);
+  --color-deck-border: var(--cd-line);
+  --color-deck-text: var(--cd-fg);
+  --color-deck-muted: var(--cd-dim);
+  --color-deck-accent: var(--cd-accent);
+  --color-deck-success: var(--cd-ok);
+  --color-deck-warning: var(--cd-warn);
+  --color-deck-danger: var(--cd-danger);
+  --color-deck-info: var(--cd-info);
 }

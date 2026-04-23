@@ -4,7 +4,10 @@ import GlobalApprovalQueue from './global/GlobalApprovalQueue';
 import ConnectionIndicator from './global/ConnectionIndicator';
 import ToastContainer from './global/ToastContainer';
 import CommandPalette from './global/CommandPalette';
+import TweaksPanel from './global/TweaksPanel';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useApplyUIConfig } from '../hooks/useApplyUIConfig';
+import { useUIConfigStore } from '../stores/useUIConfigStore';
 
 interface AppShellProps {
   children: ReactNode;
@@ -12,17 +15,26 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   const { isCommandPaletteOpen, closeCommandPalette } = useKeyboardShortcuts();
+  const tweaksOpen = useUIConfigStore((s) => s.tweaksOpen);
+
+  useApplyUIConfig();
 
   return (
-    <div className="flex h-screen bg-deck-bg">
+    <div className="flex h-screen bg-bg text-fg">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto p-6">{children}</main>
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {children}
+      </main>
 
-      {/* Global overlays — visible on every route */}
+      {/* Global overlays */}
       <GlobalApprovalQueue />
       <ConnectionIndicator />
       <ToastContainer />
-      <CommandPalette isOpen={isCommandPaletteOpen} onClose={closeCommandPalette} />
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={closeCommandPalette}
+      />
+      {tweaksOpen && <TweaksPanel />}
     </div>
   );
 }

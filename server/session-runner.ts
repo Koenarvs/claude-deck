@@ -498,19 +498,16 @@ export class SessionRunner implements Killable {
       rawResultEvent: JSON.stringify(event).substring(0, 2000),
     }, 'CLI turn completed — raw result event');
 
-    // Extract token counts from the usage object (actual CLI field names)
-    const usage = (event as unknown as Record<string, unknown>).usage as Record<string, unknown> | undefined;
-    const totalInputTokens = (usage?.input_tokens as number ?? 0)
-      + (usage?.cache_read_input_tokens as number ?? 0)
-      + (usage?.cache_creation_input_tokens as number ?? 0);
-    const totalOutputTokens = usage?.output_tokens as number ?? 0;
+    // Extract token counts from flat top-level fields on the result event
+    const totalInputTokens = (event.total_input_tokens ?? 0)
+      + (event.total_cache_read_tokens ?? 0)
+      + (event.total_cache_creation_tokens ?? 0);
+    const totalOutputTokens = event.total_output_tokens ?? 0;
 
     logger.info({
       goalId: this.goal.id,
       totalInputTokens,
       totalOutputTokens,
-      rawUsage: usage ? JSON.stringify(usage).substring(0, 500) : 'none',
-      eventKeys: Object.keys(event).join(', '),
     }, 'Token extraction from result event');
 
     // End the session with token data

@@ -5,6 +5,7 @@ import { SessionOriginSchema } from '../../src/shared/schemas';
 import { validateQuery } from '../middleware/validate';
 import type { SessionService } from '../services/session-service';
 import type { MessageService } from '../services/message-service';
+import { getSessionUsage } from '../services/usage-service';
 
 /**
  * Query parameter schema for GET /api/sessions.
@@ -229,6 +230,21 @@ export function createSessionsRouter(
       total_tokens_out: session.total_tokens_out ?? null,
     });
     res.json({ ok: true, ended_at: Date.now() });
+  });
+
+  /**
+   * GET /api/sessions/:id/usage
+   * Returns token usage parsed from Claude Code's local JSONL logs.
+   */
+  router.get('/sessions/:id/usage', (req, res) => {
+    const sessionId = String(req.params['id']);
+    const session = sessionService.get(sessionId);
+    const usage = getSessionUsage(sessionId, session?.model ?? null);
+    if (!usage) {
+      res.json({ inputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens: 0, totalTokens: 0, currentContextTokens: 0, estimatedCostUsd: 0, messageCount: 0 });
+      return;
+    }
+    res.json(usage);
   });
 
   /**

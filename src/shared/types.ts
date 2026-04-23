@@ -2,7 +2,7 @@
 
 export type GoalStatus = 'planning' | 'active' | 'waiting' | 'complete' | 'archived';
 
-export type GoalModel = 'opus' | 'sonnet' | 'haiku' | 'default';
+export type GoalModel = 'opus' | 'sonnet' | 'haiku' | 'default' | (string & {});
 
 export type PermissionMode = 'autonomous' | 'supervised';
 

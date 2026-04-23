@@ -47,16 +47,16 @@ export default function KanbanPage() {
   const closeModal = useCallback(() => setModalOpen(false), []);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col px-[22px] py-4">
       {/* Page header */}
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-deck-text">Board</h1>
+        <h1 className="text-xl font-semibold text-fg">Board</h1>
         <button
           type="button"
           onClick={openModal}
-          className="inline-flex items-center gap-2 rounded-md bg-deck-accent px-3 py-2 text-sm font-medium text-white
-            transition-colors hover:bg-deck-accent-hover
-            focus:outline-none focus:ring-2 focus:ring-deck-accent focus:ring-offset-1 focus:ring-offset-deck-bg"
+          className="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-fg
+            transition-[filter] hover:brightness-105
+            focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1 focus:ring-offset-bg"
         >
           <Plus size={16} />
           New Goal

@@ -181,7 +181,7 @@ export default function KanbanBoard() {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      <div className="flex h-full min-h-0 gap-4 overflow-x-auto pb-4">
         {VISIBLE_STATUSES.map((status) => (
           <KanbanColumn
             key={status}
@@ -193,7 +193,7 @@ export default function KanbanBoard() {
 
       <DragOverlay dropAnimation={null}>
         {activeGoal ? (
-          <div className="w-72 rotate-2 opacity-90">
+          <div className="w-72 rotate-2 opacity-80 shadow-xl">
             <KanbanCard goal={activeGoal} />
           </div>
         ) : null}

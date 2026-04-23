@@ -10,7 +10,7 @@ export const GoalStatusSchema = z.enum([
   'archived',
 ]);
 
-export const GoalModelSchema = z.enum(['opus', 'sonnet', 'haiku', 'default']);
+export const GoalModelSchema = z.string();
 
 export const PermissionModeSchema = z.enum(['autonomous', 'supervised']);
 
@@ -287,6 +287,10 @@ export const StreamJsonResultEventSchema = z.object({
   total_cost_usd: z.number(),
   num_turns: z.number().int(),
   session_id: z.string(),
+  total_input_tokens: z.number().optional(),
+  total_output_tokens: z.number().optional(),
+  total_cache_read_tokens: z.number().optional(),
+  total_cache_creation_tokens: z.number().optional(),
 });
 
 // StreamJsonEvent: cannot use z.discriminatedUnion because 'system' has two subtypes.

@@ -184,7 +184,7 @@ export default function GoalDetailPage() {
 
   return (
     <div
-      className="flex h-full flex-col -m-6"
+      className="flex h-full flex-col"
       data-testid="goal-detail-page"
     >
       <GoalHeader

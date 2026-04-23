@@ -1,20 +1,32 @@
+import { useState, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useNavigate } from 'react-router';
-import { Tag, Cpu, Archive } from 'lucide-react';
+import { Cpu, Archive, FolderOpen, AlertCircle, Pause } from 'lucide-react';
 import { useGoalsStore } from '../../stores/useGoalsStore';
+import { useApprovalsStore } from '../../stores/useApprovalsStore';
+import { useActiveToolStore } from '../../stores/useActiveToolStore';
+import { estimateContextUsage } from '../../stores/useSessionHealthStore';
 import type { Goal, GoalModel } from '../../shared/types';
 
 interface KanbanCardProps {
   goal: Goal;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  planning: 'bg-deck-warning',
-  active: 'bg-deck-accent',
-  waiting: 'bg-deck-muted',
-  complete: 'bg-deck-success',
-  archived: 'bg-gray-600',
+interface SessionStats {
+  turns: number;
+  cost: number;
+  tokensIn: number;
+  tokensOut: number;
+  contextPct: number;
+}
+
+const STATUS_RAIL_COLORS: Record<string, string> = {
+  planning: 'border-l-[var(--cd-warn)]',
+  active: 'border-l-[var(--cd-accent)]',
+  waiting: 'border-l-[var(--cd-dim)]',
+  complete: 'border-l-[var(--cd-ok)]',
+  archived: 'border-l-[var(--cd-faint)]',
 };
 
 const MODEL_LABELS: Record<GoalModel, string> = {
@@ -28,12 +40,85 @@ const MODEL_COLORS: Record<GoalModel, string> = {
   opus: 'text-amber-400',
   sonnet: 'text-indigo-400',
   haiku: 'text-emerald-400',
-  default: 'text-deck-muted',
+  default: 'text-dim',
 };
+
+function fmtCost(usd: number): string {
+  if (usd === 0) return '$0.00';
+  return `$${usd.toFixed(2)}`;
+}
+
+function fmtTokens(n: number): string {
+  if (n === 0) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function shortenCwd(cwd: string): string {
+  const parts = cwd.replace(/\\/g, '/').split('/');
+  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : cwd;
+}
 
 export default function KanbanCard({ goal }: KanbanCardProps) {
   const navigate = useNavigate();
   const removeGoal = useGoalsStore((s) => s.removeGoal);
+  const [stats, setStats] = useState<SessionStats | null>(null);
+
+  const pendingApproval = useApprovalsStore((s) =>
+    s.pending.find((a) => a.goal_id === goal.id),
+  );
+
+  const sessionId = goal.current_session_id;
+  const activeTool = useActiveToolStore((s) =>
+    sessionId ? s.bySessionId[sessionId] ?? null : null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const goalRes = await fetch(`/api/goals/${goal.id}`);
+        if (!goalRes.ok) return;
+        const goalData = (await goalRes.json()) as Record<string, unknown>;
+        const g = goalData.goal as Record<string, unknown> | undefined;
+        const sessionId = (g?.current_session_id as string) ?? null;
+        if (!sessionId) return;
+
+        const [sessRes, usageRes] = await Promise.all([
+          fetch(`/api/sessions/${sessionId}`),
+          fetch(`/api/sessions/${sessionId}/usage`),
+        ]);
+        if (!sessRes.ok) return;
+        const sess = (await sessRes.json()) as Record<string, unknown>;
+        const usage = usageRes.ok
+          ? (await usageRes.json()) as Record<string, number>
+          : null;
+        if (cancelled) return;
+
+        const tokensIn = (usage?.inputTokens ?? 0)
+          + (usage?.cacheCreationTokens ?? 0)
+          + (usage?.cacheReadTokens ?? 0);
+        const tokensOut = usage?.outputTokens ?? 0;
+        const currentContext = usage?.currentContextTokens ?? 0;
+        const dbCost = (sess.total_cost_usd as number) ?? 0;
+        const jsonlCost = usage?.estimatedCostUsd ?? 0;
+        setStats({
+          turns: (sess.stream_event_count as number) ?? 0,
+          cost: jsonlCost > 0 ? jsonlCost : dbCost,
+          tokensIn,
+          tokensOut,
+          contextPct: estimateContextUsage(currentContext, 0, goal.model ?? 'default'),
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [goal.id, goal.current_session_id, goal.model]);
 
   const {
     attributes,
@@ -63,6 +148,12 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
     }
   }
 
+  const turns = stats?.turns ?? 0;
+  const cost = stats?.cost ?? 0;
+  const tokens = (stats?.tokensIn ?? 0) + (stats?.tokensOut ?? 0);
+  const contextPct = stats?.contextPct ?? 0;
+  const isLive = goal.status === 'active' || goal.status === 'waiting';
+
   return (
     <div
       ref={setNodeRef}
@@ -74,51 +165,88 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
       role="button"
       tabIndex={0}
       aria-label={`Goal: ${goal.title}`}
-      className={`group cursor-pointer rounded-lg border border-deck-border bg-deck-surface p-3
-        transition-all hover:border-deck-accent/50 hover:shadow-md
-        focus:outline-none focus:ring-2 focus:ring-deck-accent focus:ring-offset-1 focus:ring-offset-deck-bg
+      className={`group cursor-pointer rounded-md border border-line bg-card p-3 pl-3.5
+        border-l-[3px] ${STATUS_RAIL_COLORS[goal.status] ?? 'border-l-[var(--cd-dim)]'}
+        transition-all hover:border-line-strong hover:shadow-md
+        focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1 focus:ring-offset-bg
         ${isDragging ? 'z-50 opacity-50 shadow-lg' : ''}`}
     >
-      {/* Header: status dot + title */}
-      <div className="flex items-start gap-2">
-        <span
-          className={`mt-1.5 inline-block h-2 w-2 flex-shrink-0 rounded-full ${STATUS_COLORS[goal.status] ?? 'bg-deck-muted'}`}
-          aria-label={`Status: ${goal.status}`}
-        />
-        <h3 className="text-sm font-medium leading-snug text-deck-text line-clamp-2">
-          {goal.title}
-        </h3>
+      {/* Title */}
+      <h3 className="text-[13px] font-medium leading-snug text-fg line-clamp-2">
+        {goal.title}
+      </h3>
+
+      {/* Working directory */}
+      <div className="mt-1 flex items-center gap-1 text-faint">
+        <FolderOpen size={10} className="shrink-0" />
+        <span className="mono-tabular truncate text-[10px]">
+          {shortenCwd(goal.cwd)}
+        </span>
       </div>
 
-      {/* Footer: tags + model badge */}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {goal.tags.length > 0 && (
-          <>
-            <Tag size={12} className="text-deck-muted" />
-            {goal.tags.slice(0, 3).map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex rounded bg-deck-border px-1.5 py-0.5 text-xs text-deck-muted"
-              >
-                {tag}
-              </span>
-            ))}
-            {goal.tags.length > 3 && (
-              <span className="text-xs text-deck-muted">
-                +{goal.tags.length - 3}
-              </span>
-            )}
-          </>
-        )}
+      {/* Context bar (active/waiting) */}
+      {isLive && stats && (
+        <div className="mt-2 flex items-center gap-2">
+          <div className="h-[4px] flex-1 overflow-hidden rounded-full bg-inset">
+            <div
+              className={`h-full rounded-full transition-all ${
+                contextPct > 80 ? 'bg-danger' : contextPct > 50 ? 'bg-warn' : 'bg-accent'
+              }`}
+              style={{ width: `${Math.min(100, contextPct)}%` }}
+            />
+          </div>
+          <span className="mono-tabular text-[10px] text-faint">
+            {contextPct}%
+          </span>
+        </div>
+      )}
 
+      {/* Current action (active) or blocker/idle (waiting) */}
+      {goal.status === 'active' && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <span className="pulse-dot !h-[5px] !w-[5px]" />
+          <span className="mono-tabular text-[10px] text-accent">
+            {activeTool ?? 'Running'}
+          </span>
+        </div>
+      )}
+
+      {goal.status === 'waiting' && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          {pendingApproval ? (
+            <>
+              <AlertCircle size={11} className="text-warn" />
+              <span className="mono-tabular truncate text-[10px] text-warn">
+                {pendingApproval.tool_name}
+              </span>
+            </>
+          ) : (
+            <>
+              <Pause size={11} className="text-faint" />
+              <span className="mono-tabular text-[10px] text-faint">
+                Idle
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Model + stats row */}
+      <div className="mt-2 flex items-center gap-1.5">
         {goal.model && goal.model !== 'default' && (
           <span
-            className={`inline-flex items-center gap-1 text-xs ${MODEL_COLORS[goal.model]}`}
+            className={`mono-tabular inline-flex items-center gap-0.5 rounded-sm bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold ${MODEL_COLORS[goal.model]}`}
           >
-            <Cpu size={11} />
+            <Cpu size={9} />
             {MODEL_LABELS[goal.model]}
           </span>
         )}
+
+        <div className="ml-auto flex items-center gap-2 mono-tabular text-[10px] text-faint">
+          {turns > 0 && <span>{turns}t</span>}
+          {cost > 0 && <span>{fmtCost(cost)}</span>}
+          {tokens > 0 && <span>{fmtTokens(tokens)}</span>}
+        </div>
 
         <button
           type="button"
@@ -130,11 +258,11 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
               })
               .catch(() => {});
           }}
-          className="ml-auto rounded p-1 text-deck-muted opacity-0 transition-opacity hover:bg-deck-danger/20 hover:text-deck-danger group-hover:opacity-100"
+          className="rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-danger/20 hover:text-danger group-hover:opacity-100"
           aria-label="Archive goal"
           title="Archive"
         >
-          <Archive size={14} />
+          <Archive size={12} />
         </button>
       </div>
     </div>

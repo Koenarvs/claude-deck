@@ -8,6 +8,7 @@ import { useMessagesStore } from '../stores/useMessagesStore';
 import { usePlanStore } from '../stores/usePlanStore';
 import { useApprovalsStore } from '../stores/useApprovalsStore';
 import { useConnectionStore } from '../stores/useConnectionStore';
+import { useActiveToolStore } from '../stores/useActiveToolStore';
 
 let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
@@ -69,9 +70,15 @@ function dispatch(event: ServerEvent): void {
       useSessionsStore.getState().upsertSession(event.session as Session);
       break;
 
-    case 'hook:event':
-      // Feed store removed; hook:event still broadcast by server for other consumers
+    case 'hook:event': {
+      const he = event.event;
+      if (he.session_id && he.event_type === 'PreToolUse') {
+        useActiveToolStore.getState().setActiveTool(he.session_id, he.tool_name);
+      } else if (he.session_id && he.event_type === 'PostToolUse') {
+        useActiveToolStore.getState().setActiveTool(he.session_id, null);
+      }
       break;
+    }
 
     case 'session:ended': {
       const allSessions = useSessionsStore.getState().sessions;

@@ -21,11 +21,11 @@ const COLUMN_LABELS: Record<GoalStatus, string> = {
 };
 
 const COLUMN_HEADER_COLORS: Record<GoalStatus, string> = {
-  planning: 'border-t-amber-500',
-  active: 'border-t-indigo-500',
-  waiting: 'border-t-gray-500',
-  complete: 'border-t-emerald-500',
-  archived: 'border-t-gray-600',
+  planning: 'border-t-[var(--cd-warn)]',
+  active: 'border-t-[var(--cd-accent)]',
+  waiting: 'border-t-[var(--cd-dim)]',
+  complete: 'border-t-[var(--cd-ok)]',
+  archived: 'border-t-[var(--cd-faint)]',
 };
 
 export default function KanbanColumn({ status, goals }: KanbanColumnProps) {
@@ -38,17 +38,17 @@ export default function KanbanColumn({ status, goals }: KanbanColumnProps) {
 
   return (
     <div
-      className={`flex min-h-0 w-72 flex-shrink-0 flex-col rounded-lg border-t-2 bg-deck-bg
+      className={`flex min-h-0 w-72 flex-shrink-0 flex-col rounded-md border-t-2 bg-bg
         ${COLUMN_HEADER_COLORS[status]}
-        ${isOver ? 'ring-2 ring-deck-accent/40' : ''}`}
+        ${isOver ? 'ring-2 ring-accent/40' : ''}`}
     >
       {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-deck-text">
+          <h2 className="text-[13px] font-semibold text-fg">
             {COLUMN_LABELS[status]}
           </h2>
-          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-deck-border px-1.5 text-xs text-deck-muted">
+          <span className="mono-tabular inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full border border-line bg-inset px-1.5 text-[10px] text-dim">
             {goals.length}
           </span>
         </div>
@@ -61,9 +61,9 @@ export default function KanbanColumn({ status, goals }: KanbanColumnProps) {
       >
         <SortableContext items={goalIds} strategy={verticalListSortingStrategy}>
           {goals.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-deck-muted">
+            <div className="flex flex-col items-center justify-center py-8 text-faint">
               <Inbox size={24} className="mb-2 opacity-50" />
-              <p className="text-xs">No goals in this status</p>
+              <p className="text-[11px]">No goals</p>
             </div>
           ) : (
             goals.map((goal) => <KanbanCard key={goal.id} goal={goal} />)

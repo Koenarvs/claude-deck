@@ -13,6 +13,7 @@ interface SessionCostData {
   totalTokensOut: number;
   totalCost: number;
   turnCount: number;
+  currentContextTokens: number;
 }
 
 const DIVIDER_STORAGE_KEY = 'claude-deck:split-ratio';
@@ -33,7 +34,7 @@ function readRatio(): number {
 
 export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps) {
   const [sessionCost, setSessionCost] = useState<SessionCostData>({
-    totalTokensIn: 0, totalTokensOut: 0, totalCost: 0, turnCount: 0,
+    totalTokensIn: 0, totalTokensOut: 0, totalCost: 0, turnCount: 0, currentContextTokens: 0,
   });
   const [splitRatio, setSplitRatio] = useState(readRatio);
   const [isDragging, setIsDragging] = useState(false);
@@ -42,28 +43,47 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
   });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch session cost data
+  // Fetch session cost + token data (from JSONL logs)
   useEffect(() => {
-    fetch(`/api/goals/${goalId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: Record<string, unknown> | null) => {
-        if (!data) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const goalRes = await fetch(`/api/goals/${goalId}`);
+        if (!goalRes.ok) return;
+        const data = (await goalRes.json()) as Record<string, unknown>;
         const goal = data.goal as Record<string, unknown> | undefined;
         const sessionId = goal?.current_session_id as string | undefined;
         if (!sessionId) return;
-        return fetch(`/api/sessions/${sessionId}`);
-      })
-      .then((r) => (r && r.ok ? r.json() : null))
-      .then((session: Record<string, unknown> | null) => {
-        if (!session) return;
+
+        const [sessRes, usageRes] = await Promise.all([
+          fetch(`/api/sessions/${sessionId}`),
+          fetch(`/api/sessions/${sessionId}/usage`),
+        ]);
+        if (cancelled) return;
+
+        const session = sessRes.ok ? (await sessRes.json()) as Record<string, unknown> : null;
+        const usage = usageRes.ok ? (await usageRes.json()) as Record<string, number> : null;
+
+        const tokensIn = (usage?.inputTokens ?? 0)
+          + (usage?.cacheCreationTokens ?? 0)
+          + (usage?.cacheReadTokens ?? 0);
+        const tokensOut = usage?.outputTokens ?? 0;
+
+        const dbCost = (session?.total_cost_usd as number) ?? 0;
+        const jsonlCost = usage?.estimatedCostUsd ?? 0;
         setSessionCost({
-          totalTokensIn: (session.total_tokens_in as number) ?? 0,
-          totalTokensOut: (session.total_tokens_out as number) ?? 0,
-          totalCost: (session.total_cost_usd as number) ?? 0,
-          turnCount: (session.stream_event_count as number) ?? 0,
+          totalTokensIn: tokensIn,
+          totalTokensOut: tokensOut,
+          totalCost: jsonlCost > 0 ? jsonlCost : dbCost,
+          turnCount: (session?.stream_event_count as number) ?? 0,
+          currentContextTokens: usage?.currentContextTokens ?? 0,
         });
-      })
-      .catch(() => {});
+      } catch {
+        // ignore
+      }
+    }
+    load();
+    return () => { cancelled = true; };
   }, [goalId]);
 
   // Drag handler for resizable divider
@@ -134,6 +154,7 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
             tokensOut: sessionCost.totalTokensOut,
             cost: sessionCost.totalCost,
             turnCount: sessionCost.turnCount,
+            currentContextTokens: sessionCost.currentContextTokens,
           }}
         />
       </div>
