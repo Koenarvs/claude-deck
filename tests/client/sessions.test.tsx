@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import type { Session, SessionOrigin } from '../../src/shared/types';
@@ -37,9 +37,6 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     stream_event_count: 42,
     hook_event_count: 10,
     stderr_bytes: 0,
-    total_cost_usd: 0.0523,
-    total_tokens_in: 15000,
-    total_tokens_out: 3200,
     started_at: 1700000000000,
     ended_at: 1700003600000,
     ...overrides,
@@ -52,9 +49,6 @@ function makeSessions(count: number): Session[] {
       id: `sess-${String(i).padStart(3, '0')}`,
       started_at: 1700000000000 + i * 60000,
       ended_at: 1700000000000 + i * 60000 + 300000,
-      total_cost_usd: Math.random() * 0.1,
-      total_tokens_in: Math.floor(Math.random() * 50000),
-      total_tokens_out: Math.floor(Math.random() * 10000),
       origin: (i % 3 === 0 ? 'dashboard' : 'external') as SessionOrigin,
     }),
   );
@@ -93,7 +87,6 @@ describe('SessionsTable', () => {
     expect(screen.getByText('Model')).toBeDefined();
     expect(screen.getByText(/Started/)).toBeDefined();
     expect(screen.getByText(/Duration/)).toBeDefined();
-    expect(screen.getByText(/Cost/)).toBeDefined();
     expect(screen.getByText('Status')).toBeDefined();
   });
 
@@ -172,49 +165,6 @@ describe('SessionsTable', () => {
     const rows = container.querySelectorAll('tbody tr');
     expect(rows.length).toBe(1);
     expect(screen.getByText('Active')).toBeDefined();
-  });
-
-  it('sorts by cost descending by default after click', async () => {
-    const user = userEvent.setup();
-    const sessions = [
-      makeSession({ id: 'cheap', total_cost_usd: 0.01, started_at: 1700000000000 }),
-      makeSession({ id: 'expensive', total_cost_usd: 0.99, started_at: 1700000001000 }),
-    ];
-    render(
-      <MemoryRouter>
-        <SessionsTable sessions={sessions} originFilter="all" activeOnly={false} />
-      </MemoryRouter>,
-    );
-
-    // Click Cost header to sort by cost descending
-    const costHeader = screen.getByText(/^Cost/);
-    await user.click(costHeader);
-
-    const rows = screen.getAllByRole('row');
-    // First data row should be the expensive one
-    const firstRow = rows[1];
-    expect(within(firstRow).getByText('$0.9900')).toBeDefined();
-  });
-
-  it('toggles sort direction on second click', async () => {
-    const user = userEvent.setup();
-    const sessions = [
-      makeSession({ id: 'cheap', total_cost_usd: 0.01 }),
-      makeSession({ id: 'expensive', total_cost_usd: 0.99 }),
-    ];
-    render(
-      <MemoryRouter>
-        <SessionsTable sessions={sessions} originFilter="all" activeOnly={false} />
-      </MemoryRouter>,
-    );
-
-    const costHeader = screen.getByText(/^Cost/);
-    await user.click(costHeader); // desc
-    await user.click(costHeader); // asc
-
-    const rows = screen.getAllByRole('row');
-    const firstRow = rows[1];
-    expect(within(firstRow).getByText('$0.0100')).toBeDefined();
   });
 
   it('shows active badge for sessions without ended_at', () => {
@@ -322,6 +272,19 @@ describe('SessionFilters', () => {
 // ── SessionDetailHeader ─────────────────────────────────────────────────────
 
 describe('SessionDetailHeader', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        inputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+        estimatedCostUsd: 0,
+      }),
+    }));
+  });
+
   it('renders session ID', () => {
     const session = makeSession({ id: 'header-test-id' });
     render(
@@ -384,14 +347,26 @@ describe('SessionDetailHeader', () => {
     expect(screen.getByText('opus')).toBeDefined();
   });
 
-  it('displays cost', () => {
-    const session = makeSession({ total_cost_usd: 0.0523 });
+  it('displays cost from JSONL usage', async () => {
+    // Override the beforeEach mock with specific cost data
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        inputTokens: 1000,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 500,
+        estimatedCostUsd: 0.0523,
+      }),
+    });
+    const session = makeSession({});
     render(
       <MemoryRouter>
         <SessionDetailHeader session={session} />
       </MemoryRouter>,
     );
-    expect(screen.getByText('$0.0523')).toBeDefined();
+    // Wait for the fetch to resolve and the component to re-render
+    expect(await screen.findByText('$0.0523')).toBeDefined();
   });
 
   it('displays working directory', () => {
@@ -484,8 +459,6 @@ describe('MessageStream', () => {
         tool_args: null,
         tool_result: null,
         tool_use_id: null,
-        token_in: 10,
-        token_out: 0,
         created_at: 1700000000000,
       },
     ];
@@ -505,8 +478,6 @@ describe('MessageStream', () => {
         tool_args: null,
         tool_result: null,
         tool_use_id: null,
-        token_in: 0,
-        token_out: 25,
         created_at: 1700000001000,
       },
     ];
@@ -526,8 +497,6 @@ describe('MessageStream', () => {
         tool_args: '{"command":"ls -la"}',
         tool_result: null,
         tool_use_id: 'tu-1',
-        token_in: null,
-        token_out: null,
         created_at: 1700000002000,
       },
     ];
@@ -547,8 +516,6 @@ describe('MessageStream', () => {
         tool_args: null,
         tool_result: 'total 42\ndrwxr-xr-x  2 user',
         tool_use_id: 'tu-1',
-        token_in: null,
-        token_out: null,
         created_at: 1700000003000,
       },
     ];
@@ -568,8 +535,6 @@ describe('MessageStream', () => {
         tool_args: null,
         tool_result: null,
         tool_use_id: null,
-        token_in: 10,
-        token_out: 0,
         created_at: 1700000000000,
       },
       {
@@ -581,8 +546,6 @@ describe('MessageStream', () => {
         tool_args: null,
         tool_result: null,
         tool_use_id: null,
-        token_in: 0,
-        token_out: 20,
         created_at: 1700000001000,
       },
     ];

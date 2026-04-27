@@ -124,16 +124,10 @@ function spawnGoalSession(goalId: string, prompt: string): string {
         tool_args: message.tool_args,
         tool_result: message.tool_result,
         tool_use_id: message.tool_use_id,
-        token_in: message.token_in,
-        token_out: message.token_out,
       });
     },
-    endSession(sessionId, data) {
-      sessionService.end(sessionId, {
-        total_cost_usd: data.total_cost_usd,
-        total_tokens_in: data.total_tokens_in ?? null,
-        total_tokens_out: data.total_tokens_out ?? null,
-      });
+    endSession(sessionId) {
+      sessionService.end(sessionId);
     },
     incrementStreamEventCount(sessionId) {
       sessionService.incrementCounters(sessionId, { stream: 1 });

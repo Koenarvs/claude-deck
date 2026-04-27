@@ -43,8 +43,6 @@ const validMessage = {
   tool_args: null,
   tool_result: null,
   tool_use_id: null,
-  token_in: 100,
-  token_out: 50,
   created_at: 1700000000000,
 };
 
@@ -291,9 +289,6 @@ describe('SessionSchema', () => {
       stream_event_count: 0,
       hook_event_count: 0,
       stderr_bytes: 0,
-      total_cost_usd: null,
-      total_tokens_in: null,
-      total_tokens_out: null,
       started_at: 1700000000000,
       ended_at: null,
     });
@@ -311,9 +306,6 @@ describe('SessionSchema', () => {
       stream_event_count: 0,
       hook_event_count: 0,
       stderr_bytes: 0,
-      total_cost_usd: null,
-      total_tokens_in: null,
-      total_tokens_out: null,
       started_at: null,
       ended_at: null,
     });

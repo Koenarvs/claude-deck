@@ -28,12 +28,8 @@ export interface IncrementCountersInput {
   stderr_bytes?: number | undefined;
 }
 
-/** End-of-session metadata. */
-export interface EndSessionInput {
-  total_cost_usd?: number | null | undefined;
-  total_tokens_in?: number | null | undefined;
-  total_tokens_out?: number | null | undefined;
-}
+/** End-of-session metadata (reserved for future per-session fields). */
+export type EndSessionInput = Record<string, never>;
 
 /**
  * Service for managing session lifecycle.
@@ -58,18 +54,15 @@ export class SessionService {
   ) {
     // INSERT OR IGNORE ensures idempotency for duplicate session-start hooks
     this.upsertStmt = db.prepare(`
-      INSERT OR IGNORE INTO sessions (id, goal_id, origin, cwd, model, trace_dir, stream_event_count, hook_event_count, stderr_bytes, total_cost_usd, total_tokens_in, total_tokens_out, started_at, ended_at)
-      VALUES (@id, @goal_id, @origin, @cwd, @model, NULL, 0, 0, 0, NULL, NULL, NULL, @started_at, NULL)
+      INSERT OR IGNORE INTO sessions (id, goal_id, origin, cwd, model, trace_dir, stream_event_count, hook_event_count, stderr_bytes, started_at, ended_at)
+      VALUES (@id, @goal_id, @origin, @cwd, @model, NULL, 0, 0, 0, @started_at, NULL)
     `);
 
     this.getStmt = db.prepare('SELECT * FROM sessions WHERE id = ?');
 
     this.endStmt = db.prepare(`
       UPDATE sessions
-      SET ended_at = @ended_at,
-          total_cost_usd = COALESCE(@total_cost_usd, total_cost_usd),
-          total_tokens_in = COALESCE(@total_tokens_in, total_tokens_in),
-          total_tokens_out = COALESCE(@total_tokens_out, total_tokens_out)
+      SET ended_at = @ended_at
       WHERE id = @id
     `);
 
@@ -161,14 +154,11 @@ export class SessionService {
    * Marks a session as ended. Sets ended_at and optionally updates
    * cost/token metadata. Broadcasts `session:ended`.
    */
-  end(id: string, input?: EndSessionInput): void {
+  end(id: string, _input?: EndSessionInput): void {
     const now = Date.now();
     this.endStmt.run({
       id,
       ended_at: now,
-      total_cost_usd: input?.total_cost_usd ?? null,
-      total_tokens_in: input?.total_tokens_in ?? null,
-      total_tokens_out: input?.total_tokens_out ?? null,
     });
 
     logger.info({ sessionId: id }, 'Session ended');

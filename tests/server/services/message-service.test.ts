@@ -188,19 +188,6 @@ describe('MessageService', () => {
       expect(msg.tool_use_id).toBe('tu-123');
     });
 
-    it('stores token counts', () => {
-      const msg = service.add({
-        session_id: 'sess-1',
-        role: 'assistant',
-        content: 'test',
-        token_in: 100,
-        token_out: 50,
-      });
-
-      expect(msg.token_in).toBe(100);
-      expect(msg.token_out).toBe(50);
-    });
-
     it('defaults nullable fields to null', () => {
       const msg = service.add({
         session_id: 'sess-1',
@@ -212,8 +199,6 @@ describe('MessageService', () => {
       expect(msg.tool_args).toBeNull();
       expect(msg.tool_result).toBeNull();
       expect(msg.tool_use_id).toBeNull();
-      expect(msg.token_in).toBeNull();
-      expect(msg.token_out).toBeNull();
     });
   });
 

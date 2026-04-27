@@ -45,9 +45,6 @@ describe('SessionService', () => {
       expect(session.stream_event_count).toBe(0);
       expect(session.hook_event_count).toBe(0);
       expect(session.stderr_bytes).toBe(0);
-      expect(session.total_cost_usd).toBeNull();
-      expect(session.total_tokens_in).toBeNull();
-      expect(session.total_tokens_out).toBeNull();
       expect(session.started_at).toBe(1700000000000);
       expect(session.ended_at).toBeNull();
     });
@@ -225,33 +222,15 @@ describe('SessionService', () => {
       expect(event.id).toBe('sess-end');
     });
 
-    it('updates cost and token metadata when provided', () => {
+    it('end sets ended_at without additional metadata', () => {
       service.create({ id: 'sess-meta', origin: 'dashboard', started_at: 1700000000000 });
       broadcasts = [];
 
-      service.end('sess-meta', {
-        total_cost_usd: 0.05,
-        total_tokens_in: 5000,
-        total_tokens_out: 2000,
-      });
+      service.end('sess-meta');
 
       const session = service.get('sess-meta');
-      expect(session!.total_cost_usd).toBe(0.05);
-      expect(session!.total_tokens_in).toBe(5000);
-      expect(session!.total_tokens_out).toBe(2000);
-    });
-
-    it('preserves existing metadata if not provided in end call', () => {
-      service.create({ id: 'sess-partial', origin: 'dashboard', started_at: 1700000000000 });
-      // Manually set some metadata
-      db.prepare("UPDATE sessions SET total_cost_usd = 0.01 WHERE id = 'sess-partial'").run();
-      broadcasts = [];
-
-      service.end('sess-partial'); // no metadata overrides
-
-      const session = service.get('sess-partial');
-      expect(session!.total_cost_usd).toBe(0.01); // preserved
       expect(session!.ended_at).not.toBeNull();
+      expect(session!.ended_at).toBeGreaterThan(0);
     });
   });
 

@@ -23,8 +23,6 @@ export interface AddMessageInput {
   tool_args?: string | null | undefined;
   tool_result?: string | null | undefined;
   tool_use_id?: string | null | undefined;
-  token_in?: number | null | undefined;
-  token_out?: number | null | undefined;
   created_at?: number | undefined;
 }
 
@@ -52,8 +50,8 @@ export class MessageService {
     private readonly broadcastFn: (event: ServerEvent) => void,
   ) {
     this.insertStmt = db.prepare(`
-      INSERT INTO messages (id, session_id, role, content, tool_name, tool_args, tool_result, tool_use_id, token_in, token_out, created_at)
-      VALUES (@id, @session_id, @role, @content, @tool_name, @tool_args, @tool_result, @tool_use_id, @token_in, @token_out, @created_at)
+      INSERT INTO messages (id, session_id, role, content, tool_name, tool_args, tool_result, tool_use_id, created_at)
+      VALUES (@id, @session_id, @role, @content, @tool_name, @tool_args, @tool_result, @tool_use_id, @created_at)
     `);
 
     this.listBySessionStmt = db.prepare(`
@@ -97,8 +95,6 @@ export class MessageService {
       tool_args: input.tool_args ?? null,
       tool_result: this.truncateForDb(input.tool_result ?? null),
       tool_use_id: input.tool_use_id ?? null,
-      token_in: input.token_in ?? null,
-      token_out: input.token_out ?? null,
       created_at: input.created_at ?? now,
     };
 

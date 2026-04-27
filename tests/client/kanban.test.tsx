@@ -78,13 +78,13 @@ describe('KanbanCard', () => {
     expect(screen.getByText('Fix the widget')).toBeInTheDocument();
   });
 
-  it('renders tags (max 3 shown)', async () => {
+  it('renders shortened working directory', async () => {
     const { default: KanbanCard } = await import('../../src/components/kanban/KanbanCard');
 
     const goal = makeGoal({
       id: 'g2',
-      title: 'Tagged goal',
-      tags: ['a', 'b', 'c', 'd'],
+      title: 'Dir goal',
+      cwd: '/home/user/project',
     });
 
     render(
@@ -93,11 +93,7 @@ describe('KanbanCard', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('a')).toBeInTheDocument();
-    expect(screen.getByText('b')).toBeInTheDocument();
-    expect(screen.getByText('c')).toBeInTheDocument();
-    expect(screen.queryByText('d')).not.toBeInTheDocument();
-    expect(screen.getByText('+1')).toBeInTheDocument();
+    expect(screen.getByText('…/user/project')).toBeInTheDocument();
   });
 
   it('renders model badge when model is set', async () => {
@@ -159,7 +155,7 @@ describe('KanbanColumn', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('No goals in this status')).toBeInTheDocument();
+    expect(screen.getByText('No goals')).toBeInTheDocument();
   });
 
   it('renders all goal cards', async () => {

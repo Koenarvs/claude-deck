@@ -126,13 +126,15 @@ describe('Goals API routes', () => {
       expect(res.status).toBe(400);
     });
 
-    it('returns 400 for invalid model', async () => {
+    it('accepts arbitrary model strings', async () => {
       const res = await postJson('/goals', {
-        title: 'Bad Model',
+        title: 'Custom Model',
         cwd: '/tmp',
         model: 'gpt-4',
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as Goal;
+      expect(body.model).toBe('gpt-4');
     });
   });
 

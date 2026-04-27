@@ -81,7 +81,6 @@ function emitResult(cost, turns) {
   emit({
     type: 'result',
     subtype: 'success',
-    total_cost_usd: cost || 0.0042,
     num_turns: turns || 1,
     session_id: sessionId,
   });

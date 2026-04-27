@@ -129,8 +129,8 @@ export class HookIngest {
 
     this.db
       .prepare(
-        `INSERT INTO sessions (id, goal_id, origin, cwd, model, display_name, trace_dir, stream_event_count, hook_event_count, stderr_bytes, total_cost_usd, total_tokens_in, total_tokens_out, started_at, ended_at)
-         VALUES (?, NULL, 'external', ?, ?, ?, NULL, 0, 1, 0, NULL, NULL, NULL, ?, NULL)`,
+        `INSERT INTO sessions (id, goal_id, origin, cwd, model, display_name, trace_dir, stream_event_count, hook_event_count, stderr_bytes, started_at, ended_at)
+         VALUES (?, NULL, 'external', ?, ?, ?, NULL, 0, 1, 0, ?, NULL)`,
       )
       .run(sessionId, cwd, payload.model ?? null, displayName, now);
 
@@ -150,9 +150,6 @@ export class HookIngest {
           stream_event_count: (s['stream_event_count'] as number) ?? 0,
           hook_event_count: (s['hook_event_count'] as number) ?? 0,
           stderr_bytes: (s['stderr_bytes'] as number) ?? 0,
-          total_cost_usd: (s['total_cost_usd'] as number) ?? null,
-          total_tokens_in: (s['total_tokens_in'] as number) ?? null,
-          total_tokens_out: (s['total_tokens_out'] as number) ?? null,
           started_at: (s['started_at'] as number) ?? null,
           ended_at: (s['ended_at'] as number) ?? null,
         },

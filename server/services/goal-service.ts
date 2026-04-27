@@ -42,8 +42,6 @@ interface MessageRow {
   tool_args: string | null;
   tool_result: string | null;
   tool_use_id: string | null;
-  token_in: number | null;
-  token_out: number | null;
   created_at: number;
 }
 
@@ -84,8 +82,6 @@ function rowToMessage(row: MessageRow): Message {
     tool_args: row.tool_args,
     tool_result: row.tool_result,
     tool_use_id: row.tool_use_id,
-    token_in: row.token_in,
-    token_out: row.token_out,
     created_at: row.created_at,
   };
 }

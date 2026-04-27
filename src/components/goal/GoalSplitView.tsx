@@ -69,12 +69,11 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
           + (usage?.cacheReadTokens ?? 0);
         const tokensOut = usage?.outputTokens ?? 0;
 
-        const dbCost = (session?.total_cost_usd as number) ?? 0;
         const jsonlCost = usage?.estimatedCostUsd ?? 0;
         setSessionCost({
           totalTokensIn: tokensIn,
           totalTokensOut: tokensOut,
-          totalCost: jsonlCost > 0 ? jsonlCost : dbCost,
+          totalCost: jsonlCost,
           turnCount: (session?.stream_event_count as number) ?? 0,
           currentContextTokens: usage?.currentContextTokens ?? 0,
         });

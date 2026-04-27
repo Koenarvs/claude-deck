@@ -10,6 +10,7 @@ import {
   LineChart,
   Line,
 } from 'recharts';
+import { fmtCost, fmtTokens } from '../lib/format';
 
 // ── Tool Category Taxonomy (from cc-lens) ──────────────────────────────────
 
@@ -105,7 +106,7 @@ export default function AnalyticsPage() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-deck-muted" />
+        <Loader2 className="h-6 w-6 animate-spin text-dim" />
       </div>
     );
   }
@@ -114,8 +115,8 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <BarChart3 className="h-6 w-6 text-deck-accent" />
-          <h1 className="text-2xl font-bold text-deck-text">Analytics</h1>
+          <BarChart3 className="h-6 w-6 text-accent" />
+          <h1 className="text-2xl font-bold text-fg">Analytics</h1>
         </div>
         <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
       </div>
@@ -123,31 +124,31 @@ export default function AnalyticsPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatBox label="Total Sessions" value={totals.sessions} />
-        <StatBox label="Total Cost" value={`$${totals.cost.toFixed(2)}`} />
-        <StatBox label="Tokens In" value={formatNumber(totals.tokensIn)} />
-        <StatBox label="Tokens Out" value={formatNumber(totals.tokensOut)} />
+        <StatBox label="Total Cost" value={fmtCost(totals.cost)} />
+        <StatBox label="Tokens In" value={fmtTokens(totals.tokensIn)} />
+        <StatBox label="Tokens Out" value={fmtTokens(totals.tokensOut)} />
       </div>
 
       {/* Activity Heatmap */}
-      <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
+      <div className="rounded-md border border-line bg-card p-4">
         <div className="mb-3 flex items-center gap-2">
-          <Calendar size={16} className="text-deck-muted" />
-          <h2 className="text-sm font-medium text-deck-muted">Activity (90 days)</h2>
+          <Calendar size={16} className="text-dim" />
+          <h2 className="text-sm font-medium text-dim">Activity (90 days)</h2>
         </div>
         <ActivityHeatmap data={heatmap} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Daily cost chart */}
-        <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
-          <h2 className="mb-4 text-sm font-medium text-deck-muted">Daily Cost</h2>
+        <div className="rounded-md border border-line bg-card p-4">
+          <h2 className="mb-4 text-sm font-medium text-dim">Daily Cost</h2>
           {filteredCosts.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={filteredCosts}>
-                <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} />
-                <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} tickFormatter={(v: number) => `$${v}`} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => [`$${value.toFixed(4)}`, 'Cost']} />
-                <Bar dataKey="cost" fill="#43949B" radius={[2, 2, 0, 0]} />
+                <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} tickFormatter={(v: number) => `$${v}`} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => [fmtCost(value), 'Cost']} />
+                <Bar dataKey="cost" fill="var(--cd-accent)" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -156,17 +157,17 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Sessions per day trend */}
-        <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
-          <h2 className="mb-4 text-sm font-medium text-deck-muted">Sessions Per Day</h2>
+        <div className="rounded-md border border-line bg-card p-4">
+          <h2 className="mb-4 text-sm font-medium text-dim">Sessions Per Day</h2>
           {sessionsPerDay.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={sessionsPerDay}>
-                <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} />
-                <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Line type="monotone" dataKey="sessions" stroke="#43949B" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="dashboard" stroke="#51A443" strokeWidth={1} dot={false} strokeDasharray="4 2" />
-                <Line type="monotone" dataKey="external" stroke="#D38235" strokeWidth={1} dot={false} strokeDasharray="4 2" />
+                <Line type="monotone" dataKey="sessions" stroke="var(--cd-accent)" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="dashboard" stroke="var(--cd-ok)" strokeWidth={1} dot={false} strokeDasharray="4 2" />
+                <Line type="monotone" dataKey="external" stroke="var(--cd-warn)" strokeWidth={1} dot={false} strokeDasharray="4 2" />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -175,14 +176,14 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Tool usage by category */}
-        <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
-          <h2 className="mb-4 text-sm font-medium text-deck-muted">Tool Usage by Category</h2>
+        <div className="rounded-md border border-line bg-card p-4">
+          <h2 className="mb-4 text-sm font-medium text-dim">Tool Usage by Category</h2>
           {categoryData.length > 0 ? (
             <div className="space-y-2">
               {categoryData.map((cat) => (
                 <div key={cat.category} className="flex items-center gap-3">
-                  <span className="w-16 text-right text-xs text-deck-muted">{cat.label}</span>
-                  <div className="flex-1 h-6 bg-deck-bg rounded overflow-hidden">
+                  <span className="w-16 text-right text-xs text-dim">{cat.label}</span>
+                  <div className="flex-1 h-6 bg-inset rounded overflow-hidden">
                     <div
                       className="h-full rounded transition-all"
                       style={{
@@ -191,7 +192,7 @@ export default function AnalyticsPage() {
                       }}
                     />
                   </div>
-                  <span className="w-10 text-right text-xs font-mono text-deck-muted">{cat.count}</span>
+                  <span className="w-10 text-right mono-tabular text-[10px] text-faint">{cat.count}</span>
                 </div>
               ))}
             </div>
@@ -201,15 +202,15 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Session duration distribution */}
-        <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
-          <h2 className="mb-4 text-sm font-medium text-deck-muted">Session Duration Distribution</h2>
+        <div className="rounded-md border border-line bg-card p-4">
+          <h2 className="mb-4 text-sm font-medium text-dim">Session Duration Distribution</h2>
           {durations.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={durations}>
-                <XAxis dataKey="bucket" tick={{ fill: '#9ca3af', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                <XAxis dataKey="bucket" tick={{ fill: 'var(--cd-faint)', fontSize: 11 }} />
+                <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="count" fill="#8B5CF6" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="count" fill="var(--cd-info)" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -223,7 +224,7 @@ export default function AnalyticsPage() {
 
 // ── Subcomponents ───────────────────────────────────────────────────────────
 
-const tooltipStyle = { backgroundColor: '#1e293b', border: '1px solid #334155', color: '#e2e8f0' };
+const tooltipStyle = { backgroundColor: 'var(--cd-card)', border: '1px solid var(--cd-line)', color: 'var(--cd-fg)' };
 
 function TimeRangeSelector({ value, onChange }: { value: TimeRange; onChange: (v: TimeRange) => void }) {
   const options: { value: TimeRange; label: string }[] = [
@@ -233,16 +234,16 @@ function TimeRangeSelector({ value, onChange }: { value: TimeRange; onChange: (v
     { value: 'all', label: 'All time' },
   ];
   return (
-    <div className="flex gap-1 rounded-lg border border-deck-border p-0.5">
+    <div className="flex gap-1 rounded-md border border-line p-0.5">
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
-          className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+          className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
             value === opt.value
-              ? 'bg-deck-accent text-white'
-              : 'text-deck-muted hover:text-deck-text'
+              ? 'bg-accent text-accent-fg'
+              : 'text-dim hover:text-fg'
           }`}
         >
           {opt.label}
@@ -268,12 +269,12 @@ function ActivityHeatmap({ data }: { data: HeatmapDay[] }) {
   const maxCount = Math.max(1, ...days.map((d) => d.count));
 
   function intensity(count: number): string {
-    if (count === 0) return 'bg-deck-bg';
+    if (count === 0) return 'bg-inset';
     const ratio = count / maxCount;
-    if (ratio <= 0.25) return 'bg-deck-accent/20';
-    if (ratio <= 0.5) return 'bg-deck-accent/40';
-    if (ratio <= 0.75) return 'bg-deck-accent/70';
-    return 'bg-deck-accent';
+    if (ratio <= 0.25) return 'bg-accent/20';
+    if (ratio <= 0.5) return 'bg-accent/40';
+    if (ratio <= 0.75) return 'bg-accent/70';
+    return 'bg-accent';
   }
 
   // Group into weeks
@@ -301,13 +302,13 @@ function ActivityHeatmap({ data }: { data: HeatmapDay[] }) {
           ))}
         </div>
       ))}
-      <div className="ml-2 flex items-end gap-1 text-[10px] text-deck-muted">
+      <div className="ml-2 flex items-end gap-1 text-[10px] text-faint">
         <span>Less</span>
-        <div className="h-3 w-3 rounded-sm bg-deck-bg" />
-        <div className="h-3 w-3 rounded-sm bg-deck-accent/20" />
-        <div className="h-3 w-3 rounded-sm bg-deck-accent/40" />
-        <div className="h-3 w-3 rounded-sm bg-deck-accent/70" />
-        <div className="h-3 w-3 rounded-sm bg-deck-accent" />
+        <div className="h-3 w-3 rounded-sm bg-inset" />
+        <div className="h-3 w-3 rounded-sm bg-accent/20" />
+        <div className="h-3 w-3 rounded-sm bg-accent/40" />
+        <div className="h-3 w-3 rounded-sm bg-accent/70" />
+        <div className="h-3 w-3 rounded-sm bg-accent" />
         <span>More</span>
       </div>
     </div>
@@ -316,24 +317,18 @@ function ActivityHeatmap({ data }: { data: HeatmapDay[] }) {
 
 function StatBox({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
-      <p className="text-xs text-deck-muted">{label}</p>
-      <p className="mt-1 text-xl font-bold text-deck-text">{value}</p>
+    <div className="rounded-md border border-line bg-card p-4">
+      <p className="text-xs text-dim">{label}</p>
+      <p className="mt-1 mono-tabular text-xl font-bold text-fg">{value}</p>
     </div>
   );
 }
 
 function Empty({ text }: { text: string }) {
-  return <p className="py-8 text-center text-sm text-deck-muted">{text}</p>;
+  return <p className="py-8 text-center text-sm text-faint">{text}</p>;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
 
 function filterByRange(data: DailyCost[], range: TimeRange): DailyCost[] {
   if (range === 'all') return data;

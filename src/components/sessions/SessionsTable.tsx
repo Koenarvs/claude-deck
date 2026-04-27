@@ -6,7 +6,7 @@ import { OriginBadge } from './OriginBadge';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type SortField = 'started_at' | 'duration' | 'total_cost_usd' | 'total_tokens_in' | 'total_tokens_out';
+type SortField = 'started_at' | 'duration';
 type SortDirection = 'asc' | 'desc';
 
 interface SortConfig {
@@ -56,17 +56,6 @@ function formatTimestamp(epoch: number | null): string {
   });
 }
 
-function formatCost(cost: number | null): string {
-  if (cost == null) return '--';
-  return `$${cost.toFixed(4)}`;
-}
-
-function formatTokens(tokens: number | null): string {
-  if (tokens == null) return '--';
-  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
-  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
-  return tokens.toString();
-}
 
 function formatRelativeTime(epochMs: number | null | undefined): string {
   if (epochMs == null) return 'idle';
@@ -110,21 +99,6 @@ function compareByField(a: Session, b: Session, field: SortField): number {
     case 'duration': {
       const av = getSessionDuration(a) ?? 0;
       const bv = getSessionDuration(b) ?? 0;
-      return av - bv;
-    }
-    case 'total_cost_usd': {
-      const av = a.total_cost_usd ?? 0;
-      const bv = b.total_cost_usd ?? 0;
-      return av - bv;
-    }
-    case 'total_tokens_in': {
-      const av = a.total_tokens_in ?? 0;
-      const bv = b.total_tokens_in ?? 0;
-      return av - bv;
-    }
-    case 'total_tokens_out': {
-      const av = a.total_tokens_out ?? 0;
-      const bv = b.total_tokens_out ?? 0;
       return av - bv;
     }
     default: {
@@ -291,37 +265,13 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
             >
               Duration{renderSortIcon('duration')}
             </th>
-            <th
-              className="cursor-pointer select-none px-4 py-3 font-medium hover:text-deck-text"
-              onClick={() => handleSort('total_tokens_in')}
-              role="columnheader"
-              aria-sort={sort.field === 'total_tokens_in' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-            >
-              Tokens In{renderSortIcon('total_tokens_in')}
-            </th>
-            <th
-              className="cursor-pointer select-none px-4 py-3 font-medium hover:text-deck-text"
-              onClick={() => handleSort('total_tokens_out')}
-              role="columnheader"
-              aria-sort={sort.field === 'total_tokens_out' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-            >
-              Tokens Out{renderSortIcon('total_tokens_out')}
-            </th>
-            <th
-              className="cursor-pointer select-none px-4 py-3 font-medium hover:text-deck-text"
-              onClick={() => handleSort('total_cost_usd')}
-              role="columnheader"
-              aria-sort={sort.field === 'total_cost_usd' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-            >
-              Cost{renderSortIcon('total_cost_usd')}
-            </th>
             <th className="px-4 py-3 font-medium">Status</th>
           </tr>
         </thead>
         <tbody>
           {treeRows.length === 0 ? (
             <tr>
-              <td colSpan={12} className="px-4 py-8 text-center text-deck-muted">
+              <td colSpan={9} className="px-4 py-8 text-center text-deck-muted">
                 No sessions found.
               </td>
             </tr>
@@ -358,15 +308,6 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
                   ) : null}
                 </td>
                 <td className="px-4 py-3 text-deck-muted">{formatDuration(getSessionDuration(session))}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-deck-muted">
-                  {formatTokens(session.total_tokens_in)}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums text-deck-muted">
-                  {formatTokens(session.total_tokens_out)}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums text-deck-muted">
-                  {formatCost(session.total_cost_usd)}
-                </td>
                 <td className="px-4 py-3">
                   {isSessionActive(session) ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-deck-success/15 px-2.5 py-0.5 text-xs font-medium text-deck-success">

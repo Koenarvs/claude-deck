@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { hookInstallerService } from '../services/hook-installer-service';
+import { getAggregateTotals, getDailyCosts } from '../services/usage-service';
 import logger from '../logger';
 
 const router = Router();
@@ -29,10 +30,16 @@ router.get('/skills', (req, res) => {
     for (const d of extraDirs.split(',')) {
       const trimmed = d.trim();
       if (trimmed) {
-        // Support both direct .claude/skills path and project root path
-        for (const surface of surfaceTypes) {
-          const surfaceDir = path.join(trimmed, '.claude', surface);
-          locations.push({ dir: surfaceDir, scope: 'custom', surfaceType: surface });
+        const normalised = trimmed.replace(/\\/g, '/');
+        const claudeIdx = normalised.indexOf('/.claude/');
+        if (claudeIdx !== -1) {
+          // Path already points inside .claude — use as-is
+          locations.push({ dir: trimmed, scope: 'custom', surfaceType: normalised.split('/.claude/')[1]?.split('/')[0] ?? 'skills' });
+        } else {
+          for (const surface of surfaceTypes) {
+            const surfaceDir = path.join(trimmed, '.claude', surface);
+            locations.push({ dir: surfaceDir, scope: 'custom', surfaceType: surface });
+          }
         }
       }
     }
@@ -213,24 +220,13 @@ router.get('/hook-events', (req, res) => {
 
 /**
  * GET /api/analytics/totals
- * Returns aggregate totals from sessions.
+ * Returns aggregate totals computed from Claude Code JSONL session logs.
+ * tokensIn = input + cache_creation + cache_read (matches Kanban card convention).
  */
-router.get('/analytics/totals', (req, res) => {
+router.get('/analytics/totals', (_req, res) => {
   try {
-    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
-    if (!db) {
-      res.json({ sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
-      return;
-    }
-    const row = db.prepare(`
-      SELECT
-        COUNT(*) as sessions,
-        COALESCE(SUM(total_cost_usd), 0) as cost,
-        COALESCE(SUM(total_tokens_in), 0) as tokensIn,
-        COALESCE(SUM(total_tokens_out), 0) as tokensOut
-      FROM sessions
-    `).get() as Record<string, number>;
-    res.json(row);
+    const totals = getAggregateTotals();
+    res.json(totals);
   } catch {
     res.json({ sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
   }
@@ -263,25 +259,12 @@ router.get('/analytics/tool-usage', (req, res) => {
 
 /**
  * GET /api/analytics/daily-costs
- * Returns daily cost aggregates from sessions.
+ * Returns daily cost aggregates computed from Claude Code JSONL session logs.
+ * Covers the last 90 days (matches the heatmap range).
  */
-router.get('/analytics/daily-costs', (req, res) => {
+router.get('/analytics/daily-costs', (_req, res) => {
   try {
-    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
-    if (!db) {
-      res.json([]);
-      return;
-    }
-    const rows = db.prepare(`
-      SELECT
-        date(started_at / 1000, 'unixepoch') as date,
-        COALESCE(SUM(total_cost_usd), 0) as cost,
-        COUNT(*) as sessions
-      FROM sessions
-      WHERE started_at > (strftime('%s', 'now', '-30 days') * 1000)
-      GROUP BY date(started_at / 1000, 'unixepoch')
-      ORDER BY date
-    `).all();
+    const rows = getDailyCosts(90);
     res.json(rows);
   } catch {
     res.json([]);

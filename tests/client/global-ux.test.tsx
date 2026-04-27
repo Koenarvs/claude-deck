@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import type { Approval } from '../../src/shared/types';
@@ -429,7 +429,7 @@ describe('GlobalApprovalQueue', () => {
     expect(screen.getByText('Bash')).toBeInTheDocument();
   });
 
-  it('posts decision to API on Allow click', async () => {
+  it('posts decision to API on Approve click', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'approval-1', decision: 'approved' }), {
         status: 200,
@@ -450,13 +450,14 @@ describe('GlobalApprovalQueue', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByLabelText('Allow this tool use'));
+    fireEvent.click(screen.getByText('Approve'));
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
         '/api/approvals/approval-1/decide',
         expect.objectContaining({
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ decision: 'approved' }),
         }),
       );
@@ -465,34 +466,21 @@ describe('GlobalApprovalQueue', () => {
     fetchSpy.mockRestore();
   });
 
-  it('updates tab badge with pending count', async () => {
+  it('shows pending count in header', async () => {
     const { useApprovalsStore } = await import('../../src/stores/useApprovalsStore');
-    document.title = 'claude-deck';
+    useApprovalsStore.getState().addPending(makeApproval());
 
     const GlobalApprovalQueue = (
       await import('../../src/components/global/GlobalApprovalQueue')
     ).default;
 
-    const { rerender } = render(
+    render(
       <MemoryRouter>
         <GlobalApprovalQueue />
       </MemoryRouter>,
     );
 
-    // Add an approval
-    act(() => {
-      useApprovalsStore.getState().addPending(makeApproval());
-    });
-
-    rerender(
-      <MemoryRouter>
-        <GlobalApprovalQueue />
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => {
-      expect(document.title).toContain('(1)');
-    });
+    expect(screen.getByText('1 approval pending')).toBeInTheDocument();
   });
 });
 

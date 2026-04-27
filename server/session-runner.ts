@@ -57,8 +57,8 @@ export interface MessageService {
   createSession(session: { id: string; goal_id: string; origin: string; cwd: string | null; model: string | null; trace_dir: string | null; started_at: number; display_name?: string | null }): void;
   /** Saves a message row to the database. */
   saveMessage(message: Message): void;
-  /** Marks a session as ended with cost/token stats. */
-  endSession(sessionId: string, data: { ended_at: number; total_cost_usd: number; stream_event_count: number; total_tokens_in?: number; total_tokens_out?: number }): void;
+  /** Marks a session as ended. */
+  endSession(sessionId: string, data: { ended_at: number; stream_event_count: number }): void;
   /** Increments the stream_event_count for a session. */
   incrementStreamEventCount(sessionId: string): void;
 }
@@ -168,8 +168,6 @@ export class SessionRunner implements Killable {
       tool_args: null,
       tool_result: null,
       tool_use_id: null,
-      token_in: null,
-      token_out: null,
       created_at: Date.now(),
     });
 
@@ -225,8 +223,6 @@ export class SessionRunner implements Killable {
       tool_args: null,
       tool_result: null,
       tool_use_id: null,
-      token_in: null,
-      token_out: null,
       created_at: Date.now(),
     });
 
@@ -472,8 +468,6 @@ export class SessionRunner implements Killable {
           tool_args: null,
           tool_result: block.content,
           tool_use_id: block.tool_use_id,
-          token_in: null,
-          token_out: null,
           created_at: Date.now(),
         };
 
@@ -489,35 +483,19 @@ export class SessionRunner implements Killable {
   private handleResultEvent(event: StreamJsonEvent): void {
     if (event.type !== 'result') return;
 
-    // Log the FULL result event so we can see what fields the CLI actually sends
+    // Log the result event for diagnostics
     logger.info({
       goalId: this.goal.id,
       sessionId: event.session_id,
       cost: event.total_cost_usd,
       turns: event.num_turns,
-      rawResultEvent: JSON.stringify(event).substring(0, 2000),
-    }, 'CLI turn completed — raw result event');
+    }, 'CLI turn completed');
 
-    // Extract token counts from flat top-level fields on the result event
-    const totalInputTokens = (event.total_input_tokens ?? 0)
-      + (event.total_cache_read_tokens ?? 0)
-      + (event.total_cache_creation_tokens ?? 0);
-    const totalOutputTokens = event.total_output_tokens ?? 0;
-
-    logger.info({
-      goalId: this.goal.id,
-      totalInputTokens,
-      totalOutputTokens,
-    }, 'Token extraction from result event');
-
-    // End the session with token data
+    // End the session (token/cost data is read from JSONL logs, not stored in DB)
     if (this.sessionId) {
       this.deps.messageService.endSession(this.sessionId, {
         ended_at: Date.now(),
-        total_cost_usd: event.total_cost_usd,
         stream_event_count: this.streamEventCount,
-        total_tokens_in: totalInputTokens,
-        total_tokens_out: totalOutputTokens,
       });
 
       // Add a completion system message so the user knows the turn is done
@@ -530,21 +508,16 @@ export class SessionRunner implements Killable {
         tool_args: null,
         tool_result: null,
         tool_use_id: null,
-        token_in: totalInputTokens > 0 ? totalInputTokens : null,
-        token_out: totalOutputTokens > 0 ? totalOutputTokens : null,
         created_at: Date.now(),
       };
       this.deps.messageService.saveMessage(completionMsg);
     }
 
-    // Broadcast session cost/token update for live dashboards
+    // Broadcast session ended for live dashboards
     this.deps.broadcast({
       type: 'session:ended',
       id: this.sessionId ?? event.session_id,
-      cost: event.total_cost_usd,
-      tokens_in: totalInputTokens,
-      tokens_out: totalOutputTokens,
-    } as import('../src/shared/events').ServerEvent);
+    });
 
     // Don't close stdin here — the CLI may still be flushing the final
     // text response to stdout. The process stays alive and can accept
@@ -578,8 +551,6 @@ export class SessionRunner implements Killable {
           tool_args: null,
           tool_result: null,
           tool_use_id: null,
-          token_in: null,
-          token_out: null,
           created_at: Date.now(),
         };
 
@@ -593,8 +564,6 @@ export class SessionRunner implements Killable {
           tool_args: JSON.stringify(block.input),
           tool_result: null,
           tool_use_id: block.id,
-          token_in: null,
-          token_out: null,
           created_at: Date.now(),
         };
 
@@ -608,8 +577,6 @@ export class SessionRunner implements Killable {
           tool_args: null,
           tool_result: null,
           tool_use_id: null,
-          token_in: null,
-          token_out: null,
           created_at: Date.now(),
         };
 

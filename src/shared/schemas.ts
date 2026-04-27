@@ -120,9 +120,6 @@ export const SessionSchema = z.object({
   stream_event_count: z.number().int(),
   hook_event_count: z.number().int(),
   stderr_bytes: z.number().int(),
-  total_cost_usd: z.number().nullable(),
-  total_tokens_in: z.number().int().nullable(),
-  total_tokens_out: z.number().int().nullable(),
   started_at: z.number().nullable(),
   ended_at: z.number().nullable(),
 });
@@ -138,8 +135,6 @@ export const MessageSchema = z.object({
   tool_args: z.string().nullable(),
   tool_result: z.string().nullable(),
   tool_use_id: z.string().nullable(),
-  token_in: z.number().int().nullable(),
-  token_out: z.number().int().nullable(),
   created_at: z.number(),
 });
 

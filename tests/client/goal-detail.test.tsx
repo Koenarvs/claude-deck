@@ -48,8 +48,6 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     tool_args: null,
     tool_result: null,
     tool_use_id: null,
-    token_in: 100,
-    token_out: 200,
     created_at: Date.now(),
     ...overrides,
   };
@@ -79,7 +77,7 @@ beforeEach(() => {
     if (url.includes('/api/sessions/')) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ total_tokens_in: 0, total_tokens_out: 0, total_cost_usd: 0, stream_event_count: 0 }),
+        json: () => Promise.resolve({ inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, stream_event_count: 0 }),
       } as Response);
     }
     return mockFetch(...args);
@@ -172,13 +170,6 @@ describe('MessageBubble', () => {
     expect(screen.getByTestId('message-bubble-system')).toBeInTheDocument();
     expect(screen.getByText('Context limit reached')).toBeInTheDocument();
     expect(screen.getByText('System')).toBeInTheDocument();
-  });
-
-  it('renders token counts when available', () => {
-    const msg = makeMessage({ token_in: 500, token_out: 1200 });
-    render(<MessageBubble message={msg} />);
-
-    expect(screen.getByText('500in / 1200out')).toBeInTheDocument();
   });
 
   it('renders thinking block collapsed by default', () => {

@@ -224,11 +224,7 @@ export function createSessionsRouter(
       res.status(409).json({ error: 'Session already ended' });
       return;
     }
-    sessionService.end(sessionId, {
-      total_cost_usd: session.total_cost_usd ?? null,
-      total_tokens_in: session.total_tokens_in ?? null,
-      total_tokens_out: session.total_tokens_out ?? null,
-    });
+    sessionService.end(sessionId);
     res.json({ ok: true, ended_at: Date.now() });
   });
 

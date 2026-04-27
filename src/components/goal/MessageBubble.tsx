@@ -205,11 +205,6 @@ function MessageBubbleInner({ message }: MessageBubbleProps) {
           <span className="text-xs text-deck-muted/60">
             {formatTimestamp(message.created_at)}
           </span>
-          {message.token_in !== null && message.token_out !== null && (
-            <span className="text-xs text-deck-muted/40">
-              {message.token_in}in / {message.token_out}out
-            </span>
-          )}
         </div>
 
         {message.role === 'tool_use' && <ToolUseContent message={message} />}

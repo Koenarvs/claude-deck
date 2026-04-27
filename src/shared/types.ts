@@ -61,9 +61,6 @@ export interface Session {
   stream_event_count: number;
   hook_event_count: number;
   stderr_bytes: number;
-  total_cost_usd: number | null;
-  total_tokens_in: number | null;
-  total_tokens_out: number | null;
   started_at: number | null;
   ended_at: number | null;
 }
@@ -81,8 +78,6 @@ export interface Message {
   tool_args: string | null;
   tool_result: string | null;
   tool_use_id: string | null;
-  token_in: number | null;
-  token_out: number | null;
   created_at: number;
 }
 

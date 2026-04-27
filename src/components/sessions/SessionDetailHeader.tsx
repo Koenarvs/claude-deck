@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { ArrowLeft, Clock, Cpu, DollarSign, FolderOpen, Target, Square } from 'lucide-react';
 import type { Session } from '../../shared/types';
@@ -46,6 +46,24 @@ export default function SessionDetailHeader({ session, onSessionEnded }: Session
   const duration = getSessionDuration(session);
   const isActive = session.ended_at == null;
   const [ending, setEnding] = useState(false);
+  const [usage, setUsage] = useState<{ cost: number; tokensIn: number; tokensOut: number } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/sessions/${session.id}/usage`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: Record<string, number> | null) => {
+        if (cancelled || !data) return;
+        const tokensIn = (data.inputTokens ?? 0) + (data.cacheCreationTokens ?? 0) + (data.cacheReadTokens ?? 0);
+        setUsage({
+          cost: data.estimatedCostUsd ?? 0,
+          tokensIn,
+          tokensOut: data.outputTokens ?? 0,
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [session.id]);
 
   return (
     <div className="space-y-4">
@@ -119,10 +137,10 @@ export default function SessionDetailHeader({ session, onSessionEnded }: Session
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
           <StatItem icon={<Cpu size={14} />} label="Model" value={session.model ?? '--'} />
           <StatItem icon={<Clock size={14} />} label="Duration" value={formatDuration(duration)} />
-          <StatItem icon={<DollarSign size={14} />} label="Cost" value={formatCost(session.total_cost_usd)} />
+          <StatItem icon={<DollarSign size={14} />} label="Cost" value={formatCost(usage?.cost ?? null)} />
           <StatItem
             label="Tokens"
-            value={`${formatTokens(session.total_tokens_in)} in / ${formatTokens(session.total_tokens_out)} out`}
+            value={`${formatTokens(usage?.tokensIn ?? null)} in / ${formatTokens(usage?.tokensOut ?? null)} out`}
           />
         </div>
       </div>

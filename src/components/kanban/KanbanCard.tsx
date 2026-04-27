@@ -7,6 +7,7 @@ import { useGoalsStore } from '../../stores/useGoalsStore';
 import { useApprovalsStore } from '../../stores/useApprovalsStore';
 import { useActiveToolStore } from '../../stores/useActiveToolStore';
 import { estimateContextUsage } from '../../stores/useSessionHealthStore';
+import { fmtCost, fmtTokens } from '../../lib/format';
 import type { Goal, GoalModel } from '../../shared/types';
 
 interface KanbanCardProps {
@@ -42,18 +43,6 @@ const MODEL_COLORS: Record<GoalModel, string> = {
   haiku: 'text-emerald-400',
   default: 'text-dim',
 };
-
-function fmtCost(usd: number): string {
-  if (usd === 0) return '$0.00';
-  return `$${usd.toFixed(2)}`;
-}
-
-function fmtTokens(n: number): string {
-  if (n === 0) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
 
 function shortenCwd(cwd: string): string {
   const parts = cwd.replace(/\\/g, '/').split('/');
@@ -102,11 +91,10 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
           + (usage?.cacheReadTokens ?? 0);
         const tokensOut = usage?.outputTokens ?? 0;
         const currentContext = usage?.currentContextTokens ?? 0;
-        const dbCost = (sess.total_cost_usd as number) ?? 0;
         const jsonlCost = usage?.estimatedCostUsd ?? 0;
         setStats({
           turns: (sess.stream_event_count as number) ?? 0,
-          cost: jsonlCost > 0 ? jsonlCost : dbCost,
+          cost: jsonlCost,
           tokensIn,
           tokensOut,
           contextPct: estimateContextUsage(currentContext, 0, goal.model ?? 'default'),

@@ -32,9 +32,6 @@ const SessionResponseSchema = z.object({
   stream_event_count: z.number(),
   hook_event_count: z.number(),
   stderr_bytes: z.number(),
-  total_cost_usd: z.number().nullable(),
-  total_tokens_in: z.number().nullable(),
-  total_tokens_out: z.number().nullable(),
   started_at: z.number().nullable(),
   ended_at: z.number().nullable(),
 });
@@ -48,8 +45,6 @@ const MessageResponseSchema = z.object({
   tool_args: z.string().nullable(),
   tool_result: z.string().nullable(),
   tool_use_id: z.string().nullable(),
-  token_in: z.number().nullable(),
-  token_out: z.number().nullable(),
   created_at: z.number(),
 });
 

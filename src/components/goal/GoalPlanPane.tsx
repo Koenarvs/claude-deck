@@ -243,7 +243,6 @@ interface AgentSession {
   parent_session_id: string | null;
   origin: string;
   model: string | null;
-  total_cost_usd: number | null;
   stream_event_count: number;
   started_at: number | null;
   ended_at: number | null;
@@ -350,13 +349,6 @@ function AgentNodeRow({ node, depth }: { node: AgentNode; depth: number }) {
 
         {/* Spacer */}
         <span className="flex-1" />
-
-        {/* Cost badge */}
-        {s.total_cost_usd != null && s.total_cost_usd > 0 && (
-          <span className="text-[10px] font-mono text-deck-muted">
-            ${s.total_cost_usd.toFixed(4)}
-          </span>
-        )}
 
         {/* Turn count */}
         {s.stream_event_count > 0 && (
