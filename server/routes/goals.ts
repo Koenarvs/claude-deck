@@ -2,10 +2,12 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { GoalStatus } from '../../src/shared/types';
-import { CreateGoalInputSchema, UpdateGoalInputSchema, GoalStatusSchema } from '../../src/shared/schemas';
+import { CreateGoalInputSchema, UpdateGoalInputSchema, GoalStatusSchema, SendGoalInstructionSchema } from '../../src/shared/schemas';
 import { validateBody, validateQuery } from '../middleware/validate';
 import type { GoalService } from '../services/goal-service';
 import { GoalNotFoundError, InvalidTransitionError } from '../services/goal-service';
+import type { InterGoalMessageService } from '../services/inter-goal-message-service';
+import { InterGoalMessageNotFoundError } from '../services/inter-goal-message-service';
 import logger from '../logger';
 
 // ── Query Schemas ────────────────────────────────────────────────────────────
@@ -47,6 +49,7 @@ export function createGoalsRouter(
   goalService: GoalService,
   spawnSession?: (goalId: string, prompt: string) => string,
   spawnTerminal?: (goalId: string, initialPrompt?: string) => string,
+  interGoalMessageService?: InterGoalMessageService,
 ): Router {
   const router = Router();
 
@@ -283,6 +286,117 @@ export function createGoalsRouter(
     } catch (err) {
       logger.error({ err }, 'Failed to spawn terminal');
       res.status(500).json({ error: 'Failed to spawn terminal' });
+    }
+  });
+
+  /**
+   * POST /goals/:id/instruct/:targetId — Send an instruction from one goal to another.
+   * Body: { content: string, message_type?: InterGoalMessageType }.
+   * Returns: 201 with the created InterGoalMessage, 404 if either goal not found, 501 if service unavailable.
+   */
+  router.post(
+    '/goals/:id/instruct/:targetId',
+    validateBody(SendGoalInstructionSchema),
+    (req: Request, res: Response) => {
+      try {
+        if (!interGoalMessageService) {
+          res.status(501).json({ error: 'Inter-goal messaging not available' });
+          return;
+        }
+
+        const fromGoalId = String(req.params['id']);
+        const toGoalId = String(req.params['targetId']);
+
+        // Validate both goals exist
+        const fromGoal = goalService.get(fromGoalId);
+        if (!fromGoal) {
+          res.status(404).json({ error: `Source goal not found: ${fromGoalId}` });
+          return;
+        }
+
+        const toGoal = goalService.get(toGoalId);
+        if (!toGoal) {
+          res.status(404).json({ error: `Target goal not found: ${toGoalId}` });
+          return;
+        }
+
+        const { content, message_type } = req.body;
+        const message = interGoalMessageService.sendInstruction(
+          fromGoalId,
+          toGoalId,
+          content,
+          message_type,
+        );
+
+        // Auto-deliver: if target goal has an active session, send as follow-up prompt
+        if (toGoal.current_session_id && spawnSession) {
+          try {
+            spawnSession(toGoalId, content);
+            interGoalMessageService.markDelivered(message.id);
+          } catch (deliveryErr) {
+            logger.warn(
+              { err: deliveryErr, messageId: message.id, targetGoalId: toGoalId },
+              'Failed to auto-deliver instruction to active session',
+            );
+          }
+        }
+
+        res.status(201).json(message);
+      } catch (err) {
+        logger.error({ err }, 'Failed to send instruction');
+        res.status(500).json({ error: 'Failed to send instruction' });
+      }
+    },
+  );
+
+  /**
+   * GET /goals/:id/instructions — Get pending/delivered instructions for a goal.
+   * Returns: 200 with InterGoalMessage[], 404 if goal not found, 501 if service unavailable.
+   */
+  router.get('/goals/:id/instructions', (req: Request, res: Response) => {
+    try {
+      if (!interGoalMessageService) {
+        res.status(501).json({ error: 'Inter-goal messaging not available' });
+        return;
+      }
+
+      const goalId = String(req.params['id']);
+
+      const goal = goalService.get(goalId);
+      if (!goal) {
+        res.status(404).json({ error: 'Goal not found' });
+        return;
+      }
+
+      const instructions = interGoalMessageService.getInstructions(goalId);
+      res.json(instructions);
+    } catch (err) {
+      logger.error({ err }, 'Failed to get instructions');
+      res.status(500).json({ error: 'Failed to get instructions' });
+    }
+  });
+
+  /**
+   * POST /goals/:id/instructions/:messageId/acknowledge — Acknowledge an instruction.
+   * Returns: 200 with the updated InterGoalMessage, 404 if not found, 501 if service unavailable.
+   */
+  router.post('/goals/:id/instructions/:messageId/acknowledge', (req: Request, res: Response) => {
+    try {
+      if (!interGoalMessageService) {
+        res.status(501).json({ error: 'Inter-goal messaging not available' });
+        return;
+      }
+
+      const messageId = String(req.params['messageId']);
+      const message = interGoalMessageService.acknowledgeInstruction(messageId);
+      res.json(message);
+    } catch (err) {
+      if (err instanceof InterGoalMessageNotFoundError) {
+        res.status(404).json({ error: err.message });
+        return;
+      }
+      logger.error({ err }, 'Failed to acknowledge instruction');
+      res.status(500).json({ error: 'Failed to acknowledge instruction' });
     }
   });
 

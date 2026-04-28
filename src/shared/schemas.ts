@@ -198,6 +198,38 @@ export const UpdateScheduledTaskInputSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+// ── Inter-Goal Message ───────────────────────────────────────────────────────
+
+export const InterGoalMessageTypeSchema = z.enum([
+  'instruction',
+  'result',
+  'status_update',
+  'context',
+]);
+
+export const InterGoalMessageStatusSchema = z.enum([
+  'pending',
+  'delivered',
+  'acknowledged',
+]);
+
+export const InterGoalMessageSchema = z.object({
+  id: z.string().uuid(),
+  from_goal_id: z.string().uuid(),
+  to_goal_id: z.string().uuid(),
+  content: z.string().min(1),
+  message_type: InterGoalMessageTypeSchema,
+  status: InterGoalMessageStatusSchema,
+  created_at: z.number(),
+  delivered_at: z.number().nullable(),
+  acknowledged_at: z.number().nullable(),
+});
+
+export const SendGoalInstructionSchema = z.object({
+  content: z.string().min(1),
+  message_type: InterGoalMessageTypeSchema.default('instruction'),
+});
+
 // ── Goal Detail ───────────────────────────────────────────────────────────────
 
 export const GoalDetailSchema = z.object({

@@ -169,6 +169,24 @@ export interface PlanJson {
   raw_content: string;
 }
 
+// ── Inter-Goal Message ───────────────────────────────────────────────────────
+
+export type InterGoalMessageType = 'instruction' | 'result' | 'status_update' | 'context';
+
+export type InterGoalMessageStatus = 'pending' | 'delivered' | 'acknowledged';
+
+export interface InterGoalMessage {
+  id: string;
+  from_goal_id: string;
+  to_goal_id: string;
+  content: string;
+  message_type: InterGoalMessageType;
+  status: InterGoalMessageStatus;
+  created_at: number;
+  delivered_at: number | null;
+  acknowledged_at: number | null;
+}
+
 // ── Goal Detail (composite) ───────────────────────────────────────────────────
 
 export interface GoalDetail {

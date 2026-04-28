@@ -69,6 +69,18 @@ const SendMessageResponseSchema = z.object({
   session_id: z.string(),
 });
 
+const InterGoalMessageResponseSchema = z.object({
+  id: z.string(),
+  from_goal_id: z.string(),
+  to_goal_id: z.string(),
+  content: z.string(),
+  message_type: z.string(),
+  status: z.string(),
+  created_at: z.number(),
+  delivered_at: z.number().nullable(),
+  acknowledged_at: z.number().nullable(),
+});
+
 // ── Inferred types ───────────────────────────────────────────────────────────
 
 /** Goal as returned by the dashboard API. */
@@ -250,6 +262,28 @@ export class DashboardApiClient {
       `/api/sessions/${encodeURIComponent(sessionId)}/messages`,
       undefined,
       z.array(MessageResponseSchema),
+    );
+  }
+
+  // ── Inter-Goal Messages ──────────────────────────────────────────────
+
+  /** Send an instruction from one goal to another. */
+  async sendGoalInstruction(
+    fromGoalId: string,
+    targetGoalId: string,
+    body: { content: string; message_type?: string },
+  ): Promise<z.infer<typeof InterGoalMessageResponseSchema>> {
+    const requestBody: Record<string, unknown> = {
+      content: body.content,
+    };
+    if (body.message_type !== undefined) {
+      requestBody['message_type'] = body.message_type;
+    }
+    return this.request(
+      'POST',
+      `/api/goals/${encodeURIComponent(fromGoalId)}/instruct/${encodeURIComponent(targetGoalId)}`,
+      requestBody,
+      InterGoalMessageResponseSchema,
     );
   }
 

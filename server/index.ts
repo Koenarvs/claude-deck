@@ -6,6 +6,7 @@ import { createApp } from './app';
 import { setupWss } from './ws';
 import { ScheduledTaskService } from './services/scheduled-task-service';
 import { createGoalService } from './services/goal-service';
+import { createInterGoalMessageService } from './services/inter-goal-message-service';
 import { Scheduler } from './scheduler';
 import { createScheduledRouter } from './routes/scheduled';
 import { createGoalsRouter } from './routes/goals';
@@ -67,6 +68,7 @@ hookInstallerService.status().then(async (hookStatus) => {
 // Initialize services
 const scheduledTaskService = new ScheduledTaskService(db);
 const goalService = createGoalService(db);
+const interGoalMessageService = createInterGoalMessageService(db);
 const approvalCoordinator = new ApprovalCoordinator(db);
 const hookIngest = new HookIngest(db, approvalCoordinator);
 
@@ -207,7 +209,7 @@ setTerminalHandler({
 
 const scheduler = new Scheduler(scheduledTaskService, createGoal);
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
-const goalsRouter = createGoalsRouter(goalService, spawnGoalSession, spawnTerminalSession);
+const goalsRouter = createGoalsRouter(goalService, spawnGoalSession, spawnTerminalSession, interGoalMessageService);
 const sessionsRouter = createSessionsRouter(sessionService, messageService);
 const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);

@@ -113,6 +113,8 @@ function getEventGoalId(event: ServerEvent): string | null {
     case 'terminal:started':
     case 'terminal:exited':
       return event.goal_id;
+    case 'goal:instruction':
+      return event.message.to_goal_id;
     default:
       return null;
   }

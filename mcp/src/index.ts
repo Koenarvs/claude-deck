@@ -8,14 +8,16 @@ import { SendMessageInputSchema, sendMessage } from './tools/send-message.js';
 import { ListSessionsInputSchema, listSessions } from './tools/list-sessions.js';
 import { GetSessionMessagesInputSchema, getSessionMessages } from './tools/get-session-messages.js';
 import { ScheduleTaskInputSchema, scheduleTask } from './tools/schedule-task.js';
+import { SendGoalInstructionInputSchema, sendGoalInstruction } from './tools/send-goal-instruction.js';
 
 /**
  * MCP server for claude-deck.
  *
- * Exposes 7 tools that proxy to the claude-deck dashboard HTTP API:
+ * Exposes 8 tools that proxy to the claude-deck dashboard HTTP API:
  * - list_goals, get_goal, create_goal, send_message
  * - list_sessions, get_session_messages
  * - schedule_task
+ * - send_goal_instruction
  *
  * Transport: stdio (registered in user MCP config).
  * All mutations flow through the dashboard API, ensuring WebSocket broadcasts
@@ -111,6 +113,13 @@ server.tool(
   'Create a scheduled task that automatically creates goals on a cron schedule.',
   ScheduleTaskInputSchema.shape,
   async (input) => handleToolCall(() => scheduleTask(client, input)),
+);
+
+server.tool(
+  'send_goal_instruction',
+  'Send an instruction or result to another goal. Use this to delegate work to other goals or report results back to a control goal.',
+  SendGoalInstructionInputSchema.shape,
+  async (input) => handleToolCall(() => sendGoalInstruction(client, input)),
 );
 
 // ── Boot ─────────────────────────────────────────────────────────────────────

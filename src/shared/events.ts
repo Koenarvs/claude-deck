@@ -8,6 +8,7 @@ import {
   SessionSchema,
   HookEventSchema,
   ApprovalDecisionSchema,
+  InterGoalMessageSchema,
 } from './schemas';
 
 // ── Server → Client Events (§6.1) ────────────────────────────────────────────
@@ -98,6 +99,11 @@ export const TerminalExitedEventSchema = z.object({
   exitCode: z.number(),
 });
 
+export const GoalInstructionEventSchema = z.object({
+  type: z.literal('goal:instruction'),
+  message: InterGoalMessageSchema,
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   GoalCreatedEventSchema,
   GoalUpdatedEventSchema,
@@ -114,6 +120,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   TerminalDataEventSchema,
   TerminalStartedEventSchema,
   TerminalExitedEventSchema,
+  GoalInstructionEventSchema,
 ]);
 
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
