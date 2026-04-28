@@ -46,6 +46,7 @@ const AdoptSessionBodySchema = z.object({
 export function createGoalsRouter(
   goalService: GoalService,
   spawnSession?: (goalId: string, prompt: string) => string,
+  spawnTerminal?: (goalId: string, initialPrompt?: string) => string,
 ): Router {
   const router = Router();
 
@@ -254,6 +255,36 @@ export function createGoalsRouter(
       }
     },
   );
+
+  /**
+   * POST /goals/:id/terminal — Spawn a PTY-based terminal session.
+   * Body: { prompt?: string } (optional initial prompt).
+   * Returns: 200 with { session_id, status }.
+   */
+  router.post('/goals/:id/terminal', (req: Request, res: Response) => {
+    try {
+      const goal = goalService.get(String(req.params['id']));
+      if (!goal) {
+        res.status(404).json({ error: 'Goal not found' });
+        return;
+      }
+
+      if (!spawnTerminal) {
+        res.status(501).json({ error: 'Terminal mode not available' });
+        return;
+      }
+
+      const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt : undefined;
+      const sessionId = spawnTerminal(goal.id, prompt);
+      res.json({
+        session_id: sessionId,
+        status: sessionId === 'already_running' ? 'already_running' : 'started',
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to spawn terminal');
+      res.status(500).json({ error: 'Failed to spawn terminal' });
+    }
+  });
 
   return router;
 }

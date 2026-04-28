@@ -9,6 +9,7 @@ import { usePlanStore } from '../stores/usePlanStore';
 import { useApprovalsStore } from '../stores/useApprovalsStore';
 import { useConnectionStore } from '../stores/useConnectionStore';
 import { useActiveToolStore } from '../stores/useActiveToolStore';
+import { emitTerminalData, emitTerminalStarted, emitTerminalExited } from './terminal-events';
 
 let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
@@ -95,6 +96,18 @@ function dispatch(event: ServerEvent): void {
     case 'subprocess:error':
     case 'ping':
       break;
+
+    case 'terminal:data':
+      emitTerminalData(event.goal_id, event.data);
+      break;
+
+    case 'terminal:started':
+      emitTerminalStarted(event.goal_id);
+      break;
+
+    case 'terminal:exited':
+      emitTerminalExited(event.goal_id, event.exitCode);
+      break;
   }
 }
 
@@ -148,6 +161,12 @@ function scheduleReconnect(): void {
     reconnectTimer = null;
     connect();
   }, delay);
+}
+
+export function sendWsMessage(msg: Record<string, unknown>): void {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
 }
 
 /**

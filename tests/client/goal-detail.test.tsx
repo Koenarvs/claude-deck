@@ -7,6 +7,11 @@ import { useGoalsStore } from '@/stores/useGoalsStore';
 import { useMessagesStore } from '@/stores/useMessagesStore';
 import { usePlanStore } from '@/stores/usePlanStore';
 
+// Mock TerminalPanel — xterm.js requires real browser APIs unavailable in jsdom
+vi.mock('@/components/goal/TerminalPanel', () => ({
+  default: ({ goalId }: { goalId: string }) => <div data-testid="terminal-panel">Terminal: {goalId}</div>,
+}));
+
 // Components under test
 import GoalDetailPage from '@/pages/GoalDetailPage';
 import { MessageBubble } from '@/components/goal/MessageBubble';
@@ -721,7 +726,7 @@ describe('GoalDetailPage', () => {
     });
   });
 
-  it('disables input bar when goal is complete', async () => {
+  it('renders terminal panel for complete goals', async () => {
     const goal = makeGoal({ status: 'complete' });
 
     mockFetch.mockResolvedValue({
@@ -736,7 +741,7 @@ describe('GoalDetailPage', () => {
       expect(screen.getByTestId('goal-detail-page')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('input-textarea')).toBeDisabled();
+    expect(screen.getByTestId('terminal-panel')).toBeInTheDocument();
   });
 });
 
@@ -752,19 +757,13 @@ describe('QA Checklist', () => {
     });
   });
 
-  it('QA-1: GoalDetailPage renders messages and focused input', async () => {
+  it('QA-1: GoalDetailPage renders terminal panel', async () => {
     const goal = makeGoal();
-    const messages = Array.from({ length: 10 }, (_, i) =>
-      makeMessage({
-        role: i % 2 === 0 ? 'user' : 'assistant',
-        content: `Message ${i + 1}`,
-      }),
-    );
 
     mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
-        Promise.resolve({ goal, messages, plan: null } as GoalDetail),
+        Promise.resolve({ goal, messages: [], plan: null } as GoalDetail),
     });
 
     render(
@@ -779,8 +778,7 @@ describe('QA Checklist', () => {
       expect(screen.getByTestId('goal-detail-page')).toBeInTheDocument();
     });
 
-    // Input bar should be present and enabled
-    expect(screen.getByTestId('input-textarea')).not.toBeDisabled();
+    expect(screen.getByTestId('terminal-panel')).toBeInTheDocument();
   });
 
   it('QA-3: Plan pane shows todos with correct status icons on To Do tab', async () => {

@@ -4,6 +4,17 @@ import { ClientMessageSchema } from '../src/shared/events';
 import type { ServerEvent } from '../src/shared/events';
 import logger from './logger';
 
+export interface TerminalHandler {
+  onInput(goalId: string, data: string): void;
+  onResize(goalId: string, cols: number, rows: number): void;
+}
+
+let terminalHandler: TerminalHandler | null = null;
+
+export function setTerminalHandler(handler: TerminalHandler): void {
+  terminalHandler = handler;
+}
+
 interface ClientState {
   subscribed: Set<string> | 'all';
 }
@@ -54,6 +65,14 @@ export function setupWss(httpServer: HttpServer): WebSocketServer {
           case 'ping':
             ws.send(JSON.stringify({ type: 'ping' }));
             break;
+
+          case 'terminal:input':
+            terminalHandler?.onInput(msg.goal_id, msg.data);
+            break;
+
+          case 'terminal:resize':
+            terminalHandler?.onResize(msg.goal_id, msg.cols, msg.rows);
+            break;
         }
       } catch (err) {
         logger.warn({ err }, 'Failed to parse WS message');
@@ -90,6 +109,9 @@ function getEventGoalId(event: ServerEvent): string | null {
     case 'approval:pending':
       return event.goal_id;
     case 'subprocess:error':
+    case 'terminal:data':
+    case 'terminal:started':
+    case 'terminal:exited':
       return event.goal_id;
     default:
       return null;

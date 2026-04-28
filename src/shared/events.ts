@@ -79,6 +79,25 @@ export const PingEventSchema = z.object({
   type: z.literal('ping'),
 });
 
+// ── Terminal Events (Server → Client) ───────────────────────────────────────
+
+export const TerminalDataEventSchema = z.object({
+  type: z.literal('terminal:data'),
+  goal_id: z.string(),
+  data: z.string(),
+});
+
+export const TerminalStartedEventSchema = z.object({
+  type: z.literal('terminal:started'),
+  goal_id: z.string(),
+});
+
+export const TerminalExitedEventSchema = z.object({
+  type: z.literal('terminal:exited'),
+  goal_id: z.string(),
+  exitCode: z.number(),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   GoalCreatedEventSchema,
   GoalUpdatedEventSchema,
@@ -92,6 +111,9 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   HookEventEventSchema,
   SubprocessErrorEventSchema,
   PingEventSchema,
+  TerminalDataEventSchema,
+  TerminalStartedEventSchema,
+  TerminalExitedEventSchema,
 ]);
 
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
@@ -111,10 +133,27 @@ export const ClientPingMessageSchema = z.object({
   type: z.literal('ping'),
 });
 
+// ── Terminal Messages (Client → Server) ─────────────────────────────────────
+
+export const TerminalInputMessageSchema = z.object({
+  type: z.literal('terminal:input'),
+  goal_id: z.string(),
+  data: z.string(),
+});
+
+export const TerminalResizeMessageSchema = z.object({
+  type: z.literal('terminal:resize'),
+  goal_id: z.string(),
+  cols: z.number().int().min(1),
+  rows: z.number().int().min(1),
+});
+
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   SubscribeMessageSchema,
   UnsubscribeMessageSchema,
   ClientPingMessageSchema,
+  TerminalInputMessageSchema,
+  TerminalResizeMessageSchema,
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

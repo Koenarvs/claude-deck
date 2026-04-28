@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type { GoalStatus } from '@shared/types';
-import GoalConversation from './GoalConversation';
+import TerminalPanel from './TerminalPanel';
 import GoalPlanPane from './GoalPlanPane';
 
 interface GoalSplitViewProps {
@@ -124,9 +124,9 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
       data-testid="goal-split-view"
       style={isDragging ? { cursor: 'col-resize', userSelect: 'none' } : undefined}
     >
-      {/* Left: Conversation — flex-1 fills remaining space */}
+      {/* Left: Terminal — flex-1 fills remaining space */}
       <div className="flex flex-1 min-w-0 min-h-0 flex-col">
-        <GoalConversation goalId={goalId} goalStatus={goalStatus} />
+        <TerminalPanel goalId={goalId} goalStatus={goalStatus} />
       </div>
 
       {/* Resizable divider — hidden when collapsed */}

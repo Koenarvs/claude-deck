@@ -17,11 +17,12 @@ import { processRegistry } from './process-registry';
 import { hookInstallerService } from './services/hook-installer-service';
 import { SessionRunner } from './session-runner';
 import type { MessageService as RunnerMessageService, GoalService as RunnerGoalService, TraceWriter as RunnerTraceWriter } from './session-runner';
+import { PtyManager } from './pty-manager';
 import { SessionService } from './services/session-service';
 import { MessageService } from './services/message-service';
 import { createSessionsRouter } from './routes/sessions';
 import systemRouter from './routes/system';
-import { broadcast } from './ws';
+import { broadcast, setTerminalHandler } from './ws';
 import logger from './logger';
 
 const env = loadEnv();
@@ -154,9 +155,59 @@ function spawnGoalSession(goalId: string, prompt: string): string {
   return runner.getSessionId() ?? 'starting';
 }
 
+/**
+ * Spawns a PTY-based terminal session for a goal.
+ * The terminal runs `claude` interactively — the user types directly.
+ */
+function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
+  const goal = goalService.get(goalId);
+  if (!goal) throw new Error('Goal not found');
+
+  const existing = processRegistry.get(goalId);
+  if (existing && existing instanceof PtyManager && existing.isAlive()) {
+    return 'already_running';
+  }
+
+  if (existing) {
+    void existing.interrupt().then(() => existing.cleanup());
+    processRegistry.remove(goalId);
+  }
+
+  const ptyMgr = new PtyManager(goal, {
+    broadcast,
+    onExit(gId, exitCode) {
+      logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
+      goalService.update(gId, { status: exitCode === 0 ? 'waiting' : 'waiting' });
+    },
+  });
+
+  processRegistry.set(goalId, ptyMgr);
+  goalService.update(goalId, { status: 'active' });
+  goalService.setCurrentSession(goalId, ptyMgr.getSessionId());
+  ptyMgr.start(initialPrompt);
+
+  return ptyMgr.getSessionId();
+}
+
+// Wire terminal input/resize from WS to PTY managers
+setTerminalHandler({
+  onInput(goalId, data) {
+    const runner = processRegistry.get(goalId);
+    if (runner && runner instanceof PtyManager) {
+      runner.write(data);
+    }
+  },
+  onResize(goalId, cols, rows) {
+    const runner = processRegistry.get(goalId);
+    if (runner && runner instanceof PtyManager) {
+      runner.resize(cols, rows);
+    }
+  },
+});
+
 const scheduler = new Scheduler(scheduledTaskService, createGoal);
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
-const goalsRouter = createGoalsRouter(goalService, spawnGoalSession);
+const goalsRouter = createGoalsRouter(goalService, spawnGoalSession, spawnTerminalSession);
 const sessionsRouter = createSessionsRouter(sessionService, messageService);
 const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
