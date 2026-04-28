@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, Sparkles, Puzzle } from 'lucide-react';
 
 interface Skill {
@@ -6,6 +6,14 @@ interface Skill {
   description: string;
   path: string;
   source: string;
+}
+
+interface SkillDirEntry {
+  id: number;
+  path: string;
+  label: string | null;
+  enabled: boolean;
+  created_at: string;
 }
 
 interface ExtensionData {
@@ -16,16 +24,7 @@ interface ExtensionData {
 
 type TabId = 'skills' | 'extensions';
 
-const STORAGE_KEY = 'claude-deck:skill-dirs';
-
-function loadSavedDirs(): string[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
-}
+const LEGACY_STORAGE_KEY = 'claude-deck:skill-dirs';
 
 export default function SkillsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('skills');
@@ -33,14 +32,32 @@ export default function SkillsPage() {
   const [extensions, setExtensions] = useState<ExtensionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [skillDirs, setSkillDirs] = useState<string[]>(loadSavedDirs);
+  const [skillDirs, setSkillDirs] = useState<SkillDirEntry[]>([]);
   const [newDir, setNewDir] = useState('');
+  const migrated = useRef(false);
 
-  const fetchData = useCallback(async (dirs: string[] = []) => {
+  /** Fetches skill directories from the API. */
+  const fetchDirs = useCallback(async (): Promise<SkillDirEntry[]> => {
+    try {
+      const res = await fetch('/api/skill-directories');
+      if (res.ok) {
+        const data: SkillDirEntry[] = await res.json();
+        setSkillDirs(data);
+        return data;
+      }
+    } catch {
+      // Non-fatal — directories just won't show
+    }
+    return [];
+  }, []);
+
+  /** Fetches skills and extensions, using the given dirs for skill scanning. */
+  const fetchData = useCallback(async (dirs: SkillDirEntry[] = []) => {
     setLoading(true);
     setError(null);
     try {
-      const dirParam = dirs.length > 0 ? `?dir=${encodeURIComponent(dirs.join(','))}` : '';
+      const dirPaths = dirs.map((d) => d.path);
+      const dirParam = dirPaths.length > 0 ? `?dir=${encodeURIComponent(dirPaths.join(','))}` : '';
       const [skillsRes, extRes] = await Promise.all([
         fetch(`/api/skills${dirParam}`),
         fetch('/api/extensions'),
@@ -62,24 +79,84 @@ export default function SkillsPage() {
     }
   }, []);
 
-  const addDir = useCallback(() => {
-    if (!newDir.trim()) return;
-    const updated = [...skillDirs, newDir.trim()];
-    setSkillDirs(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    setNewDir('');
-    void fetchData(updated);
-  }, [newDir, skillDirs, fetchData]);
+  /** Migrates legacy localStorage dirs to the API (one-time, on first load). */
+  const migrateLegacyDirs = useCallback(async (currentDirs: SkillDirEntry[]) => {
+    if (migrated.current) return currentDirs;
+    migrated.current = true;
 
-  const removeDir = useCallback((index: number) => {
-    const updated = skillDirs.filter((_, i) => i !== index);
-    setSkillDirs(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    void fetchData(updated);
-  }, [skillDirs, fetchData]);
+    try {
+      const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (!raw) return currentDirs;
+
+      const legacyDirs: string[] = JSON.parse(raw);
+      if (!Array.isArray(legacyDirs) || legacyDirs.length === 0) return currentDirs;
+
+      // Only migrate dirs not already in the DB
+      const existingPaths = new Set(currentDirs.map((d) => d.path));
+      const toMigrate = legacyDirs.filter((d) => !existingPaths.has(d));
+
+      for (const dirPath of toMigrate) {
+        try {
+          await fetch('/api/skill-directories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: dirPath }),
+          });
+        } catch {
+          // Best-effort migration — skip failures
+        }
+      }
+
+      // Clear localStorage after successful migration
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+
+      // Re-fetch to get the updated list
+      return await fetchDirs();
+    } catch {
+      return currentDirs;
+    }
+  }, [fetchDirs]);
+
+  const addDir = useCallback(async () => {
+    if (!newDir.trim()) return;
+    try {
+      const res = await fetch('/api/skill-directories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: newDir.trim() }),
+      });
+      if (res.ok) {
+        setNewDir('');
+        const dirs = await fetchDirs();
+        void fetchData(dirs);
+      } else {
+        const data = await res.json();
+        setError(data.error ?? 'Failed to add directory');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add directory');
+    }
+  }, [newDir, fetchDirs, fetchData]);
+
+  const removeDir = useCallback(async (id: number) => {
+    try {
+      const res = await fetch(`/api/skill-directories/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        const dirs = await fetchDirs();
+        void fetchData(dirs);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, [fetchDirs, fetchData]);
 
   useEffect(() => {
-    void fetchData(skillDirs);
+    async function init() {
+      let dirs = await fetchDirs();
+      dirs = await migrateLegacyDirs(dirs);
+      void fetchData(dirs);
+    }
+    void init();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount
   }, []);
 
@@ -144,13 +221,13 @@ export default function SkillsPage() {
               type="text"
               value={newDir}
               onChange={(e) => setNewDir(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addDir(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void addDir(); }}
               placeholder="e.g. C:\CTDW Repository\cpt-dwdi"
               className="flex-1 rounded border border-deck-border bg-deck-bg px-3 py-1.5 text-sm text-deck-text placeholder:text-deck-muted"
             />
             <button
               type="button"
-              onClick={addDir}
+              onClick={() => void addDir()}
               className="rounded bg-deck-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-deck-accent-hover"
             >
               Add
@@ -158,10 +235,10 @@ export default function SkillsPage() {
           </div>
           {skillDirs.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
-              {skillDirs.map((dir, i) => (
-                <span key={i} className="flex items-center gap-1 rounded-full bg-deck-border px-3 py-1 text-xs text-deck-text">
-                  {dir}
-                  <button type="button" onClick={() => removeDir(i)} className="ml-1 text-deck-muted hover:text-deck-danger">×</button>
+              {skillDirs.map((dir) => (
+                <span key={dir.id} className="flex items-center gap-1 rounded-full bg-deck-border px-3 py-1 text-xs text-deck-text">
+                  {dir.label ?? dir.path}
+                  <button type="button" onClick={() => void removeDir(dir.id)} className="ml-1 text-deck-muted hover:text-deck-danger">x</button>
                 </span>
               ))}
             </div>

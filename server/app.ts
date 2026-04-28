@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import type { Router, Request, Response, NextFunction } from 'express';
 import healthRouter from './routes/health';
-import systemRouter from './routes/system';
 import logger from './logger';
 
 export interface AppRouters {
@@ -37,7 +36,6 @@ export function createApp(options?: AppRouters): express.Express {
 
   // Mount API routes
   app.use('/api', healthRouter);
-  app.use('/api', systemRouter);
 
   // Mount any additional API routers
   if (options?.apiRouters) {

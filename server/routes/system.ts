@@ -3,9 +3,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { hookInstallerService } from '../services/hook-installer-service';
+import type { SkillDirectoryService } from '../services/skill-directory-service';
 import { getAggregateTotals, getDailyCosts } from '../services/usage-service';
+import { scanSkills } from '../skill-scanner';
 import logger from '../logger';
 
+/**
+ * Creates the system router. Accepts an optional SkillDirectoryService
+ * for the skill-directories CRUD endpoints.
+ */
+export function createSystemRouter(skillDirService?: SkillDirectoryService): Router {
 const router = Router();
 
 /**
@@ -13,76 +20,17 @@ const router = Router();
  * Scans for Claude Code skills in known locations.
  */
 router.get('/skills', (req, res) => {
-  const skills: Array<{ name: string; description: string; scope: string; type: string; path: string }> = [];
-
-  // Scan skills, agents, hooks, and commands directories
-  const surfaceTypes = ['skills', 'agents', 'hooks', 'commands'] as const;
-  const locations: Array<{ dir: string; scope: string; surfaceType: string }> = [];
-
-  for (const surface of surfaceTypes) {
-    locations.push({ dir: path.join(process.cwd(), '.claude', surface), scope: 'project', surfaceType: surface });
-    locations.push({ dir: path.join(os.homedir(), '.claude', surface), scope: 'user', surfaceType: surface });
-  }
-
   // ?dir= can be a single path or comma-separated list of paths to scan
-  const extraDirs = req.query['dir'];
-  if (typeof extraDirs === 'string' && extraDirs.length > 0) {
-    for (const d of extraDirs.split(',')) {
+  const extraDirs: string[] = [];
+  const dirParam = req.query['dir'];
+  if (typeof dirParam === 'string' && dirParam.length > 0) {
+    for (const d of dirParam.split(',')) {
       const trimmed = d.trim();
-      if (trimmed) {
-        const normalised = trimmed.replace(/\\/g, '/');
-        const claudeIdx = normalised.indexOf('/.claude/');
-        if (claudeIdx !== -1) {
-          // Path already points inside .claude — use as-is
-          locations.push({ dir: trimmed, scope: 'custom', surfaceType: normalised.split('/.claude/')[1]?.split('/')[0] ?? 'skills' });
-        } else {
-          for (const surface of surfaceTypes) {
-            const surfaceDir = path.join(trimmed, '.claude', surface);
-            locations.push({ dir: surfaceDir, scope: 'custom', surfaceType: surface });
-          }
-        }
-      }
+      if (trimmed) extraDirs.push(trimmed);
     }
   }
 
-  for (const loc of locations) {
-    try {
-      if (!fs.existsSync(loc.dir)) continue;
-      const entries = fs.readdirSync(loc.dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const skillFile = path.join(loc.dir, entry.name, 'SKILL.md');
-          if (fs.existsSync(skillFile)) {
-            const content = fs.readFileSync(skillFile, 'utf-8');
-            // Extract description from frontmatter
-            const descMatch = content.match(/description:\s*(.+)/);
-            const desc = descMatch ? descMatch[1].trim() : '';
-            skills.push({
-              name: entry.name,
-              description: desc,
-              scope: loc.scope,
-              type: loc.surfaceType,
-              path: skillFile,
-            });
-          }
-        } else if (entry.isFile() && entry.name.endsWith('.md')) {
-          const content = fs.readFileSync(path.join(loc.dir, entry.name), 'utf-8');
-          const descMatch = content.match(/description:\s*(.+)/);
-          const desc = descMatch ? descMatch[1].trim() : '';
-          skills.push({
-            name: entry.name.replace('.md', ''),
-            description: desc,
-            scope: loc.scope,
-            type: loc.surfaceType,
-            path: path.join(loc.dir, entry.name),
-          });
-        }
-      }
-    } catch {
-      // Skip inaccessible directories
-    }
-  }
-
+  const skills = scanSkills({ extraDirs });
   res.json(skills);
 });
 
@@ -379,4 +327,87 @@ router.get('/analytics/session-durations', (req, res) => {
   } catch { res.json([]); }
 });
 
-export default router;
+// ── Skill Directory CRUD ──────────────────────────────────────────────────
+
+/**
+ * GET /api/skill-directories
+ * Lists all configured skill directories.
+ */
+router.get('/skill-directories', (_req, res) => {
+  if (!skillDirService) {
+    res.status(501).json({ error: 'Skill directory service not available' });
+    return;
+  }
+  try {
+    const dirs = skillDirService.list();
+    res.json(dirs);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err: message }, 'Failed to list skill directories');
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/skill-directories
+ * Adds a new skill directory.
+ * Body: { path: string, label?: string }
+ */
+router.post('/skill-directories', (req, res) => {
+  if (!skillDirService) {
+    res.status(501).json({ error: 'Skill directory service not available' });
+    return;
+  }
+  try {
+    const { path: dirPath, label } = req.body as { path?: string; label?: string };
+    if (!dirPath || typeof dirPath !== 'string' || dirPath.trim().length === 0) {
+      res.status(400).json({ error: 'path is required' });
+      return;
+    }
+    const dir = skillDirService.add(dirPath.trim(), label);
+    res.status(201).json(dir);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // UNIQUE constraint violation → 409 Conflict
+    if (message.includes('UNIQUE constraint')) {
+      res.status(409).json({ error: 'Directory already exists' });
+      return;
+    }
+    logger.error({ err: message }, 'Failed to add skill directory');
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * DELETE /api/skill-directories/:id
+ * Removes a skill directory by ID.
+ */
+router.delete('/skill-directories/:id', (req, res) => {
+  if (!skillDirService) {
+    res.status(501).json({ error: 'Skill directory service not available' });
+    return;
+  }
+  try {
+    const id = Number(req.params['id']);
+    if (isNaN(id)) {
+      res.status(400).json({ error: 'Invalid ID' });
+      return;
+    }
+    const deleted = skillDirService.remove(id);
+    if (deleted) {
+      res.json({ deleted: true });
+    } else {
+      res.status(404).json({ error: 'Skill directory not found' });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err: message }, 'Failed to remove skill directory');
+    res.status(500).json({ error: message });
+  }
+});
+
+return router;
+}
+
+// Default export for backward compatibility (routes that don't need skill-directories)
+export default createSystemRouter();

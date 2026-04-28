@@ -73,12 +73,23 @@ export interface GoalService {
   setStatus(goalId: string, status: Goal['status']): void;
 }
 
+/**
+ * Provides external skills to prepend to the initial prompt.
+ * Returns skill content blocks for directories not under the goal's cwd.
+ */
+export interface SkillProvider {
+  /** Returns skills from external directories, excluding those under the given cwd. */
+  getExternalSkills(cwd: string): Array<{ name: string; content: string }>;
+}
+
 /** Dependencies injected into SessionRunner. */
 export interface SessionRunnerDeps {
   traceWriter: TraceWriter;
   messageService: MessageService;
   goalService: GoalService;
   broadcast: (event: ServerEvent) => void;
+  /** Optional skill provider for injecting non-CWD skills into the initial prompt. */
+  skillProvider?: SkillProvider;
 }
 
 // ── SessionRunner ────────────────────────────────────────────────────────────
@@ -190,7 +201,10 @@ export class SessionRunner implements Killable {
     });
 
     this.setupProcessHandlers();
-    this.sendStdinMessage(initialPrompt);
+
+    // Prepend external skills to the initial prompt
+    const enrichedPrompt = this.buildEnrichedPrompt(initialPrompt);
+    this.sendStdinMessage(enrichedPrompt);
   }
 
   /**
@@ -307,6 +321,39 @@ export class SessionRunner implements Killable {
     }
 
     return args;
+  }
+
+  /**
+   * Builds an enriched prompt by prepending external skills context.
+   * If no external skills are available, returns the original prompt unchanged.
+   */
+  private buildEnrichedPrompt(prompt: string): string {
+    if (!this.deps.skillProvider) {
+      return prompt;
+    }
+
+    try {
+      const skills = this.deps.skillProvider.getExternalSkills(this.goal.cwd);
+      if (skills.length === 0) {
+        return prompt;
+      }
+
+      const skillBlocks = skills
+        .map((s) => `## Skill: ${s.name}\n${s.content}`)
+        .join('\n\n---\n\n');
+
+      const enriched = `The following skills are available from external directories. You can use these capabilities:\n\n${skillBlocks}\n\n---\n\n${prompt}`;
+
+      logger.info(
+        { goalId: this.goal.id, skillCount: skills.length, skillNames: skills.map((s) => s.name) },
+        'Injected external skills into prompt',
+      );
+
+      return enriched;
+    } catch (err) {
+      logger.warn({ goalId: this.goal.id, err }, 'Failed to load external skills — proceeding without injection');
+      return prompt;
+    }
   }
 
   /**

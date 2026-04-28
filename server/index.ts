@@ -17,12 +17,14 @@ import { createApprovalsRouter } from './routes/approvals';
 import { processRegistry } from './process-registry';
 import { hookInstallerService } from './services/hook-installer-service';
 import { SessionRunner } from './session-runner';
-import type { MessageService as RunnerMessageService, GoalService as RunnerGoalService, TraceWriter as RunnerTraceWriter } from './session-runner';
+import type { MessageService as RunnerMessageService, GoalService as RunnerGoalService, TraceWriter as RunnerTraceWriter, SkillProvider } from './session-runner';
+import { createSkillDirectoryService } from './services/skill-directory-service';
+import { scanSkillsForInjection } from './skill-scanner';
 import { PtyManager } from './pty-manager';
 import { SessionService } from './services/session-service';
 import { MessageService } from './services/message-service';
 import { createSessionsRouter } from './routes/sessions';
-import systemRouter from './routes/system';
+import { createSystemRouter } from './routes/system';
 import { broadcast, setTerminalHandler } from './ws';
 import logger from './logger';
 
@@ -69,6 +71,7 @@ hookInstallerService.status().then(async (hookStatus) => {
 const scheduledTaskService = new ScheduledTaskService(db);
 const goalService = createGoalService(db);
 const interGoalMessageService = createInterGoalMessageService(db);
+const skillDirectoryService = createSkillDirectoryService(db);
 const approvalCoordinator = new ApprovalCoordinator(db);
 const hookIngest = new HookIngest(db, approvalCoordinator);
 
@@ -83,6 +86,24 @@ function createGoal(input: import('../src/shared/types').CreateGoalInput): { id:
 
 const sessionService = new SessionService(db, broadcast);
 const messageService = new MessageService(db, broadcast);
+
+/**
+ * SkillProvider that reads enabled skill directories from the DB
+ * and scans them for skills not under the goal's cwd.
+ */
+const skillProvider: SkillProvider = {
+  getExternalSkills(cwd: string): Array<{ name: string; content: string }> {
+    const enabledDirs = skillDirectoryService.listEnabled();
+    if (enabledDirs.length === 0) return [];
+
+    const dirPaths = enabledDirs.map((d) => d.path);
+    const skills = scanSkillsForInjection(dirPaths, cwd);
+
+    return skills
+      .filter((s) => s.content != null)
+      .map((s) => ({ name: s.name, content: s.content! }));
+  },
+};
 
 /**
  * Spawns or resumes a Claude CLI session for a goal.
@@ -151,6 +172,7 @@ function spawnGoalSession(goalId: string, prompt: string): string {
     messageService: msgAdapter,
     goalService: goalAdapter,
     broadcast,
+    skillProvider,
   });
 
   void runner.start(prompt);
@@ -213,9 +235,10 @@ const goalsRouter = createGoalsRouter(goalService, spawnGoalSession, spawnTermin
 const sessionsRouter = createSessionsRouter(sessionService, messageService);
 const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
+const systemRouterWithSkills = createSystemRouter(skillDirectoryService);
 
 // Create Express app and HTTP server
-const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouter] });
+const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills] });
 // Make db available to routes that need it (analytics, hook-events)
 (app as unknown as Record<string, unknown>).locals = { ...(app as unknown as { locals: Record<string, unknown> }).locals, db };
 const server = http.createServer(app);
