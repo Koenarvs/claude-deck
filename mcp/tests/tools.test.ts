@@ -6,6 +6,8 @@ import { SendMessageInputSchema } from '../src/tools/send-message.js';
 import { ListSessionsInputSchema } from '../src/tools/list-sessions.js';
 import { GetSessionMessagesInputSchema } from '../src/tools/get-session-messages.js';
 import { ScheduleTaskInputSchema } from '../src/tools/schedule-task.js';
+import { SendGoalInstructionInputSchema } from '../src/tools/send-goal-instruction.js';
+import { CreateGoalAndInstructInputSchema } from '../src/tools/create-goal-and-instruct.js';
 
 // ── list_goals ───────────────────────────────────────────────────────────────
 
@@ -278,10 +280,127 @@ describe('schedule_task input schema', () => {
   });
 });
 
+// ── create_goal_and_instruct ─────────────────────────────────────────────────
+
+describe('create_goal_and_instruct input schema', () => {
+  it('accepts valid input with all required fields', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      title: 'Deploy service',
+      cwd: '/home/user/project',
+      instruction: 'Deploy the service to staging',
+      source_goal_id: 'abc-123',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts all optional fields', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      title: 'Deploy service',
+      cwd: '/home/user/project',
+      instruction: 'Deploy the service to staging',
+      source_goal_id: 'abc-123',
+      model: 'opus',
+      tags: ['deploy', 'staging'],
+      description: 'Staging deployment goal',
+      spawn_session: false,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.model).toBe('opus');
+      expect(result.data.tags).toEqual(['deploy', 'staging']);
+      expect(result.data.description).toBe('Staging deployment goal');
+      expect(result.data.spawn_session).toBe(false);
+    }
+  });
+
+  it('defaults spawn_session to true', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      title: 'Deploy service',
+      cwd: '/home/user/project',
+      instruction: 'Deploy the service to staging',
+      source_goal_id: 'abc-123',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.spawn_session).toBe(true);
+    }
+  });
+
+  it('rejects missing title', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      cwd: '/home/user/project',
+      instruction: 'Deploy the service',
+      source_goal_id: 'abc-123',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing cwd', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      title: 'Deploy service',
+      instruction: 'Deploy the service',
+      source_goal_id: 'abc-123',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing instruction', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      title: 'Deploy service',
+      cwd: '/home/user/project',
+      source_goal_id: 'abc-123',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing source_goal_id', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      title: 'Deploy service',
+      cwd: '/home/user/project',
+      instruction: 'Deploy the service',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects empty instruction', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      title: 'Deploy service',
+      cwd: '/home/user/project',
+      instruction: '',
+      source_goal_id: 'abc-123',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects invalid model', () => {
+    const result = CreateGoalAndInstructInputSchema.safeParse({
+      title: 'Deploy service',
+      cwd: '/home/user/project',
+      instruction: 'Deploy the service',
+      source_goal_id: 'abc-123',
+      model: 'gpt-4',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts all valid model values', () => {
+    for (const model of ['opus', 'sonnet', 'haiku', 'default']) {
+      const result = CreateGoalAndInstructInputSchema.safeParse({
+        title: 'Test',
+        cwd: '/tmp',
+        instruction: 'Do something',
+        source_goal_id: 'abc-123',
+        model,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+});
+
 // ── Tool count verification ──────────────────────────────────────────────────
 
 describe('tool definitions', () => {
-  it('exports exactly 7 input schemas', () => {
+  it('exports exactly 9 input schemas', () => {
     const schemas = [
       ListGoalsInputSchema,
       GetGoalInputSchema,
@@ -290,8 +409,10 @@ describe('tool definitions', () => {
       ListSessionsInputSchema,
       GetSessionMessagesInputSchema,
       ScheduleTaskInputSchema,
+      SendGoalInstructionInputSchema,
+      CreateGoalAndInstructInputSchema,
     ];
-    expect(schemas).toHaveLength(7);
+    expect(schemas).toHaveLength(9);
     // Each schema should be a ZodObject
     for (const schema of schemas) {
       expect(schema.safeParse).toBeDefined();

@@ -81,6 +81,12 @@ const InterGoalMessageResponseSchema = z.object({
   acknowledged_at: z.number().nullable(),
 });
 
+const CreateGoalAndInstructResponseSchema = z.object({
+  goal: GoalResponseSchema,
+  instruction: InterGoalMessageResponseSchema,
+  session_id: z.string().nullable(),
+});
+
 // ── Inferred types ───────────────────────────────────────────────────────────
 
 /** Goal as returned by the dashboard API. */
@@ -97,6 +103,9 @@ export type Message = z.infer<typeof MessageResponseSchema>;
 
 /** Scheduled task as returned by the dashboard API. */
 export type ScheduledTask = z.infer<typeof ScheduledTaskResponseSchema>;
+
+/** Response from the create-goal-and-instruct composite endpoint. */
+export type CreateGoalAndInstructResponse = z.infer<typeof CreateGoalAndInstructResponseSchema>;
 
 // ── Error types ──────────────────────────────────────────────────────────────
 
@@ -223,6 +232,35 @@ export class DashboardApiClient {
     if (input.initialPrompt !== undefined) body['initialPrompt'] = input.initialPrompt;
     if (input.tags !== undefined) body['tags'] = input.tags;
     return this.request('POST', '/api/goals', body, GoalResponseSchema);
+  }
+
+  /** Atomically create a goal, send an instruction to it, and optionally spawn a session. */
+  async createGoalAndInstruct(input: {
+    title: string;
+    cwd: string;
+    description?: string | undefined;
+    model?: string | undefined;
+    tags?: string[] | undefined;
+    instruction: string;
+    source_goal_id: string;
+    spawn_session?: boolean | undefined;
+  }): Promise<CreateGoalAndInstructResponse> {
+    const body: Record<string, unknown> = {
+      title: input.title,
+      cwd: input.cwd,
+      instruction: input.instruction,
+      source_goal_id: input.source_goal_id,
+    };
+    if (input.description !== undefined) body['description'] = input.description;
+    if (input.model !== undefined) body['model'] = input.model;
+    if (input.tags !== undefined) body['tags'] = input.tags;
+    if (input.spawn_session !== undefined) body['spawn_session'] = input.spawn_session;
+    return this.request(
+      'POST',
+      '/api/goals/create-and-instruct',
+      body,
+      CreateGoalAndInstructResponseSchema,
+    );
   }
 
   // ── Messages ─────────────────────────────────────────────────────────────

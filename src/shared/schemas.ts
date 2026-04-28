@@ -230,6 +230,18 @@ export const SendGoalInstructionSchema = z.object({
   message_type: InterGoalMessageTypeSchema.default('instruction'),
 });
 
+export const CreateGoalAndInstructSchema = z.object({
+  title: z.string().min(1),
+  cwd: z.string().min(1),
+  description: z.string().optional(),
+  model: GoalModelSchema.optional(),
+  permission_mode: PermissionModeSchema.optional(),
+  tags: z.array(z.string()).optional(),
+  instruction: z.string().min(1),
+  source_goal_id: z.string().min(1),
+  spawn_session: z.boolean().optional().default(true),
+});
+
 // ── Goal Detail ───────────────────────────────────────────────────────────────
 
 export const GoalDetailSchema = z.object({

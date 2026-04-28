@@ -9,15 +9,17 @@ import { ListSessionsInputSchema, listSessions } from './tools/list-sessions.js'
 import { GetSessionMessagesInputSchema, getSessionMessages } from './tools/get-session-messages.js';
 import { ScheduleTaskInputSchema, scheduleTask } from './tools/schedule-task.js';
 import { SendGoalInstructionInputSchema, sendGoalInstruction } from './tools/send-goal-instruction.js';
+import { CreateGoalAndInstructInputSchema, createGoalAndInstruct } from './tools/create-goal-and-instruct.js';
 
 /**
  * MCP server for claude-deck.
  *
- * Exposes 8 tools that proxy to the claude-deck dashboard HTTP API:
+ * Exposes 9 tools that proxy to the claude-deck dashboard HTTP API:
  * - list_goals, get_goal, create_goal, send_message
  * - list_sessions, get_session_messages
  * - schedule_task
  * - send_goal_instruction
+ * - create_goal_and_instruct
  *
  * Transport: stdio (registered in user MCP config).
  * All mutations flow through the dashboard API, ensuring WebSocket broadcasts
@@ -120,6 +122,13 @@ server.tool(
   'Send an instruction or result to another goal. Use this to delegate work to other goals or report results back to a control goal.',
   SendGoalInstructionInputSchema.shape,
   async (input) => handleToolCall(() => sendGoalInstruction(client, input)),
+);
+
+server.tool(
+  'create_goal_and_instruct',
+  'Atomically create a new goal, send an instruction to it, and optionally spawn a session. Use this to delegate work to a new goal in one step.',
+  CreateGoalAndInstructInputSchema.shape,
+  async (input) => handleToolCall(() => createGoalAndInstruct(client, input)),
 );
 
 // ── Boot ─────────────────────────────────────────────────────────────────────

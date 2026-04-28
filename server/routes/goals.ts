@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { GoalStatus } from '../../src/shared/types';
-import { CreateGoalInputSchema, UpdateGoalInputSchema, GoalStatusSchema, SendGoalInstructionSchema } from '../../src/shared/schemas';
+import { CreateGoalInputSchema, UpdateGoalInputSchema, GoalStatusSchema, SendGoalInstructionSchema, CreateGoalAndInstructSchema } from '../../src/shared/schemas';
 import { validateBody, validateQuery } from '../middleware/validate';
 import type { GoalService } from '../services/goal-service';
 import { GoalNotFoundError, InvalidTransitionError } from '../services/goal-service';
@@ -70,6 +70,100 @@ export function createGoalsRouter(
       } catch (err) {
         logger.error({ err }, 'Failed to create goal');
         res.status(500).json({ error: 'Failed to create goal' });
+      }
+    },
+  );
+
+  /**
+   * POST /goals/create-and-instruct — Atomically create a goal, send an instruction to it,
+   * and optionally spawn a session.
+   * Body: CreateGoalAndInstructInput (title, cwd, instruction, source_goal_id required;
+   *        description, model, permission_mode, tags, spawn_session optional).
+   * Returns: 201 with { goal, instruction, session_id? }.
+   * Rolls back goal creation if instruction sending fails.
+   */
+  router.post(
+    '/goals/create-and-instruct',
+    validateBody(CreateGoalAndInstructSchema),
+    (req: Request, res: Response) => {
+      try {
+        if (!interGoalMessageService) {
+          res.status(501).json({ error: 'Inter-goal messaging not available' });
+          return;
+        }
+
+        const {
+          title,
+          cwd,
+          description,
+          model,
+          permission_mode,
+          tags,
+          instruction,
+          source_goal_id,
+          spawn_session,
+        } = req.body;
+
+        // Validate source goal exists
+        const sourceGoal = goalService.get(source_goal_id);
+        if (!sourceGoal) {
+          res.status(404).json({ error: `Source goal not found: ${source_goal_id}` });
+          return;
+        }
+
+        // Step 1: Create the goal
+        const goal = goalService.create({
+          title,
+          cwd,
+          description,
+          model,
+          permission_mode,
+          tags,
+        });
+
+        // Step 2: Send the instruction
+        let message;
+        try {
+          message = interGoalMessageService.sendInstruction(
+            source_goal_id,
+            goal.id,
+            instruction,
+            'instruction',
+          );
+        } catch (instructionErr) {
+          // Roll back: archive the orphaned goal
+          try {
+            goalService.archive(goal.id);
+          } catch {
+            // Best-effort cleanup
+          }
+          logger.error({ err: instructionErr }, 'Failed to send instruction during create-and-instruct');
+          res.status(500).json({ error: 'Failed to send instruction to new goal' });
+          return;
+        }
+
+        // Step 3: Optionally spawn a session
+        let sessionId: string | undefined;
+        if (spawn_session !== false && spawnSession) {
+          try {
+            sessionId = spawnSession(goal.id, instruction);
+            interGoalMessageService.markDelivered(message.id);
+          } catch (spawnErr) {
+            logger.warn(
+              { err: spawnErr, goalId: goal.id },
+              'Failed to spawn session during create-and-instruct; goal and instruction still created',
+            );
+          }
+        }
+
+        res.status(201).json({
+          goal,
+          instruction: message,
+          session_id: sessionId ?? null,
+        });
+      } catch (err) {
+        logger.error({ err }, 'Failed to create goal and instruct');
+        res.status(500).json({ error: 'Failed to create goal and instruct' });
       }
     },
   );

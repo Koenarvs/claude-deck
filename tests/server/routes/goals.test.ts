@@ -5,8 +5,10 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../../../server/db/migrate';
 import { createGoalService } from '../../../server/services/goal-service';
 import { createGoalsRouter } from '../../../server/routes/goals';
+import { createInterGoalMessageService } from '../../../server/services/inter-goal-message-service';
 import type { GoalService } from '../../../server/services/goal-service';
-import type { Goal, GoalDetail } from '../../../src/shared/types';
+import type { InterGoalMessageService } from '../../../server/services/inter-goal-message-service';
+import type { Goal, GoalDetail, InterGoalMessage } from '../../../src/shared/types';
 
 // Mock broadcast and logger
 vi.mock('../../../server/ws', () => ({
@@ -405,6 +407,192 @@ describe('Goals API routes', () => {
       const goal = goalService.create({ title: 'Test', cwd: '/tmp' });
       const res = await patchJson(`/goals/${goal.id}`, { priority: 1.5 });
       expect(res.status).toBe(400);
+    });
+  });
+
+  // ── POST /api/goals/create-and-instruct (without service) ─────────────
+
+  describe('POST /api/goals/create-and-instruct (no inter-goal service)', () => {
+    it('returns 501 when inter-goal messaging is not available', async () => {
+      const sourceGoal = goalService.create({ title: 'Source', cwd: '/tmp' });
+      const res = await postJson('/goals/create-and-instruct', {
+        title: 'New Goal',
+        cwd: '/tmp',
+        instruction: 'Do something',
+        source_goal_id: sourceGoal.id,
+      });
+      expect(res.status).toBe(501);
+    });
+  });
+});
+
+// ── POST /api/goals/create-and-instruct (with service) ──────────────────────
+
+describe('Goals API routes (with inter-goal messaging)', () => {
+  let db2: Database.Database;
+  let goalService2: GoalService;
+  let interGoalService: InterGoalMessageService;
+  let server2: http.Server;
+  let port2: number;
+
+  function url2(path: string): string {
+    return `http://127.0.0.1:${port2}/api${path}`;
+  }
+
+  async function postJson2(path: string, body: Record<string, unknown>): Promise<Response> {
+    return fetch(url2(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  beforeEach(async () => {
+    db2 = new Database(':memory:');
+    db2.pragma('journal_mode = WAL');
+    db2.pragma('foreign_keys = ON');
+    runMigrations(db2);
+    goalService2 = createGoalService(db2);
+    interGoalService = createInterGoalMessageService(db2);
+
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createGoalsRouter(goalService2, undefined, undefined, interGoalService));
+    app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      res.status(500).json({ error: err.message });
+    });
+
+    server2 = http.createServer(app);
+    port2 = await new Promise<number>((resolve) => {
+      server2.listen(0, () => {
+        const addr = server2.address();
+        if (addr && typeof addr === 'object') resolve(addr.port);
+      });
+    });
+  });
+
+  afterEach(() => {
+    server2.close();
+    db2.close();
+  });
+
+  describe('POST /api/goals/create-and-instruct', () => {
+    it('creates a goal and sends instruction atomically', async () => {
+      const sourceGoal = goalService2.create({ title: 'Orchestrator', cwd: '/tmp' });
+
+      const res = await postJson2('/goals/create-and-instruct', {
+        title: 'Worker Goal',
+        cwd: '/home/user/project',
+        instruction: 'Build the feature',
+        source_goal_id: sourceGoal.id,
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        goal: Goal;
+        instruction: InterGoalMessage;
+        session_id: string | null;
+      };
+
+      expect(body.goal.title).toBe('Worker Goal');
+      expect(body.goal.cwd).toBe('/home/user/project');
+      expect(body.goal.status).toBe('planning');
+      expect(body.instruction.from_goal_id).toBe(sourceGoal.id);
+      expect(body.instruction.to_goal_id).toBe(body.goal.id);
+      expect(body.instruction.content).toBe('Build the feature');
+      expect(body.instruction.message_type).toBe('instruction');
+      expect(body.instruction.status).toBe('pending');
+      expect(body.session_id).toBeNull();
+    });
+
+    it('accepts optional fields (description, model, tags)', async () => {
+      const sourceGoal = goalService2.create({ title: 'Orchestrator', cwd: '/tmp' });
+
+      const res = await postJson2('/goals/create-and-instruct', {
+        title: 'Full Goal',
+        cwd: '/tmp',
+        description: 'A detailed goal',
+        model: 'opus',
+        tags: ['test', 'demo'],
+        instruction: 'Do the thing',
+        source_goal_id: sourceGoal.id,
+        spawn_session: false,
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        goal: Goal;
+        instruction: InterGoalMessage;
+        session_id: string | null;
+      };
+
+      expect(body.goal.description).toBe('A detailed goal');
+      expect(body.goal.model).toBe('opus');
+      expect(body.goal.tags).toEqual(['test', 'demo']);
+    });
+
+    it('returns 404 when source goal does not exist', async () => {
+      const res = await postJson2('/goals/create-and-instruct', {
+        title: 'Worker Goal',
+        cwd: '/tmp',
+        instruction: 'Build the feature',
+        source_goal_id: 'nonexistent',
+      });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 400 for missing required fields', async () => {
+      const sourceGoal = goalService2.create({ title: 'Orchestrator', cwd: '/tmp' });
+
+      // Missing title
+      const res1 = await postJson2('/goals/create-and-instruct', {
+        cwd: '/tmp',
+        instruction: 'Do it',
+        source_goal_id: sourceGoal.id,
+      });
+      expect(res1.status).toBe(400);
+
+      // Missing instruction
+      const res2 = await postJson2('/goals/create-and-instruct', {
+        title: 'Goal',
+        cwd: '/tmp',
+        source_goal_id: sourceGoal.id,
+      });
+      expect(res2.status).toBe(400);
+
+      // Missing source_goal_id
+      const res3 = await postJson2('/goals/create-and-instruct', {
+        title: 'Goal',
+        cwd: '/tmp',
+        instruction: 'Do it',
+      });
+      expect(res3.status).toBe(400);
+    });
+
+    it('creates instruction that can be retrieved via GET /instructions', async () => {
+      const sourceGoal = goalService2.create({ title: 'Orchestrator', cwd: '/tmp' });
+
+      const createRes = await postJson2('/goals/create-and-instruct', {
+        title: 'Worker',
+        cwd: '/tmp',
+        instruction: 'Check the logs',
+        source_goal_id: sourceGoal.id,
+      });
+
+      expect(createRes.status).toBe(201);
+      const body = (await createRes.json()) as {
+        goal: Goal;
+        instruction: InterGoalMessage;
+        session_id: string | null;
+      };
+
+      // Verify the instruction is retrievable
+      const instrRes = await fetch(url2(`/goals/${body.goal.id}/instructions`));
+      expect(instrRes.status).toBe(200);
+      const instructions = (await instrRes.json()) as InterGoalMessage[];
+      expect(instructions).toHaveLength(1);
+      expect(instructions[0]!.content).toBe('Check the logs');
     });
   });
 });
