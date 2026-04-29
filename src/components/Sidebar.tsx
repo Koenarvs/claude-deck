@@ -10,6 +10,7 @@ import {
   Search,
 } from 'lucide-react';
 import { useSessionsStore } from '../stores/useSessionsStore';
+import { useApprovalsStore } from '../stores/useApprovalsStore';
 
 interface NavItem {
   to: string;
@@ -20,7 +21,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { to: '/board', label: 'Board', icon: <LayoutGrid size={15} />, badgeKey: 'active' },
+  { to: '/board', label: 'Board', icon: <LayoutGrid size={15} />, badgeKey: 'approvals', accent: true },
   { to: '/sessions', label: 'Sessions', icon: <Layers size={15} /> },
   { to: '/analytics', label: 'Analytics', icon: <Gauge size={15} /> },
   { to: '/scheduled', label: 'Scheduled', icon: <Clock size={15} /> },
@@ -32,9 +33,13 @@ export default function Sidebar() {
   const activeSessions = useSessionsStore(
     (s) => s.sessions.filter((x) => x.ended_at === null).length,
   );
+  const pendingApprovals = useApprovalsStore((s) => s.pending.length);
 
-  const badgeFor = (k?: 'approvals' | 'active') =>
-    k === 'active' ? activeSessions : 0;
+  const badgeFor = (k?: 'approvals' | 'active') => {
+    if (k === 'approvals') return pendingApprovals;
+    if (k === 'active') return activeSessions;
+    return 0;
+  };
 
   return (
     <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-line bg-surface px-2.5 py-3.5">

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import Sidebar from './Sidebar';
-import GlobalApprovalQueue from './global/GlobalApprovalQueue';
+
 import ConnectionIndicator from './global/ConnectionIndicator';
 import ToastContainer from './global/ToastContainer';
 import CommandPalette from './global/CommandPalette';
@@ -27,7 +27,6 @@ export default function AppShell({ children }: AppShellProps) {
       </main>
 
       {/* Global overlays */}
-      <GlobalApprovalQueue />
       <ConnectionIndicator />
       <ToastContainer />
       <CommandPalette
