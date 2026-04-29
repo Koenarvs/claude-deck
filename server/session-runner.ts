@@ -1,4 +1,6 @@
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
 import type { Goal, StreamJsonEvent, Message, AssistantContentBlock } from '../src/shared/types';
 import type { ServerEvent } from '../src/shared/events';
@@ -320,7 +322,41 @@ export class SessionRunner implements Killable {
       args.push('--model', this.goal.model);
     }
 
+    // Inject Claude Deck MCP server so goal sessions can create/instruct other goals
+    const mcpConfig = this.buildMcpConfig();
+    if (mcpConfig) {
+      args.push('--mcp-config', mcpConfig);
+    }
+
     return args;
+  }
+
+  /**
+   * Builds a JSON MCP config string for the Claude Deck MCP server.
+   * Returns null if the MCP server entry point cannot be resolved.
+   */
+  private buildMcpConfig(): string | null {
+    try {
+      const __dirname = path.dirname(fileURLToPath(import.meta.url));
+      const mcpEntry = path.resolve(__dirname, '..', 'mcp', 'dist', 'index.js');
+      const port = process.env['PORT'] ?? '4100';
+      const baseUrl = `http://127.0.0.1:${port}`;
+
+      const config = {
+        mcpServers: {
+          'claude-deck': {
+            command: 'node',
+            args: [mcpEntry],
+            env: { CLAUDE_DECK_URL: baseUrl },
+          },
+        },
+      };
+
+      return JSON.stringify(config);
+    } catch (err) {
+      logger.warn({ err }, 'Failed to build MCP config — sessions will not have Claude Deck tools');
+      return null;
+    }
   }
 
   /**
