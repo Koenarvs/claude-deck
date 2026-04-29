@@ -50,4 +50,17 @@ export function runMigrations(db: Database.Database): void {
     logger.info({ file, version }, 'Running migration');
     db.exec(sql);
   }
+
+  // Migration 009 fixup: ensure inter_goal_messages has delivered_at/acknowledged_at.
+  // These were missing from the original 007 run on existing installs.
+  const cols = db.pragma('table_info(inter_goal_messages)') as Array<{ name: string }>;
+  const colNames = new Set(cols.map((c) => c.name));
+  if (cols.length > 0 && !colNames.has('delivered_at')) {
+    db.exec('ALTER TABLE inter_goal_messages ADD COLUMN delivered_at INTEGER');
+    logger.info('Added missing delivered_at column to inter_goal_messages');
+  }
+  if (cols.length > 0 && !colNames.has('acknowledged_at')) {
+    db.exec('ALTER TABLE inter_goal_messages ADD COLUMN acknowledged_at INTEGER');
+    logger.info('Added missing acknowledged_at column to inter_goal_messages');
+  }
 }

@@ -37,11 +37,12 @@ async function request<T>(
   const res = await fetch(`${API_BASE}${path}`, fetchInit);
 
   if (!res.ok) {
+    const errorText = await res.text();
     let errorBody: unknown;
     try {
-      errorBody = await res.json();
+      errorBody = JSON.parse(errorText);
     } catch {
-      errorBody = await res.text();
+      errorBody = errorText;
     }
     throw new ApiError(res.status, errorBody);
   }
