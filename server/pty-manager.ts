@@ -1,6 +1,8 @@
 import * as pty from 'node-pty';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
 import type { Goal } from '../src/shared/types';
 import type { ServerEvent } from '../src/shared/events';
@@ -91,6 +93,12 @@ export class PtyManager implements Killable {
     args.push('--session-id', this.sessionId);
     if (this.goal.model && this.goal.model !== 'default') {
       args.push('--model', this.goal.model);
+    }
+
+    // Inject Claude Deck MCP server so goal sessions can orchestrate other goals
+    const mcpConfig = this.buildMcpConfig();
+    if (mcpConfig) {
+      args.push('--mcp-config', mcpConfig);
     }
 
     const env: Record<string, string> = {};
@@ -259,5 +267,27 @@ export class PtyManager implements Killable {
 
   async cleanup(): Promise<void> {
     this.terminal = null;
+  }
+
+  private buildMcpConfig(): string | null {
+    try {
+      const __dirname = path.dirname(fileURLToPath(import.meta.url));
+      const mcpEntry = path.resolve(__dirname, '..', 'mcp', 'dist', 'index.js');
+      const port = process.env['PORT'] ?? '4100';
+      const baseUrl = `http://127.0.0.1:${port}`;
+
+      return JSON.stringify({
+        mcpServers: {
+          'claude-deck': {
+            command: 'node',
+            args: [mcpEntry],
+            env: { CLAUDE_DECK_URL: baseUrl },
+          },
+        },
+      });
+    } catch (err) {
+      logger.warn({ err }, 'PTY: Failed to build MCP config');
+      return null;
+    }
   }
 }
