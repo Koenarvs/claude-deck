@@ -181,25 +181,24 @@ export class HookIngest {
 
     const sessionId = payload.session_id ?? null;
     const goalId = this.getGoalIdForSession(sessionId);
-    const isAutonomous = this.getGoalPermissionMode(goalId) === 'autonomous';
 
     logger.debug({
       event: 'PreToolUse',
       toolName,
       sessionId,
       goalId,
-      isAutonomous,
-    }, 'Hook: PreToolUse — routing to approval coordinator');
+    }, 'Hook: PreToolUse — notifying UI (pass-through)');
 
-    return this.approvalCoordinator.request(
-      {
-        session_id: sessionId,
-        goal_id: goalId,
-        tool_name: toolName,
-        tool_args: JSON.stringify(payload.tool_input ?? {}),
-      },
-      isAutonomous,
-    );
+    // Broadcast for UI indicators (sidebar badge, kanban card) but don't block
+    this.approvalCoordinator.notify({
+      session_id: sessionId,
+      goal_id: goalId,
+      tool_name: toolName,
+      tool_args: JSON.stringify(payload.tool_input ?? {}),
+    });
+
+    // Always pass through — let Claude Code handle permissions natively in the terminal
+    return { decision: 'allow' };
   }
 
   /**
@@ -228,26 +227,25 @@ export class HookIngest {
 
     const sessionId = payload.session_id ?? null;
     const goalId = this.getGoalIdForSession(sessionId);
-    const isAutonomous = this.getGoalPermissionMode(goalId) === 'autonomous';
 
     logger.info({
       event: 'PermissionRequest',
       toolName,
       sessionId,
       goalId,
-      isAutonomous,
       payloadKeys: Object.keys(payload).join(', '),
-    }, 'Hook: PermissionRequest — routing to approval coordinator');
+    }, 'Hook: PermissionRequest — notifying UI (pass-through)');
 
-    return this.approvalCoordinator.request(
-      {
-        session_id: sessionId,
-        goal_id: goalId,
-        tool_name: toolName,
-        tool_args: JSON.stringify(payload.tool_input ?? {}),
-      },
-      isAutonomous,
-    );
+    // Broadcast for UI indicators but don't block
+    this.approvalCoordinator.notify({
+      session_id: sessionId,
+      goal_id: goalId,
+      tool_name: toolName,
+      tool_args: JSON.stringify(payload.tool_input ?? {}),
+    });
+
+    // Always pass through — let Claude Code handle permissions natively in the terminal
+    return { decision: 'allow' };
   }
 
   /**

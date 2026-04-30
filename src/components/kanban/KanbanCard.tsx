@@ -199,23 +199,21 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
         </div>
       )}
 
-      {goal.status === 'waiting' && (
+      {pendingApproval && (
         <div className="mt-1.5 flex items-center gap-1.5">
-          {pendingApproval ? (
-            <>
-              <AlertCircle size={11} className="text-warn" />
-              <span className="mono-tabular truncate text-[10px] text-warn">
-                {pendingApproval.tool_name}
-              </span>
-            </>
-          ) : (
-            <>
-              <Pause size={11} className="text-faint" />
-              <span className="mono-tabular text-[10px] text-faint">
-                Idle
-              </span>
-            </>
-          )}
+          <AlertCircle size={11} className="text-warn" />
+          <span className="mono-tabular truncate text-[10px] text-warn">
+            {pendingApproval.tool_name}
+          </span>
+        </div>
+      )}
+
+      {goal.status === 'waiting' && !pendingApproval && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <Pause size={11} className="text-faint" />
+          <span className="mono-tabular text-[10px] text-faint">
+            Idle
+          </span>
         </div>
       )}
 
