@@ -8,6 +8,7 @@ import {
   FileText,
   Search,
   StickyNote,
+  ArrowRightLeft,
   CheckSquare,
   Activity,
   GitBranch,
@@ -30,7 +31,7 @@ interface GoalPlanPaneProps {
   };
 }
 
-type TabId = 'health' | 'plan' | 'research' | 'notes' | 'todo' | 'agents';
+type TabId = 'health' | 'plan' | 'research' | 'notes' | 'handoff' | 'todo' | 'agents';
 
 interface TabDef {
   id: TabId;
@@ -44,6 +45,7 @@ const TABS: TabDef[] = [
   { id: 'plan', label: 'Plan', icon: FileText, fileName: 'plan.md' },
   { id: 'research', label: 'Research', icon: Search, fileName: 'research.md' },
   { id: 'notes', label: 'Notes', icon: StickyNote, fileName: 'notes.md' },
+  { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft, fileName: 'handoff.md' },
   { id: 'todo', label: 'To Do', icon: CheckSquare },
   { id: 'agents', label: 'Agents', icon: GitBranch },
 ];
