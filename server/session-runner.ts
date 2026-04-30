@@ -1,4 +1,5 @@
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
@@ -360,35 +361,58 @@ export class SessionRunner implements Killable {
   }
 
   /**
-   * Builds an enriched prompt by prepending external skills context.
-   * If no external skills are available, returns the original prompt unchanged.
+   * Builds an enriched prompt by prepending project memory and external skills.
    */
   private buildEnrichedPrompt(prompt: string): string {
-    if (!this.deps.skillProvider) {
-      return prompt;
+    let enriched = prompt;
+
+    // Inject project-level memory (context about this working directory)
+    const memoryContent = this.loadProjectMemory();
+    if (memoryContent) {
+      enriched = `## Project Memory\n\n${memoryContent}\n\n---\n\n${enriched}`;
     }
 
-    try {
-      const skills = this.deps.skillProvider.getExternalSkills(this.goal.cwd);
-      if (skills.length === 0) {
-        return prompt;
+    // Inject external skills (capabilities from other directories)
+    if (this.deps.skillProvider) {
+      try {
+        const skills = this.deps.skillProvider.getExternalSkills(this.goal.cwd);
+        if (skills.length > 0) {
+          const skillBlocks = skills
+            .map((s) => `## Skill: ${s.name}\n${s.content}`)
+            .join('\n\n---\n\n');
+
+          enriched = `The following skills are available from external directories. You can use these capabilities:\n\n${skillBlocks}\n\n---\n\n${enriched}`;
+
+          logger.info(
+            { goalId: this.goal.id, skillCount: skills.length, skillNames: skills.map((s) => s.name) },
+            'Injected external skills into prompt',
+          );
+        }
+      } catch (err) {
+        logger.warn({ goalId: this.goal.id, err }, 'Failed to load external skills — proceeding without injection');
       }
+    }
 
-      const skillBlocks = skills
-        .map((s) => `## Skill: ${s.name}\n${s.content}`)
-        .join('\n\n---\n\n');
+    return enriched;
+  }
 
-      const enriched = `The following skills are available from external directories. You can use these capabilities:\n\n${skillBlocks}\n\n---\n\n${prompt}`;
+  /**
+   * Reads the project-level MEMORY.md from the goal's cwd.
+   * Returns null if the file doesn't exist or is empty.
+   */
+  private loadProjectMemory(): string | null {
+    try {
+      const memoryPath = path.join(this.goal.cwd, '.claude', 'memory', 'MEMORY.md');
+      if (!fs.existsSync(memoryPath)) return null;
 
-      logger.info(
-        { goalId: this.goal.id, skillCount: skills.length, skillNames: skills.map((s) => s.name) },
-        'Injected external skills into prompt',
-      );
+      const content = fs.readFileSync(memoryPath, 'utf-8');
+      if (!content.trim()) return null;
 
-      return enriched;
+      logger.info({ goalId: this.goal.id, memoryPath }, 'Loaded project memory');
+      return content;
     } catch (err) {
-      logger.warn({ goalId: this.goal.id, err }, 'Failed to load external skills — proceeding without injection');
-      return prompt;
+      logger.warn({ goalId: this.goal.id, err }, 'Failed to load project memory');
+      return null;
     }
   }
 

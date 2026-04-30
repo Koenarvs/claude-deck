@@ -31,5 +31,6 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./tests/setup-dom.ts'],
+    exclude: ['**/node_modules/**', '**/.claude/worktrees/**', '**/dist/**'],
   },
 });

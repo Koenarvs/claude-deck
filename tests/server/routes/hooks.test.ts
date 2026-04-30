@@ -150,8 +150,7 @@ describe('Hook routes', () => {
 
   describe('POST /api/hook/pre-tool-use', () => {
     it('returns allow for external sessions (supervised, no goal)', async () => {
-      // External session with no goal — coordinator blocks then times out
-      // Since we set timeout to 200ms, it should auto-deny
+      // Hooks are now pass-through — always return allow immediately
       const res = await postJson(port, '/api/hook/pre-tool-use', {
         session_id: 'sess-pre-1',
         tool_name: 'Bash',
@@ -159,9 +158,7 @@ describe('Hook routes', () => {
       });
 
       expect(res.status).toBe(200);
-      // With no goal, permission_mode defaults to supervised, so it times out and denies
-      expect(res.body['decision']).toBe('deny');
-      expect(res.body['reason']).toBe('timeout');
+      expect(res.body['decision']).toBe('allow');
     });
 
     it('returns allow immediately for autonomous goal', async () => {
@@ -342,9 +339,8 @@ describe('Hook routes', () => {
       const res = await postJson(port, '/api/hook/pre-tool-use', {});
 
       expect(res.status).toBe(200);
-      // With empty payload, no session_id, it defaults to supervised → timeout → deny
-      // The fail-open is for server errors, not business logic
-      expect(res.body['decision']).toBeDefined();
+      // Hooks are now pass-through — always return allow
+      expect(res.body['decision']).toBe('allow');
     });
   });
 });

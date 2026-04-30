@@ -122,15 +122,14 @@ describe('HookIngest', () => {
   });
 
   describe('onPreToolUse', () => {
-    it('returns deny on timeout for supervised session without goal', async () => {
+    it('returns allow immediately (pass-through to terminal)', async () => {
       const decision = await ingest.onPreToolUse({
         session_id: 'pre-tool-1',
         tool_name: 'Bash',
         tool_input: { command: 'rm -rf /' },
       });
 
-      expect(decision.decision).toBe('deny');
-      expect(decision.reason).toBe('timeout');
+      expect(decision.decision).toBe('allow');
     });
 
     it('returns allow for autonomous goal', async () => {
