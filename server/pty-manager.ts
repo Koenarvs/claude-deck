@@ -143,12 +143,31 @@ export class PtyManager implements Killable {
       return;
     }
 
+    // Track whether the initial prompt has been sent
+    let promptSent = !initialPrompt; // true if no prompt to send
+    let outputBuffer = '';
+
     this.terminal.onData((data: string) => {
       this.broadcast({
         type: 'terminal:data',
         goal_id: this.goalId,
         data,
       });
+
+      // Detect when Claude Code is ready for input, then send the initial prompt.
+      // Claude Code shows a ">" prompt character when ready for user input.
+      if (!promptSent) {
+        outputBuffer += data;
+        // Look for the input prompt indicator — Claude Code renders ">" or "❯" when ready
+        if (outputBuffer.includes('>') || outputBuffer.includes('❯') || outputBuffer.includes('bypass permissions')) {
+          promptSent = true;
+          // Small delay to ensure the prompt is fully rendered
+          setTimeout(() => {
+            this.write(initialPrompt + '\n');
+            logger.info({ goalId: this.goalId, promptLength: initialPrompt.length }, 'PTY: Sent initial prompt after ready detection');
+          }, 300);
+        }
+      }
     });
 
     this.terminal.onExit(({ exitCode }) => {
@@ -167,12 +186,6 @@ export class PtyManager implements Killable {
       type: 'terminal:started',
       goal_id: this.goalId,
     });
-
-    if (initialPrompt) {
-      setTimeout(() => {
-        this.write(initialPrompt + '\n');
-      }, 500);
-    }
   }
 
   resume(sessionId: string): void {
