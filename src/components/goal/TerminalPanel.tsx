@@ -93,6 +93,12 @@ export default function TerminalPanel({ goalId }: TerminalPanelProps) {
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
 
+    // Focus the terminal so it receives keyboard input
+    term.focus();
+
+    // Re-focus when the container is clicked
+    containerRef.current.addEventListener('click', () => term.focus());
+
     term.onData((data) => {
       sendWsMessage({
         type: 'terminal:input',

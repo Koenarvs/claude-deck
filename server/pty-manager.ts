@@ -157,14 +157,16 @@ export class PtyManager implements Killable {
       // Detect the bypass permissions warning and auto-accept for autonomous goals
       if (isAutonomous && !acceptSent && data.includes('Yes, I accept')) {
         acceptSent = true;
-        // Down arrow to select "2. Yes, I accept", then Enter
+        // Navigate to "Yes, I accept" and confirm. Try multiple strategies:
+        // 1. Down arrow to move from option 1 to option 2, then Enter
+        // 2. If that doesn't work within 500ms, try sending "2" then Enter
         setTimeout(() => {
           this.write('\x1b[B'); // down arrow
           setTimeout(() => {
-            this.write('\r');   // enter
+            this.write('\r');   // enter to confirm
             logger.info({ goalId: this.goalId }, 'PTY: Auto-accepted bypass permissions warning');
-          }, 100);
-        }, 200);
+          }, 150);
+        }, 300);
       }
     });
 
