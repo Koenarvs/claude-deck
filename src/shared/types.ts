@@ -18,6 +18,7 @@ export interface Goal {
   model: GoalModel | null;
   permission_mode: PermissionMode;
   plan_json: PlanJson | null;
+  initial_prompt?: string | null;
   kanban_order: number;
   created_at: number;
   updated_at: number;

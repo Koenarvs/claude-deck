@@ -63,4 +63,12 @@ export function runMigrations(db: Database.Database): void {
     db.exec('ALTER TABLE inter_goal_messages ADD COLUMN acknowledged_at INTEGER');
     logger.info('Added missing acknowledged_at column to inter_goal_messages');
   }
+
+  // Migration 010: ensure goals has initial_prompt column
+  const goalCols = db.pragma('table_info(goals)') as Array<{ name: string }>;
+  const goalColNames = new Set(goalCols.map((c) => c.name));
+  if (!goalColNames.has('initial_prompt')) {
+    db.exec('ALTER TABLE goals ADD COLUMN initial_prompt TEXT');
+    logger.info('Added initial_prompt column to goals');
+  }
 }

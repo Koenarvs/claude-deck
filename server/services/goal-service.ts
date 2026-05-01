@@ -27,6 +27,7 @@ interface GoalRow {
   model: string | null;
   permission_mode: string;
   plan_json: string | null;
+  initial_prompt: string | null;
   kanban_order: number;
   created_at: number;
   updated_at: number;
@@ -62,6 +63,7 @@ function rowToGoal(row: GoalRow): Goal {
     model: row.model as Goal['model'],
     permission_mode: row.permission_mode as Goal['permission_mode'],
     plan_json: row.plan_json ? (JSON.parse(row.plan_json) as PlanJson) : null,
+    initial_prompt: row.initial_prompt,
     kanban_order: row.kanban_order,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -105,9 +107,9 @@ export function createGoalService(db: Database.Database) {
   // ── Prepared Statements ──────────────────────────────────────────────────
 
   const insertStmt = db.prepare<
-    [string, string, string | null, string, string, number, string | null, string | null, string, string | null, number, number, number, number | null]
-  >(`INSERT INTO goals (id, title, description, cwd, status, priority, tags, current_session_id, permission_mode, model, kanban_order, created_at, updated_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    [string, string, string | null, string, string, number, string | null, string | null, string, string | null, string | null, number, number, number, number | null]
+  >(`INSERT INTO goals (id, title, description, cwd, status, priority, tags, current_session_id, permission_mode, model, initial_prompt, kanban_order, created_at, updated_at, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   const getByIdStmt = db.prepare<[string], GoalRow>(
     'SELECT * FROM goals WHERE id = ?',
@@ -166,6 +168,7 @@ export function createGoalService(db: Database.Database) {
       null,
       input.permission_mode ?? 'supervised',
       input.model ?? null,
+      input.initialPrompt ?? null,
       kanbanOrder,
       now,
       now,

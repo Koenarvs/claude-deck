@@ -64,19 +64,6 @@ export function createGoalsRouter(
     (req: Request, res: Response) => {
       try {
         const goal = goalService.create(req.body);
-
-        const initialPrompt: string | undefined = req.body.initialPrompt;
-        if (initialPrompt && spawnSession) {
-          try {
-            spawnSession(goal.id, initialPrompt);
-          } catch (spawnErr) {
-            logger.warn(
-              { err: spawnErr, goalId: goal.id },
-              'Failed to spawn session for initialPrompt; goal still created',
-            );
-          }
-        }
-
         res.status(201).json(goal);
       } catch (err) {
         logger.error({ err }, 'Failed to create goal');
@@ -382,8 +369,10 @@ export function createGoalsRouter(
         return;
       }
 
-      const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt : undefined;
-      const sessionId = spawnTerminal(goal.id, prompt);
+      // Use prompt from request body, or fall back to stored initial_prompt
+      const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt : goal.initial_prompt;
+
+      const sessionId = spawnTerminal(goal.id, prompt ?? undefined);
       res.json({
         session_id: sessionId,
         status: sessionId === 'already_running' ? 'already_running' : 'started',
