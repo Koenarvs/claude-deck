@@ -10,11 +10,12 @@ import { GetSessionMessagesInputSchema, getSessionMessages } from './tools/get-s
 import { ScheduleTaskInputSchema, scheduleTask } from './tools/schedule-task.js';
 import { SendGoalInstructionInputSchema, sendGoalInstruction } from './tools/send-goal-instruction.js';
 import { CreateGoalAndInstructInputSchema, createGoalAndInstruct } from './tools/create-goal-and-instruct.js';
+import { UpdateGoalInputSchema, updateGoal } from './tools/update-goal.js';
 /**
  * MCP server for claude-deck.
  *
- * Exposes 9 tools that proxy to the claude-deck dashboard HTTP API:
- * - list_goals, get_goal, create_goal, send_message
+ * Exposes 10 tools that proxy to the claude-deck dashboard HTTP API:
+ * - list_goals, get_goal, create_goal, update_goal, send_message
  * - list_sessions, get_session_messages
  * - schedule_task
  * - send_goal_instruction
@@ -64,6 +65,7 @@ const server = new McpServer({
 server.tool('list_goals', 'List goals tracked by claude-deck. Optionally filter by status or tag.', ListGoalsInputSchema.shape, async (input) => handleToolCall(() => listGoals(client, input)));
 server.tool('get_goal', 'Get a single goal with its messages and plan.', GetGoalInputSchema.shape, async (input) => handleToolCall(() => getGoal(client, input)));
 server.tool('create_goal', 'Create a new goal in claude-deck. Optionally spawns a Claude session with an initial prompt.', CreateGoalInputSchema.shape, async (input) => handleToolCall(() => createGoal(client, input)));
+server.tool('update_goal', 'Update an existing goal\'s status, title, description, or tags.', UpdateGoalInputSchema.shape, async (input) => handleToolCall(() => updateGoal(client, input)));
 server.tool('send_message', 'Send a follow-up message/prompt to an existing goal\'s active session.', SendMessageInputSchema.shape, async (input) => handleToolCall(() => sendMessage(client, input)));
 server.tool('list_sessions', 'List Claude sessions (dashboard-spawned and external). Optionally filter by origin or active status.', ListSessionsInputSchema.shape, async (input) => handleToolCall(() => listSessions(client, input)));
 server.tool('get_session_messages', 'Get all messages for a specific Claude session.', GetSessionMessagesInputSchema.shape, async (input) => handleToolCall(() => getSessionMessages(client, input)));

@@ -172,6 +172,19 @@ export class DashboardApiClient {
             body['tags'] = input.tags;
         return this.request('POST', '/api/goals', body, GoalResponseSchema);
     }
+    /** Update an existing goal's fields (title, description, status, tags). */
+    async updateGoal(id, input) {
+        const body = {};
+        if (input.status !== undefined)
+            body['status'] = input.status;
+        if (input.title !== undefined)
+            body['title'] = input.title;
+        if (input.description !== undefined)
+            body['description'] = input.description;
+        if (input.tags !== undefined)
+            body['tags'] = input.tags;
+        return this.request('PATCH', `/api/goals/${encodeURIComponent(id)}`, body, GoalResponseSchema);
+    }
     /** Atomically create a goal, send an instruction to it, and optionally spawn a session. */
     async createGoalAndInstruct(input) {
         const body = {

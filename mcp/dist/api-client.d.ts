@@ -512,6 +512,13 @@ export declare class DashboardApiClient {
         initialPrompt?: string | undefined;
         tags?: string[] | undefined;
     }): Promise<Goal>;
+    /** Update an existing goal's fields (title, description, status, tags). */
+    updateGoal(id: string, input: {
+        status?: string | undefined;
+        title?: string | undefined;
+        description?: string | null | undefined;
+        tags?: string[] | undefined;
+    }): Promise<Goal>;
     /** Atomically create a goal, send an instruction to it, and optionally spawn a session. */
     createGoalAndInstruct(input: {
         title: string;

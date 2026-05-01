@@ -97,7 +97,7 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
           cost: jsonlCost,
           tokensIn,
           tokensOut,
-          contextPct: estimateContextUsage(currentContext, 0, goal.model ?? 'default'),
+          contextPct: estimateContextUsage(currentContext, goal.model ?? 'default'),
         });
       } catch {
         // ignore

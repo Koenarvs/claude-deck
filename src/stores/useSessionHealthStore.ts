@@ -25,10 +25,9 @@ const CONTEXT_WINDOWS: Record<string, number> = {
   default: 200_000,
 };
 
-export function estimateContextUsage(tokensIn: number, tokensOut: number, model = 'default'): number {
+export function estimateContextUsage(currentContextTokens: number, model = 'default'): number {
   const window = CONTEXT_WINDOWS[model] ?? 200_000;
-  const totalTokens = tokensIn + tokensOut;
-  return Math.min(100, Math.round((totalTokens / window) * 100));
+  return Math.min(100, Math.round((currentContextTokens / window) * 100));
 }
 
 export const useSessionHealthStore = create<SessionHealthState>((set) => ({

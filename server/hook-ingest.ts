@@ -127,12 +127,101 @@ export class HookIngest {
     const cwd = payload.cwd ?? null;
     const displayName = cwd ? cwd.replace(/\\/g, '/').split('/').pop() ?? cwd : null;
 
+    // Check if there's an active goal awaiting a session in the same cwd.
+    // This catches MCP-spawned sessions where the session row wasn't pre-created
+    // (e.g., race condition or alternative spawn path).
+    let linkedGoalId: string | null = null;
+    let origin: 'external' | 'dashboard' = 'external';
+    if (cwd) {
+      const waitingGoal = this.db.prepare(
+        `SELECT id FROM goals
+         WHERE cwd = ? AND current_session_id IS NULL
+           AND status IN ('planning', 'active', 'waiting')
+         ORDER BY updated_at DESC LIMIT 1`,
+      ).get(cwd) as { id: string } | undefined;
+
+      if (waitingGoal) {
+        linkedGoalId = waitingGoal.id;
+        origin = 'dashboard';
+        logger.info(
+          { sessionId, goalId: linkedGoalId, cwd },
+          'Linked new session to waiting goal by cwd match',
+        );
+      }
+    }
+
     this.db
       .prepare(
         `INSERT INTO sessions (id, goal_id, origin, cwd, model, display_name, trace_dir, stream_event_count, hook_event_count, stderr_bytes, started_at, ended_at)
-         VALUES (?, NULL, 'external', ?, ?, ?, NULL, 0, 1, 0, ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 1, 0, ?, NULL)`,
       )
-      .run(sessionId, cwd, payload.model ?? null, displayName, now);
+      .run(sessionId, linkedGoalId, origin, cwd, payload.model ?? null, displayName, now);
+
+    // If we linked to a goal, update the goal's current_session_id
+    if (linkedGoalId) {
+      this.db.prepare(
+        `UPDATE goals SET current_session_id = ?, updated_at = ? WHERE id = ?`,
+      ).run(sessionId, now, linkedGoalId);
+
+      broadcast({
+        type: 'goal:status',
+        id: linkedGoalId,
+        status: 'active',
+        current_session_id: sessionId,
+      });
+    }
+
+    // Crash recovery: find recent crashed sessions in the same cwd
+    // (ended_at IS NULL means the session never received a Stop hook — it crashed)
+    if (cwd) {
+      const crashedThreshold = now - 60_000; // within last 60 seconds
+      const crashedSession = this.db.prepare(
+        `SELECT id, goal_id FROM sessions
+         WHERE cwd = ? AND ended_at IS NULL AND id != ?
+           AND started_at >= ?
+         ORDER BY started_at DESC LIMIT 1`,
+      ).get(cwd, sessionId, crashedThreshold) as { id: string; goal_id: string | null } | undefined;
+
+      if (crashedSession) {
+        // End the crashed session
+        this.db.prepare(
+          `UPDATE sessions SET ended_at = ? WHERE id = ?`,
+        ).run(now, crashedSession.id);
+
+        // Set parent_session_id on the new session
+        this.db.prepare(
+          `UPDATE sessions SET parent_session_id = ? WHERE id = ?`,
+        ).run(crashedSession.id, sessionId);
+
+        // If crashed session had a goal and we didn't already link one, inherit it
+        if (crashedSession.goal_id && !linkedGoalId) {
+          this.db.prepare(
+            `UPDATE sessions SET goal_id = ?, origin = 'dashboard' WHERE id = ?`,
+          ).run(crashedSession.goal_id, sessionId);
+
+          this.db.prepare(
+            `UPDATE goals SET current_session_id = ?, updated_at = ? WHERE id = ?`,
+          ).run(sessionId, now, crashedSession.goal_id);
+
+          broadcast({
+            type: 'goal:status',
+            id: crashedSession.goal_id,
+            status: 'active',
+            current_session_id: sessionId,
+          });
+        }
+
+        broadcast({
+          type: 'session:ended',
+          id: crashedSession.id,
+        });
+
+        logger.info(
+          { newSessionId: sessionId, crashedSessionId: crashedSession.id, goalId: crashedSession.goal_id },
+          'Crash recovery: linked new session to crashed predecessor',
+        );
+      }
+    }
 
     const session = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
     if (session) {

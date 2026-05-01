@@ -10,12 +10,13 @@ import { GetSessionMessagesInputSchema, getSessionMessages } from './tools/get-s
 import { ScheduleTaskInputSchema, scheduleTask } from './tools/schedule-task.js';
 import { SendGoalInstructionInputSchema, sendGoalInstruction } from './tools/send-goal-instruction.js';
 import { CreateGoalAndInstructInputSchema, createGoalAndInstruct } from './tools/create-goal-and-instruct.js';
+import { UpdateGoalInputSchema, updateGoal } from './tools/update-goal.js';
 
 /**
  * MCP server for claude-deck.
  *
- * Exposes 9 tools that proxy to the claude-deck dashboard HTTP API:
- * - list_goals, get_goal, create_goal, send_message
+ * Exposes 10 tools that proxy to the claude-deck dashboard HTTP API:
+ * - list_goals, get_goal, create_goal, update_goal, send_message
  * - list_sessions, get_session_messages
  * - schedule_task
  * - send_goal_instruction
@@ -87,6 +88,13 @@ server.tool(
   'Create a new goal in claude-deck. Optionally spawns a Claude session with an initial prompt.',
   CreateGoalInputSchema.shape,
   async (input) => handleToolCall(() => createGoal(client, input)),
+);
+
+server.tool(
+  'update_goal',
+  'Update an existing goal\'s status, title, description, or tags.',
+  UpdateGoalInputSchema.shape,
+  async (input) => handleToolCall(() => updateGoal(client, input)),
 );
 
 server.tool(
