@@ -171,57 +171,9 @@ export class HookIngest {
       });
     }
 
-    // Crash recovery: find recent crashed sessions in the same cwd
-    // (ended_at IS NULL means the session never received a Stop hook — it crashed)
-    if (cwd) {
-      const crashedThreshold = now - 60_000; // within last 60 seconds
-      const crashedSession = this.db.prepare(
-        `SELECT id, goal_id FROM sessions
-         WHERE cwd = ? AND ended_at IS NULL AND id != ?
-           AND started_at >= ?
-         ORDER BY started_at DESC LIMIT 1`,
-      ).get(cwd, sessionId, crashedThreshold) as { id: string; goal_id: string | null } | undefined;
-
-      if (crashedSession) {
-        // End the crashed session
-        this.db.prepare(
-          `UPDATE sessions SET ended_at = ? WHERE id = ?`,
-        ).run(now, crashedSession.id);
-
-        // Set parent_session_id on the new session
-        this.db.prepare(
-          `UPDATE sessions SET parent_session_id = ? WHERE id = ?`,
-        ).run(crashedSession.id, sessionId);
-
-        // If crashed session had a goal and we didn't already link one, inherit it
-        if (crashedSession.goal_id && !linkedGoalId) {
-          this.db.prepare(
-            `UPDATE sessions SET goal_id = ?, origin = 'dashboard' WHERE id = ?`,
-          ).run(crashedSession.goal_id, sessionId);
-
-          this.db.prepare(
-            `UPDATE goals SET current_session_id = ?, updated_at = ? WHERE id = ?`,
-          ).run(sessionId, now, crashedSession.goal_id);
-
-          broadcast({
-            type: 'goal:status',
-            id: crashedSession.goal_id,
-            status: 'active',
-            current_session_id: sessionId,
-          });
-        }
-
-        broadcast({
-          type: 'session:ended',
-          id: crashedSession.id,
-        });
-
-        logger.info(
-          { newSessionId: sessionId, crashedSessionId: crashedSession.id, goalId: crashedSession.goal_id },
-          'Crash recovery: linked new session to crashed predecessor',
-        );
-      }
-    }
+    // Crash recovery is handled at the spawn level: spawnTerminalSession
+    // checks for resumable sessions (ended_at IS NULL) and uses --resume
+    // instead of creating new sessions. No heuristic matching needed here.
 
     const session = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
     if (session) {

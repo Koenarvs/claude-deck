@@ -35,19 +35,28 @@ const db = getDb(env.dataDir);
 runMigrations(db);
 logger.info({ dataDir: env.dataDir }, 'Database initialized');
 
-// Close orphaned sessions (active for >4 hours with no recent events)
-const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000;
-const staleCutoff = Date.now() - STALE_THRESHOLD_MS;
-const staleResult = db.prepare(`
+// On startup, log resumable sessions (goals with ended_at IS NULL).
+// These will be resumed when the user opens the goal in the UI.
+// Only close truly abandoned sessions (older than 24 hours with no goal).
+const ABANDONED_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+const abandonedCutoff = Date.now() - ABANDONED_THRESHOLD_MS;
+const abandonedResult = db.prepare(`
   UPDATE sessions
-  SET ended_at = COALESCE(
-    (SELECT MAX(created_at) FROM hook_events WHERE session_id = sessions.id),
-    ?
-  )
-  WHERE ended_at IS NULL AND started_at < ?
-`).run(Date.now(), staleCutoff);
-if (staleResult.changes > 0) {
-  logger.info({ closedCount: staleResult.changes }, 'Closed orphaned sessions on startup');
+  SET ended_at = ?
+  WHERE ended_at IS NULL AND goal_id IS NULL AND started_at < ?
+`).run(Date.now(), abandonedCutoff);
+if (abandonedResult.changes > 0) {
+  logger.info({ closedCount: abandonedResult.changes }, 'Closed abandoned sessions (no goal, >24h old)');
+}
+
+const resumable = db.prepare(`
+  SELECT s.id as session_id, s.goal_id, g.title as goal_title
+  FROM sessions s
+  JOIN goals g ON s.goal_id = g.id
+  WHERE s.ended_at IS NULL AND g.status NOT IN ('complete', 'archived')
+`).all() as Array<{ session_id: string; goal_id: string; goal_title: string }>;
+if (resumable.length > 0) {
+  logger.info({ count: resumable.length, goals: resumable.map(r => r.goal_title) }, 'Resumable sessions found — will resume when goals are opened');
 }
 
 // Auto-ensure hooks are installed in ~/.claude/settings.json
@@ -116,14 +125,18 @@ function spawnGoalSession(goalId: string, prompt: string): string {
   // Check for existing runner
   const existing = processRegistry.get(goalId);
   if (existing) {
-    const runner = existing as SessionRunner;
-    if (runner.hasExited()) {
-      // Dead session — clean up and fall through to create a new one
-      void runner.cleanup();
-      processRegistry.remove(goalId);
+    if (existing instanceof SessionRunner) {
+      if (existing.hasExited()) {
+        void existing.cleanup();
+        processRegistry.remove(goalId);
+      } else {
+        void existing.sendFollowup(prompt);
+        return existing.getSessionId() ?? 'resuming';
+      }
     } else {
-      void runner.sendFollowup(prompt);
-      return runner.getSessionId() ?? 'resuming';
+      // PtyManager or other — kill it before spawning a SessionRunner
+      void existing.interrupt().then(() => existing.cleanup());
+      processRegistry.remove(goalId);
     }
   }
 
@@ -186,8 +199,9 @@ function spawnGoalSession(goalId: string, prompt: string): string {
 }
 
 /**
- * Spawns a PTY-based terminal session for a goal.
- * The terminal runs `claude` interactively — the user types directly.
+ * Spawns or resumes a PTY-based terminal session for a goal.
+ * If the goal has a previous session that was never ended (ended_at IS NULL),
+ * resumes it with --resume instead of creating a new session.
  */
 function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
   const goal = goalService.get(goalId);
@@ -211,12 +225,26 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     },
   });
 
+  // Check for a resumable session (ended_at IS NULL = never properly closed)
+  const resumableSession = goal.current_session_id
+    ? db.prepare(
+        `SELECT id FROM sessions WHERE id = ? AND ended_at IS NULL`,
+      ).get(goal.current_session_id) as { id: string } | undefined
+    : undefined;
+
   processRegistry.set(goalId, ptyMgr);
   goalService.update(goalId, { status: 'active' });
-  goalService.setCurrentSession(goalId, ptyMgr.getSessionId());
-  ptyMgr.start(initialPrompt);
 
-  return ptyMgr.getSessionId();
+  if (resumableSession) {
+    logger.info({ goalId, sessionId: resumableSession.id }, 'Resuming previous session');
+    goalService.setCurrentSession(goalId, resumableSession.id);
+    ptyMgr.resume(resumableSession.id);
+  } else {
+    goalService.setCurrentSession(goalId, ptyMgr.getSessionId());
+    ptyMgr.start(initialPrompt);
+  }
+
+  return resumableSession?.id ?? ptyMgr.getSessionId();
 }
 
 // Wire terminal input/resize from WS to PTY managers
