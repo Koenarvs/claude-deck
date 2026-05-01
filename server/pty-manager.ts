@@ -143,12 +143,29 @@ export class PtyManager implements Killable {
       return;
     }
 
+    // For autonomous goals, auto-accept the --dangerously-skip-permissions warning
+    let acceptSent = false;
+    const isAutonomous = this.goal.permission_mode === 'autonomous';
+
     this.terminal.onData((data: string) => {
       this.broadcast({
         type: 'terminal:data',
         goal_id: this.goalId,
         data,
       });
+
+      // Detect the bypass permissions warning and auto-accept for autonomous goals
+      if (isAutonomous && !acceptSent && data.includes('Yes, I accept')) {
+        acceptSent = true;
+        // Down arrow to select "2. Yes, I accept", then Enter
+        setTimeout(() => {
+          this.write('\x1b[B'); // down arrow
+          setTimeout(() => {
+            this.write('\r');   // enter
+            logger.info({ goalId: this.goalId }, 'PTY: Auto-accepted bypass permissions warning');
+          }, 100);
+        }, 200);
+      }
     });
 
     this.terminal.onExit(({ exitCode }) => {
@@ -212,12 +229,26 @@ export class PtyManager implements Killable {
       Object.defineProperty(process, 'execPath', { value: origExecPath, writable: true, configurable: true });
     }
 
+    let resumeAcceptSent = false;
+    const isAutonomousResume = this.goal.permission_mode === 'autonomous';
+
     this.terminal.onData((data: string) => {
       this.broadcast({
         type: 'terminal:data',
         goal_id: this.goalId,
         data,
       });
+
+      if (isAutonomousResume && !resumeAcceptSent && data.includes('Yes, I accept')) {
+        resumeAcceptSent = true;
+        setTimeout(() => {
+          this.write('\x1b[B');
+          setTimeout(() => {
+            this.write('\r');
+            logger.info({ goalId: this.goalId }, 'PTY: Auto-accepted bypass permissions warning (resume)');
+          }, 100);
+        }, 200);
+      }
     });
 
     this.terminal.onExit(({ exitCode }) => {
