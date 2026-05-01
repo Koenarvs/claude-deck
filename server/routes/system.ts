@@ -5,7 +5,7 @@ import os from 'node:os';
 import { hookInstallerService } from '../services/hook-installer-service';
 import type { SkillDirectoryService } from '../services/skill-directory-service';
 import { getAggregateTotals, getDailyCosts } from '../services/usage-service';
-import { scanSkills } from '../skill-scanner';
+import { scanSkills, type ScannedSkill } from '../skill-scanner';
 import logger from '../logger';
 
 /**
@@ -32,6 +32,65 @@ router.get('/skills', (req, res) => {
 
   const skills = scanSkills({ extraDirs });
   res.json(skills);
+});
+
+/**
+ * GET /api/agents
+ * Scans for Claude Code agent definitions in known locations.
+ * Agents are .md files found in .claude/agents/ directories.
+ */
+router.get('/agents', (req, res) => {
+  const extraDirs: string[] = [];
+  const dirParam = req.query['dir'];
+  if (typeof dirParam === 'string' && dirParam.length > 0) {
+    for (const d of dirParam.split(',')) {
+      const trimmed = d.trim();
+      if (trimmed) extraDirs.push(trimmed);
+    }
+  }
+
+  // scanSkills already scans 'agents' as a surface type — just filter by type
+  const all = scanSkills({ extraDirs });
+  const agents = all.filter((s: ScannedSkill) => s.type === 'agents');
+  res.json(agents);
+});
+
+/**
+ * GET /api/skill-content?path=<encoded-path>
+ * Reads a skill/agent .md file and returns its content.
+ * The path must end in .md and must exist on disk.
+ */
+router.get('/skill-content', (req, res) => {
+  const filePath = req.query['path'];
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    res.status(400).json({ error: 'path query parameter is required' });
+    return;
+  }
+
+  // Security: only allow .md files
+  if (!filePath.endsWith('.md')) {
+    res.status(400).json({ error: 'Only .md files can be read' });
+    return;
+  }
+
+  // Security: reject path traversal
+  if (filePath.includes('..')) {
+    res.status(400).json({ error: 'Path traversal not allowed' });
+    return;
+  }
+
+  try {
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.json({ content, path: filePath });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err: message }, 'Failed to read skill content');
+    res.status(500).json({ error: message });
+  }
 });
 
 /**
