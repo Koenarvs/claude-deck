@@ -64,8 +64,19 @@ export function createGoalsRouter(
     (req: Request, res: Response) => {
       try {
         const goal = goalService.create(req.body);
-        // Note: initialPrompt handling (spawning SessionRunner) is deferred to B1 integration.
-        // The goal is created in 'planning' status; B1's sendMessage will transition it to 'active'.
+
+        const initialPrompt: string | undefined = req.body.initialPrompt;
+        if (initialPrompt && spawnSession) {
+          try {
+            spawnSession(goal.id, initialPrompt);
+          } catch (spawnErr) {
+            logger.warn(
+              { err: spawnErr, goalId: goal.id },
+              'Failed to spawn session for initialPrompt; goal still created',
+            );
+          }
+        }
+
         res.status(201).json(goal);
       } catch (err) {
         logger.error({ err }, 'Failed to create goal');

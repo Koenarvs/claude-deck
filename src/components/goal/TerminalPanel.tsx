@@ -48,8 +48,10 @@ export default function TerminalPanel({ goalId }: TerminalPanelProps) {
 
     const term = new Terminal({
       cursorBlink: true,
+      cursorStyle: 'block',
       fontSize: 13,
       fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", Menlo, Monaco, monospace',
+      letterSpacing: 0,
       theme: {
         background: '#1a1b26',
         foreground: '#c0caf5',
@@ -113,19 +115,23 @@ export default function TerminalPanel({ goalId }: TerminalPanelProps) {
       term.write(`\r\n\x1b[90m--- session exited (code ${code}) ---\x1b[0m\r\n`);
     });
 
-    // Resize handler
+    // Resize handler — debounced to avoid cursor desync during active streaming
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const resizeObserver = new ResizeObserver(() => {
-      try {
-        fitAddon.fit();
-        sendWsMessage({
-          type: 'terminal:resize',
-          goal_id: goalId,
-          cols: term.cols,
-          rows: term.rows,
-        });
-      } catch {
-        // Ignore resize errors during teardown
-      }
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        try {
+          fitAddon.fit();
+          sendWsMessage({
+            type: 'terminal:resize',
+            goal_id: goalId,
+            cols: term.cols,
+            rows: term.rows,
+          });
+        } catch {
+          // Ignore resize errors during teardown
+        }
+      }, 100);
     });
     resizeObserver.observe(containerRef.current);
 
@@ -136,6 +142,7 @@ export default function TerminalPanel({ goalId }: TerminalPanelProps) {
       unsubData();
       unsubStarted();
       unsubExited();
+      if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       cleanupTerminalListeners(goalId);
       term.dispose();

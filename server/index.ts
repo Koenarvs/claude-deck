@@ -117,8 +117,14 @@ function spawnGoalSession(goalId: string, prompt: string): string {
   const existing = processRegistry.get(goalId);
   if (existing) {
     const runner = existing as SessionRunner;
-    void runner.sendFollowup(prompt);
-    return runner.getSessionId() ?? 'resuming';
+    if (runner.hasExited()) {
+      // Dead session — clean up and fall through to create a new one
+      void runner.cleanup();
+      processRegistry.remove(goalId);
+    } else {
+      void runner.sendFollowup(prompt);
+      return runner.getSessionId() ?? 'resuming';
+    }
   }
 
   // Create adapter for SessionRunner dependencies
