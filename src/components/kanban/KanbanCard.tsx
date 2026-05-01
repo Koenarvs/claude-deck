@@ -6,7 +6,6 @@ import { Cpu, Archive, FolderOpen, AlertCircle, Pause } from 'lucide-react';
 import { useGoalsStore } from '../../stores/useGoalsStore';
 import { useApprovalsStore } from '../../stores/useApprovalsStore';
 import { useActiveToolStore } from '../../stores/useActiveToolStore';
-import { estimateContextUsage } from '../../stores/useSessionHealthStore';
 import { fmtCost, fmtTokens } from '../../lib/format';
 import type { Goal, GoalModel } from '../../shared/types';
 
@@ -90,14 +89,13 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
           + (usage?.cacheCreationTokens ?? 0)
           + (usage?.cacheReadTokens ?? 0);
         const tokensOut = usage?.outputTokens ?? 0;
-        const currentContext = usage?.currentContextTokens ?? 0;
         const jsonlCost = usage?.estimatedCostUsd ?? 0;
         setStats({
           turns: (sess.stream_event_count as number) ?? 0,
           cost: jsonlCost,
           tokensIn,
           tokensOut,
-          contextPct: estimateContextUsage(currentContext, goal.model ?? 'default'),
+          contextPct: usage?.contextPct ?? 0,
         });
       } catch {
         // ignore

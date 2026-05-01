@@ -17,17 +17,10 @@ interface SessionHealthState {
   removeHealth: (sessionId: string) => void;
 }
 
-// Claude model context windows (approximate)
-const CONTEXT_WINDOWS: Record<string, number> = {
-  opus: 200_000,
-  sonnet: 200_000,
-  haiku: 200_000,
-  default: 200_000,
-};
+const CONTEXT_WINDOW = 1_000_000;
 
-export function estimateContextUsage(currentContextTokens: number, model = 'default'): number {
-  const window = CONTEXT_WINDOWS[model] ?? 200_000;
-  return Math.min(100, Math.round((currentContextTokens / window) * 100));
+export function estimateContextUsage(currentContextTokens: number): number {
+  return Math.min(100, Math.round((currentContextTokens / CONTEXT_WINDOW) * 100));
 }
 
 export const useSessionHealthStore = create<SessionHealthState>((set) => ({

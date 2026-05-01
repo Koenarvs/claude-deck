@@ -5,10 +5,8 @@ interface ContextHealthProps {
   tokensOut: number;
   cost: number;
   turnCount: number;
-  currentContextTokens?: number;
+  contextPct?: number | undefined;
 }
-
-const CONTEXT_WINDOW = 1_000_000;
 
 function getHealthColor(pct: number): string {
   if (pct < 50) return 'text-deck-success';
@@ -28,9 +26,8 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-export default function ContextHealth({ tokensIn, tokensOut, cost, turnCount, currentContextTokens }: ContextHealthProps) {
-  const contextTokens = currentContextTokens ?? (tokensIn + tokensOut);
-  const contextPct = Math.min(100, Math.round((contextTokens / CONTEXT_WINDOW) * 100));
+export default function ContextHealth({ tokensIn, tokensOut, cost, turnCount, contextPct: apiContextPct }: ContextHealthProps) {
+  const contextPct = apiContextPct ?? 0;
 
   return (
     <div className="rounded-lg border border-deck-border bg-deck-surface p-3 space-y-3">

@@ -128,69 +128,38 @@ describe('useSessionHealthStore', () => {
 
 // ── estimateContextUsage (pure function) ────────────────────────────────────
 
-describe('estimateContextUsage', () => {
+describe('estimateContextUsage (1M context window)', () => {
   it('returns 0 for 0 tokens', () => {
     expect(estimateContextUsage(0)).toBe(0);
   });
 
-  it('returns 0 for 0 tokens with explicit model', () => {
-    expect(estimateContextUsage(0, 'opus')).toBe(0);
+  it('calculates 10% for 100K tokens', () => {
+    expect(estimateContextUsage(100_000)).toBe(10);
   });
 
   it('calculates 50% for half window', () => {
-    // default window is 200,000
-    expect(estimateContextUsage(100_000)).toBe(50);
+    expect(estimateContextUsage(500_000)).toBe(50);
   });
 
   it('calculates 100% for exact window size', () => {
-    expect(estimateContextUsage(200_000)).toBe(100);
+    expect(estimateContextUsage(1_000_000)).toBe(100);
   });
 
   it('caps at 100% for tokens over window size', () => {
-    expect(estimateContextUsage(300_000)).toBe(100);
+    expect(estimateContextUsage(1_500_000)).toBe(100);
   });
 
   it('rounds to nearest integer', () => {
-    // 33,333 / 200,000 = 0.166665 -> 17%
-    expect(estimateContextUsage(33_333)).toBe(17);
+    // 33,333 / 1,000,000 = 0.033333 -> 3%
+    expect(estimateContextUsage(33_333)).toBe(3);
   });
 
-  it('uses opus model window (200,000)', () => {
-    expect(estimateContextUsage(100_000, 'opus')).toBe(50);
+  it('returns 0% for small token count', () => {
+    // 1,000 / 1,000,000 = 0.001 -> 0%
+    expect(estimateContextUsage(1_000)).toBe(0);
   });
 
-  it('uses sonnet model window (200,000)', () => {
-    expect(estimateContextUsage(100_000, 'sonnet')).toBe(50);
-  });
-
-  it('uses haiku model window (200,000)', () => {
-    expect(estimateContextUsage(100_000, 'haiku')).toBe(50);
-  });
-
-  it('falls back to 200,000 for unknown model', () => {
-    expect(estimateContextUsage(100_000, 'unknown-model')).toBe(50);
-  });
-
-  it('returns 1% for small token count', () => {
-    // 1,000 / 200,000 = 0.005 -> 1%
-    expect(estimateContextUsage(1_000)).toBe(1);
-  });
-
-  it('returns 0% for very small token count', () => {
-    // 100 / 200,000 = 0.0005 -> 0%
-    expect(estimateContextUsage(100)).toBe(0);
-  });
-
-  it('handles exact boundary at window size', () => {
-    expect(estimateContextUsage(200_000, 'default')).toBe(100);
-  });
-
-  it('handles just under window size', () => {
-    // 199,999 / 200,000 = 0.999995 -> 100% (rounds to 100)
-    expect(estimateContextUsage(199_999)).toBe(100);
-  });
-
-  it('handles just over window size caps at 100', () => {
-    expect(estimateContextUsage(200_001)).toBe(100);
+  it('returns 20% for 200K tokens', () => {
+    expect(estimateContextUsage(200_000)).toBe(20);
   });
 });

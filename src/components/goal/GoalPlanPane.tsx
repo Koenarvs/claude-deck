@@ -28,6 +28,7 @@ interface GoalPlanPaneProps {
     cost: number;
     turnCount: number;
     currentContextTokens?: number;
+    contextPct?: number;
   };
 }
 
@@ -186,7 +187,7 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
             tokensOut={sessionHealth?.tokensOut ?? 0}
             cost={sessionHealth?.cost ?? 0}
             turnCount={sessionHealth?.turnCount ?? 0}
-            currentContextTokens={sessionHealth?.currentContextTokens ?? 0}
+            contextPct={sessionHealth?.contextPct}
           />
         ) : activeTab === 'todo' ? (
           plan ? (

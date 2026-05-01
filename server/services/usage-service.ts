@@ -10,6 +10,8 @@ export interface SessionUsage {
   outputTokens: number;
   totalTokens: number;
   currentContextTokens: number;
+  contextWindow: number;
+  contextPct: number;
   estimatedCostUsd: number;
   messageCount: number;
 }
@@ -67,6 +69,23 @@ function getPricing(model: string | null): ModelPricing {
   if (lower.includes('sonnet')) return MODEL_PRICING.sonnet;
   if (lower.includes('haiku')) return MODEL_PRICING.haiku;
   return MODEL_PRICING.opus;
+}
+
+function getContextWindow(model: string | null, currentContextTokens: number): number {
+  // If tokens already exceed 200K, it's definitely a 1M context session
+  if (currentContextTokens > 200_000) return 1_000_000;
+
+  if (!model) return 200_000;
+  const lower = model.toLowerCase();
+
+  // Explicit 1M context variants
+  if (lower.includes('1m')) return 1_000_000;
+
+  // Haiku is always 200K
+  if (lower.includes('haiku')) return 200_000;
+
+  // Opus and Sonnet default to 200K unless proven otherwise
+  return 200_000;
 }
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
@@ -137,12 +156,17 @@ export function getSessionUsage(sessionId: string, model?: string | null): Sessi
 
   if (messageCount === 0) return null;
 
-  const pricing = getPricing(model ?? null);
+  const detectedModel = model ?? null;
+  const pricing = getPricing(detectedModel);
   const estimatedCostUsd =
     inputTokens * pricing.input +
     cacheReadTokens * pricing.cache_read +
     cacheCreationTokens * pricing.cache_creation +
     outputTokens * pricing.output;
+
+  const currentContext = lastInputTokens + lastCacheRead + lastCacheCreation;
+  const contextWindow = getContextWindow(detectedModel, currentContext);
+  const contextPct = Math.min(100, Math.round((currentContext / contextWindow) * 100));
 
   return {
     inputTokens,
@@ -150,7 +174,9 @@ export function getSessionUsage(sessionId: string, model?: string | null): Sessi
     cacheReadTokens,
     outputTokens,
     totalTokens: inputTokens + cacheCreationTokens + cacheReadTokens + outputTokens,
-    currentContextTokens: lastInputTokens + lastCacheRead + lastCacheCreation,
+    currentContextTokens: currentContext,
+    contextWindow,
+    contextPct,
     estimatedCostUsd: Math.round(estimatedCostUsd * 10000) / 10000,
     messageCount,
   };

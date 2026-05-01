@@ -14,6 +14,7 @@ interface SessionCostData {
   totalCost: number;
   turnCount: number;
   currentContextTokens: number;
+  contextPct: number;
 }
 
 const DIVIDER_STORAGE_KEY = 'claude-deck:split-ratio';
@@ -34,7 +35,7 @@ function readRatio(): number {
 
 export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps) {
   const [sessionCost, setSessionCost] = useState<SessionCostData>({
-    totalTokensIn: 0, totalTokensOut: 0, totalCost: 0, turnCount: 0, currentContextTokens: 0,
+    totalTokensIn: 0, totalTokensOut: 0, totalCost: 0, turnCount: 0, currentContextTokens: 0, contextPct: 0,
   });
   const [splitRatio, setSplitRatio] = useState(readRatio);
   const [isDragging, setIsDragging] = useState(false);
@@ -76,6 +77,7 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
           totalCost: jsonlCost,
           turnCount: (session?.stream_event_count as number) ?? 0,
           currentContextTokens: usage?.currentContextTokens ?? 0,
+          contextPct: usage?.contextPct ?? 0,
         });
       } catch {
         // ignore
@@ -154,6 +156,7 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
             cost: sessionCost.totalCost,
             turnCount: sessionCost.turnCount,
             currentContextTokens: sessionCost.currentContextTokens,
+            contextPct: sessionCost.contextPct,
           }}
         />
       </div>
