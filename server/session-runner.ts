@@ -310,7 +310,7 @@ export class SessionRunner implements Killable {
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
-      '--dangerously-skip-permissions',
+      '--permission-mode', 'bypassPermissions',
     ];
 
     if (resume) {

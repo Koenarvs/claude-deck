@@ -88,7 +88,7 @@ export class PtyManager implements Killable {
     const claudePath = resolveClaudePath();
     const args: string[] = [];
     if (this.goal.permission_mode === 'autonomous') {
-      args.push('--dangerously-skip-permissions');
+      args.push('--permission-mode', 'bypassPermissions');
     }
     args.push('--session-id', this.sessionId);
     if (this.goal.model && this.goal.model !== 'default') {
@@ -143,31 +143,12 @@ export class PtyManager implements Killable {
       return;
     }
 
-    // For autonomous goals, auto-accept the --dangerously-skip-permissions warning
-    let acceptSent = false;
-    const isAutonomous = this.goal.permission_mode === 'autonomous';
-
     this.terminal.onData((data: string) => {
       this.broadcast({
         type: 'terminal:data',
         goal_id: this.goalId,
         data,
       });
-
-      // Detect the bypass permissions warning and auto-accept for autonomous goals
-      if (isAutonomous && !acceptSent && data.includes('Yes, I accept')) {
-        acceptSent = true;
-        // Navigate to "Yes, I accept" and confirm. Try multiple strategies:
-        // 1. Down arrow to move from option 1 to option 2, then Enter
-        // 2. If that doesn't work within 500ms, try sending "2" then Enter
-        setTimeout(() => {
-          this.write('\x1b[B'); // down arrow
-          setTimeout(() => {
-            this.write('\r');   // enter to confirm
-            logger.info({ goalId: this.goalId }, 'PTY: Auto-accepted bypass permissions warning');
-          }, 150);
-        }, 300);
-      }
     });
 
     this.terminal.onExit(({ exitCode }) => {
@@ -199,7 +180,7 @@ export class PtyManager implements Killable {
 
     const args = ['--resume', sessionId];
     if (this.goal.permission_mode === 'autonomous') {
-      args.push('--dangerously-skip-permissions');
+      args.push('--permission-mode', 'bypassPermissions');
     }
 
     const env: Record<string, string> = {};
@@ -231,26 +212,12 @@ export class PtyManager implements Killable {
       Object.defineProperty(process, 'execPath', { value: origExecPath, writable: true, configurable: true });
     }
 
-    let resumeAcceptSent = false;
-    const isAutonomousResume = this.goal.permission_mode === 'autonomous';
-
     this.terminal.onData((data: string) => {
       this.broadcast({
         type: 'terminal:data',
         goal_id: this.goalId,
         data,
       });
-
-      if (isAutonomousResume && !resumeAcceptSent && data.includes('Yes, I accept')) {
-        resumeAcceptSent = true;
-        setTimeout(() => {
-          this.write('\x1b[B');
-          setTimeout(() => {
-            this.write('\r');
-            logger.info({ goalId: this.goalId }, 'PTY: Auto-accepted bypass permissions warning (resume)');
-          }, 100);
-        }, 200);
-      }
     });
 
     this.terminal.onExit(({ exitCode }) => {
