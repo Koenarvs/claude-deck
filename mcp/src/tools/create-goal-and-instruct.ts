@@ -9,6 +9,10 @@ export const CreateGoalAndInstructInputSchema = z.object({
     .enum(['opus', 'sonnet', 'haiku', 'default'])
     .optional()
     .describe('Claude model to use'),
+  permission_mode: z
+    .enum(['autonomous', 'supervised'])
+    .optional()
+    .describe('Permission mode for the session (default: supervised)'),
   tags: z
     .array(z.string())
     .optional()
@@ -47,6 +51,7 @@ export async function createGoalAndInstruct(
     title: string;
     cwd: string;
     model?: string | undefined;
+    permission_mode?: string | undefined;
     tags?: string[] | undefined;
     description?: string | undefined;
     instruction: string;
@@ -59,6 +64,7 @@ export async function createGoalAndInstruct(
     source_goal_id: input.source_goal_id,
   };
   if (input.model !== undefined) params.model = input.model;
+  if (input.permission_mode !== undefined) params.permission_mode = input.permission_mode;
   if (input.tags !== undefined) params.tags = input.tags;
   if (input.description !== undefined) params.description = input.description;
   if (input.spawn_session !== undefined) params.spawn_session = input.spawn_session;

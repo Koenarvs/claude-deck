@@ -5,6 +5,7 @@ export declare const CreateGoalAndInstructInputSchema: z.ZodObject<{
     title: z.ZodString;
     cwd: z.ZodString;
     model: z.ZodOptional<z.ZodEnum<["opus", "sonnet", "haiku", "default"]>>;
+    permission_mode: z.ZodOptional<z.ZodEnum<["autonomous", "supervised"]>>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     description: z.ZodOptional<z.ZodString>;
     instruction: z.ZodString;
@@ -19,6 +20,7 @@ export declare const CreateGoalAndInstructInputSchema: z.ZodObject<{
     description?: string | undefined;
     tags?: string[] | undefined;
     model?: "opus" | "sonnet" | "haiku" | "default" | undefined;
+    permission_mode?: "autonomous" | "supervised" | undefined;
 }, {
     title: string;
     cwd: string;
@@ -27,6 +29,7 @@ export declare const CreateGoalAndInstructInputSchema: z.ZodObject<{
     description?: string | undefined;
     tags?: string[] | undefined;
     model?: "opus" | "sonnet" | "haiku" | "default" | undefined;
+    permission_mode?: "autonomous" | "supervised" | undefined;
     spawn_session?: boolean | undefined;
 }>;
 export type CreateGoalAndInstructInput = z.infer<typeof CreateGoalAndInstructInputSchema>;

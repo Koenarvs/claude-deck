@@ -5,6 +5,7 @@ export declare const CreateGoalInputSchema: z.ZodObject<{
     title: z.ZodString;
     cwd: z.ZodString;
     model: z.ZodOptional<z.ZodEnum<["opus", "sonnet", "haiku", "default"]>>;
+    permission_mode: z.ZodOptional<z.ZodEnum<["autonomous", "supervised"]>>;
     initialPrompt: z.ZodOptional<z.ZodString>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
 }, "strip", z.ZodTypeAny, {
@@ -12,12 +13,14 @@ export declare const CreateGoalInputSchema: z.ZodObject<{
     cwd: string;
     tags?: string[] | undefined;
     model?: "opus" | "sonnet" | "haiku" | "default" | undefined;
+    permission_mode?: "autonomous" | "supervised" | undefined;
     initialPrompt?: string | undefined;
 }, {
     title: string;
     cwd: string;
     tags?: string[] | undefined;
     model?: "opus" | "sonnet" | "haiku" | "default" | undefined;
+    permission_mode?: "autonomous" | "supervised" | undefined;
     initialPrompt?: string | undefined;
 }>;
 export type CreateGoalInput = z.infer<typeof CreateGoalInputSchema>;

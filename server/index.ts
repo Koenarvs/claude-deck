@@ -239,22 +239,14 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     logger.info({ goalId, sessionId: resumableSession.id }, 'Resuming previous session');
     goalService.setCurrentSession(goalId, resumableSession.id);
     ptyMgr.resume(resumableSession.id);
+    return resumableSession.id;
   } else {
-    const newSessionId = ptyMgr.getSessionId();
-    // Pre-create session row so it appears in Sessions tab immediately
-    sessionService.create({
-      id: newSessionId,
-      goal_id: goalId,
-      origin: 'dashboard',
-      cwd: goal.cwd,
-      model: goal.model ?? null,
-      started_at: Date.now(),
-    });
-    goalService.setCurrentSession(goalId, newSessionId);
+    // Don't pre-create session or set current_session_id here.
+    // Claude Code generates its own session ID; the SessionStart hook
+    // will create the session row and link it to this goal via cwd match.
     ptyMgr.start(initialPrompt);
+    return goalId;
   }
-
-  return resumableSession?.id ?? ptyMgr.getSessionId();
 }
 
 // Wire terminal input/resize from WS to PTY managers

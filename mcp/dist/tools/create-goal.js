@@ -7,6 +7,10 @@ export const CreateGoalInputSchema = z.object({
         .enum(['opus', 'sonnet', 'haiku', 'default'])
         .optional()
         .describe('Claude model to use'),
+    permission_mode: z
+        .enum(['autonomous', 'supervised'])
+        .optional()
+        .describe('Permission mode for the session (default: supervised)'),
     initialPrompt: z
         .string()
         .optional()
@@ -24,6 +28,8 @@ export async function createGoal(client, input) {
     const params = { title: input.title, cwd: input.cwd };
     if (input.model !== undefined)
         params.model = input.model;
+    if (input.permission_mode !== undefined)
+        params.permission_mode = input.permission_mode;
     if (input.initialPrompt !== undefined)
         params.initialPrompt = input.initialPrompt;
     if (input.tags !== undefined)

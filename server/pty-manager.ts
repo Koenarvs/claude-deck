@@ -3,7 +3,6 @@ import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { v4 as uuidv4 } from 'uuid';
 import type { Goal } from '../src/shared/types';
 import type { ServerEvent } from '../src/shared/events';
 import type { Killable } from './process-registry';
@@ -66,7 +65,6 @@ interface PtyManagerOptions {
 export class PtyManager implements Killable {
   private terminal: pty.IPty | null = null;
   private readonly goalId: string;
-  private readonly sessionId: string;
   private readonly goal: Goal;
   private readonly broadcast: (event: ServerEvent) => void;
   private readonly onExitCallback: ((goalId: string, exitCode: number) => void) | undefined;
@@ -75,13 +73,8 @@ export class PtyManager implements Killable {
   constructor(goal: Goal, options: PtyManagerOptions) {
     this.goal = goal;
     this.goalId = goal.id;
-    this.sessionId = uuidv4();
     this.broadcast = options.broadcast;
     this.onExitCallback = options.onExit;
-  }
-
-  getSessionId(): string {
-    return this.sessionId;
   }
 
   start(initialPrompt?: string): void {
@@ -90,7 +83,6 @@ export class PtyManager implements Killable {
     if (this.goal.permission_mode === 'autonomous') {
       args.push('--permission-mode', 'bypassPermissions');
     }
-    args.push('--session-id', this.sessionId);
     if (this.goal.model && this.goal.model !== 'default') {
       args.push('--model', this.goal.model);
     }

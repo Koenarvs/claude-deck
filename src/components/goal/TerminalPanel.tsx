@@ -52,6 +52,7 @@ export default function TerminalPanel({ goalId }: TerminalPanelProps) {
       fontSize: 13,
       fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", Menlo, Monaco, monospace',
       letterSpacing: 0,
+      scrollback: 10000,
       theme: {
         background: '#1a1b26',
         foreground: '#c0caf5',
@@ -191,7 +192,7 @@ export default function TerminalPanel({ goalId }: TerminalPanelProps) {
       </div>
       <div
         ref={containerRef}
-        className="flex-1 min-h-0"
+        className="flex-1 min-h-0 overflow-hidden"
         style={{ padding: '4px' }}
       />
     </div>
