@@ -147,13 +147,13 @@ export class PtyManager implements Killable {
       });
 
       // Detect when Claude Code is ready for input, then send the initial prompt.
-      // Claude Code shows a ">" prompt character when ready for user input.
+      // The actual input prompt is a single ">" or "❯" at the start of a line, followed by a space.
+      // Must NOT trigger on ">>" in ">> bypass permissions on (shift+tab to cycle)".
       if (!promptSent) {
         outputBuffer += data;
-        // Look for the input prompt indicator — Claude Code renders ">" or "❯" when ready
-        if (outputBuffer.includes('>') || outputBuffer.includes('❯') || outputBuffer.includes('bypass permissions')) {
+        // Match a single > or ❯ prompt at end of output (not >> from bypass banner)
+        if (/\n[>❯] \s*$/.test(outputBuffer) || /^[>❯] \s*$/.test(outputBuffer)) {
           promptSent = true;
-          // Small delay to ensure the prompt is fully rendered
           setTimeout(() => {
             this.write(initialPrompt + '\r');
             logger.info({ goalId: this.goalId, promptLength: initialPrompt.length }, 'PTY: Sent initial prompt after ready detection');

@@ -8,6 +8,7 @@ import type { GoalService } from '../services/goal-service';
 import { GoalNotFoundError, InvalidTransitionError } from '../services/goal-service';
 import type { InterGoalMessageService } from '../services/inter-goal-message-service';
 import { InterGoalMessageNotFoundError } from '../services/inter-goal-message-service';
+import { getTranscript, formatTranscriptForTerminal } from '../services/transcript-service';
 import logger from '../logger';
 
 // ── Query Schemas ────────────────────────────────────────────────────────────
@@ -381,6 +382,25 @@ export function createGoalsRouter(
       logger.error({ err }, 'Failed to spawn terminal');
       res.status(500).json({ error: 'Failed to spawn terminal' });
     }
+  });
+
+  /**
+   * GET /goals/:id/transcript — Return conversation history from Claude Code's JSONL transcript.
+   * Reads the JSONL file for the goal's current session and formats it for terminal display.
+   */
+  router.get('/goals/:id/transcript', (req: Request, res: Response) => {
+    const goal = goalService.get(String(req.params['id']));
+    if (!goal) {
+      res.type('text/plain').send('');
+      return;
+    }
+    const sessionId = goal.current_session_id;
+    if (!sessionId) {
+      res.type('text/plain').send('');
+      return;
+    }
+    const messages = getTranscript(sessionId);
+    res.type('text/plain').send(formatTranscriptForTerminal(messages));
   });
 
   /**

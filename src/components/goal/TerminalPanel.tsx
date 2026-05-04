@@ -100,6 +100,12 @@ export default function TerminalPanel({ goalId }: TerminalPanelProps) {
     // Re-focus when the container is clicked
     containerRef.current.addEventListener('click', () => term.focus());
 
+    // Replay conversation history from Claude Code's JSONL transcript
+    fetch(`/api/goals/${goalId}/transcript`)
+      .then((r) => r.text())
+      .then((buf) => { if (buf) term.write(buf); })
+      .catch(() => { /* no transcript available */ });
+
     term.onData((data) => {
       sendWsMessage({
         type: 'terminal:input',
