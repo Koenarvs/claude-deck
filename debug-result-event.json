@@ -1,0 +1,47 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "api_error_status": null,
+  "duration_ms": 16135,
+  "duration_api_ms": 15494,
+  "num_turns": 1,
+  "result": "For testing drag-and-drop interactions, the two main approaches are:\n\n**Playwright (recommended)** — has first-class support via `locator.dragTo(target)` and more granular control with `page.mouse` for complex scenarios:\n\n```typescript\n// Simple drag-and-drop\nawait page.locator('#source').dragTo(page.locator('#target'));\n\n// Fine-grained control (hover, hold, move, release)\nawait page.locator('#source').hover();\nawait page.mouse.down();\nawait page.locator('#target').hover();\nawait page.mouse.move(targetX, targetY, { steps: 10 }); // smooth drag\nawait page.mouse.up();\n```\n\n**Cypress** — uses `cypress-drag-drop` plugin or native events via `cypress-real-events`:\n\n```typescript\ncy.get('#source').drag('#target');\n// or with real events:\ncy.get('#source').realMouseDown().realMouseMove(200, 0).realMouseUp();\n```\n\n**Key tradeoff**: Synthetic DOM events (`dispatchEvent` with `DragEvent`) are fast and stable but skip browser-level behavior — they won't catch bugs related to `dataTransfer`, visual feedback, or scroll-during-drag. Real mouse-movement approaches (Playwright's `page.mouse`, Cypress `realEvents`) are slower but test the actual user experience.\n\n**What to assert after the drop**:\n- Element appears in the new container / position\n- Source state updates (removed, ghost, placeholder)\n- Any data model changes (order array, coordinates)\n- Accessibility: keyboard-based reorder as an alternative path\n\nWould you like me to build out a concrete test suite for a specific framework or component you're working with?",
+  "stop_reason": "end_turn",
+  "session_id": "76c0a704-f351-47f2-ab63-48b9da9ab3e6",
+  "total_cost_usd": 0.15007125,
+  "usage": {
+    "input_tokens": 3,
+    "cache_creation_input_tokens": 21769,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 560,
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 21769
+    },
+    "inference_geo": "",
+    "iterations": [],
+    "speed": "standard"
+  },
+  "modelUsage": {
+    "claude-opus-4-6": {
+      "inputTokens": 3,
+      "outputTokens": 560,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 21769,
+      "webSearchRequests": 0,
+      "costUSD": 0.15007125,
+      "contextWindow": 200000,
+      "maxOutputTokens": 64000
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "uuid": "893e2968-b12a-4255-b9ac-c8477e1de8a3"
+}

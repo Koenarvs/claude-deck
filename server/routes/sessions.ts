@@ -114,7 +114,7 @@ export function createSessionsRouter(
         offset: query.offset,
       });
 
-      // Enrich sessions with last_event_at and current_tool
+      // Enrich sessions with last_event_at, current_tool, and goal_title
       const db = (req.app as unknown as { locals: { db: Database.Database } }).locals?.db;
       if (db && sessions.length > 0) {
         const sessionIds = sessions.map((s) => s.id);
@@ -131,7 +131,6 @@ export function createSessionsRouter(
         const lastEventMap = new Map(lastEventRows.map((r) => [r.session_id, r.last_event_at]));
 
         // Get current_tool per session: most recent PreToolUse without a matching PostToolUse
-        // A tool is "currently executing" if there's a PreToolUse that came after the last PostToolUse
         const currentToolRows = db.prepare(
           `SELECT he.session_id, he.tool_name
            FROM hook_events he
@@ -154,15 +153,27 @@ export function createSessionsRouter(
 
         const currentToolMap = new Map(currentToolRows.map((r) => [r.session_id, r.tool_name]));
 
+        // Get goal titles for sessions linked to goals
+        const goalIds = [...new Set(sessions.map((s) => s.goal_id).filter(Boolean))] as string[];
+        const goalTitleMap = new Map<string, string>();
+        if (goalIds.length > 0) {
+          const goalPlaceholders = goalIds.map(() => '?').join(',');
+          const goalRows = db.prepare(
+            `SELECT id, title FROM goals WHERE id IN (${goalPlaceholders})`
+          ).all(...goalIds) as Array<{ id: string; title: string }>;
+          for (const r of goalRows) goalTitleMap.set(r.id, r.title);
+        }
+
         const enriched = sessions.map((s) => ({
           ...s,
           last_event_at: lastEventMap.get(s.id) ?? null,
           current_tool: currentToolMap.get(s.id) ?? null,
+          goal_title: (s.goal_id && goalTitleMap.get(s.goal_id)) ?? null,
         }));
 
         res.json(enriched);
       } else {
-        res.json(sessions.map((s) => ({ ...s, last_event_at: null, current_tool: null })));
+        res.json(sessions.map((s) => ({ ...s, last_event_at: null, current_tool: null, goal_title: null })));
       }
     },
   );

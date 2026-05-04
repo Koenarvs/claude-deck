@@ -163,7 +163,7 @@ export class PtyManager implements Killable {
           promptSent = true;
           // Small delay to ensure the prompt is fully rendered
           setTimeout(() => {
-            this.write(initialPrompt + '\n');
+            this.write(initialPrompt + '\r');
             logger.info({ goalId: this.goalId, promptLength: initialPrompt.length }, 'PTY: Sent initial prompt after ready detection');
           }, 300);
         }

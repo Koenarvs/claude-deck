@@ -108,6 +108,21 @@ export default function SessionsListPage() {
 
   const hasMore = displayCount < dateFilteredSessions.length;
 
+  // End session handler
+  const handleEndSession = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/end`, { method: 'POST' });
+      if (!res.ok) return;
+      setSessions(
+        sessions.map((s) =>
+          s.id === sessionId ? { ...s, ended_at: Date.now() } : s,
+        ),
+      );
+    } catch {
+      // silently fail
+    }
+  }, [sessions, setSessions]);
+
   // Filter change handler
   const handleFiltersChange = useCallback((newFilters: SessionFiltersState) => {
     setFilters(newFilters);
@@ -144,6 +159,7 @@ export default function SessionsListPage() {
             sessions={displayedSessions}
             originFilter={filters.origin}
             activeOnly={filters.activeOnly}
+            onEndSession={handleEndSession}
           />
 
           {/* Load more */}

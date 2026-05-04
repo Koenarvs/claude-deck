@@ -240,7 +240,17 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     goalService.setCurrentSession(goalId, resumableSession.id);
     ptyMgr.resume(resumableSession.id);
   } else {
-    goalService.setCurrentSession(goalId, ptyMgr.getSessionId());
+    const newSessionId = ptyMgr.getSessionId();
+    // Pre-create session row so it appears in Sessions tab immediately
+    sessionService.create({
+      id: newSessionId,
+      goal_id: goalId,
+      origin: 'dashboard',
+      cwd: goal.cwd,
+      model: goal.model ?? null,
+      started_at: Date.now(),
+    });
+    goalService.setCurrentSession(goalId, newSessionId);
     ptyMgr.start(initialPrompt);
   }
 

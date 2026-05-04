@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, Square } from 'lucide-react';
 import type { Session, SessionOrigin } from '../../shared/types';
 import { OriginBadge } from './OriginBadge';
 
@@ -18,12 +18,14 @@ interface SortConfig {
 export interface EnrichedSession extends Session {
   last_event_at?: number | null;
   current_tool?: string | null;
+  goal_title?: string | null;
 }
 
 export interface SessionsTableProps {
   sessions: EnrichedSession[];
   originFilter: SessionOrigin | 'all';
   activeOnly: boolean;
+  onEndSession?: (sessionId: string) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -172,7 +174,7 @@ function getDisplayName(session: EnrichedSession): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function SessionsTable({ sessions, originFilter, activeOnly }: SessionsTableProps) {
+export default function SessionsTable({ sessions, originFilter, activeOnly, onEndSession }: SessionsTableProps) {
   const navigate = useNavigate();
   const [sort, setSort] = useState<SortConfig>({ field: 'started_at', direction: 'desc' });
 
@@ -239,11 +241,12 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
   };
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-deck-border">
+    <div className="overflow-auto rounded-lg border border-deck-border" style={{ maxHeight: 'calc(100vh - 12rem)' }}>
       <table className="w-full text-sm" role="grid">
-        <thead>
+        <thead className="sticky top-0 z-10">
           <tr className="border-b border-deck-border bg-deck-surface text-left text-deck-muted">
             <th className="px-4 py-3 font-medium">Origin</th>
+            <th className="px-4 py-3 font-medium">Goal</th>
             <th className="px-4 py-3 font-medium">Name</th>
             <th className="px-4 py-3 font-medium">Working Dir</th>
             <th className="px-4 py-3 font-medium">Model</th>
@@ -266,12 +269,13 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
               Duration{renderSortIcon('duration')}
             </th>
             <th className="px-4 py-3 font-medium">Status</th>
+            <th className="px-4 py-3 font-medium w-16"></th>
           </tr>
         </thead>
         <tbody>
           {treeRows.length === 0 ? (
             <tr>
-              <td colSpan={9} className="px-4 py-8 text-center text-deck-muted">
+              <td colSpan={11} className="px-4 py-8 text-center text-deck-muted">
                 No sessions found.
               </td>
             </tr>
@@ -287,6 +291,9 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
               >
                 <td className="px-4 py-3">
                   <OriginBadge origin={session.origin} />
+                </td>
+                <td className="px-4 py-3 text-deck-muted text-xs max-w-[10rem] truncate" title={session.goal_title ?? undefined}>
+                  {session.goal_title ?? '—'}
                 </td>
                 <td className="px-4 py-3 text-sm text-deck-text" title={session.id}>
                   <div className="flex items-center gap-1" style={{ paddingLeft: `${depth * 20}px` }}>
@@ -318,6 +325,20 @@ export default function SessionsTable({ sessions, originFilter, activeOnly }: Se
                     <span className="inline-flex items-center rounded-full bg-deck-muted/15 px-2.5 py-0.5 text-xs font-medium text-deck-muted">
                       Ended
                     </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {isSessionActive(session) && onEndSession && (
+                    <button
+                      title="End session"
+                      className="rounded p-1 text-deck-muted hover:bg-deck-error/15 hover:text-deck-error transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEndSession(session.id);
+                      }}
+                    >
+                      <Square size={14} />
+                    </button>
                   )}
                 </td>
               </tr>
