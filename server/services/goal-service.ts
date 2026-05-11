@@ -135,7 +135,16 @@ export function createGoalService(db: Database.Database) {
     'UPDATE sessions SET goal_id = ? WHERE id = ?',
   );
 
+  const findByTitleStmt = db.prepare<[string], GoalRow>(
+    "SELECT * FROM goals WHERE title = ? COLLATE NOCASE AND status != 'archived' LIMIT 1",
+  );
+
   // ── Public API ───────────────────────────────────────────────────────────
+
+  function findByTitle(title: string): Goal | null {
+    const row = findByTitleStmt.get(title);
+    return row ? rowToGoal(row) : null;
+  }
 
   /**
    * Creates a new goal with the given input. Assigns a UUID, sets initial
@@ -148,6 +157,11 @@ export function createGoalService(db: Database.Database) {
    * @returns The newly created Goal
    */
   function create(input: CreateGoalInput): Goal {
+    const existing = findByTitle(input.title);
+    if (existing) {
+      throw new DuplicateGoalTitleError(existing.id, existing.title);
+    }
+
     const id = uuidv4();
     const now = Date.now();
 
@@ -520,6 +534,22 @@ export class InvalidTransitionError extends Error {
     this.name = 'InvalidTransitionError';
     this.from = from;
     this.to = to;
+  }
+}
+
+/**
+ * Error thrown when creating or renaming a goal to a title that already
+ * exists among non-archived goals (case-insensitive).
+ */
+export class DuplicateGoalTitleError extends Error {
+  public readonly existingGoalId: string;
+  public readonly existingTitle: string;
+
+  constructor(existingGoalId: string, existingTitle: string) {
+    super(`A goal with title "${existingTitle}" already exists`);
+    this.name = 'DuplicateGoalTitleError';
+    this.existingGoalId = existingGoalId;
+    this.existingTitle = existingTitle;
   }
 }
 

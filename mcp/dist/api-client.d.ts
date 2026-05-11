@@ -511,6 +511,7 @@ export declare class DashboardApiClient {
         model?: string | undefined;
         initialPrompt?: string | undefined;
         tags?: string[] | undefined;
+        permission_mode?: string | undefined;
     }): Promise<Goal>;
     /** Update an existing goal's fields (title, description, status, tags). */
     updateGoal(id: string, input: {

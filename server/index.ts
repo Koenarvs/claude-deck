@@ -26,6 +26,8 @@ import { MessageService } from './services/message-service';
 import { createSessionsRouter } from './routes/sessions';
 import { createSystemRouter } from './routes/system';
 import { broadcast, setTerminalHandler } from './ws';
+import { ConversationLogger } from './services/conversation-logger';
+import { findJsonlFile } from './services/transcript-service';
 import logger from './logger';
 
 const env = loadEnv();
@@ -198,6 +200,8 @@ function spawnGoalSession(goalId: string, prompt: string): string {
   return runner.getSessionId() ?? 'starting';
 }
 
+const conversationLoggers = new Map<string, ConversationLogger>();
+
 /**
  * Spawns or resumes a PTY-based terminal session for a goal.
  * If the goal has a previous session that was never ended (ended_at IS NULL),
@@ -222,31 +226,32 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
       goalService.update(gId, { status: exitCode === 0 ? 'waiting' : 'waiting' });
+      const cl = conversationLoggers.get(gId);
+      if (cl) { cl.stop(); conversationLoggers.delete(gId); }
     },
   });
 
-  // Check for a resumable session (ended_at IS NULL = never properly closed)
-  const resumableSession = goal.current_session_id
-    ? db.prepare(
-        `SELECT id FROM sessions WHERE id = ? AND ended_at IS NULL`,
-      ).get(goal.current_session_id) as { id: string } | undefined
-    : undefined;
+  // Session ID = Goal ID. Check Claude Code's own session storage
+  // (the JSONL file) to decide resume vs new — it's the source of truth.
+  const hasExistingSession = findJsonlFile(goalId) !== null;
 
   processRegistry.set(goalId, ptyMgr);
   goalService.update(goalId, { status: 'active' });
+  goalService.setCurrentSession(goalId, goalId);
 
-  if (resumableSession) {
-    logger.info({ goalId, sessionId: resumableSession.id }, 'Resuming previous session');
-    goalService.setCurrentSession(goalId, resumableSession.id);
-    ptyMgr.resume(resumableSession.id);
-    return resumableSession.id;
+  const convLogger = new ConversationLogger(goalId, goal.cwd, broadcast);
+  conversationLoggers.set(goalId, convLogger);
+
+  if (hasExistingSession) {
+    logger.info({ goalId }, 'Resuming previous session (JSONL exists)');
+    convLogger.rebuild();
+    ptyMgr.resume(goalId);
   } else {
-    // Don't pre-create session or set current_session_id here.
-    // Claude Code generates its own session ID; the SessionStart hook
-    // will create the session row and link it to this goal via cwd match.
+    logger.info({ goalId }, 'Starting new session');
+    convLogger.start();
     ptyMgr.start(initialPrompt);
-    return goalId;
   }
+  return goalId;
 }
 
 // Wire terminal input/resize from WS to PTY managers
@@ -301,6 +306,10 @@ function shutdown(signal: string): void {
   // Deny all pending approvals so blocked hooks unblock
   approvalCoordinator.shutdown();
   logger.info('ApprovalCoordinator shut down');
+
+  // Stop all conversation loggers
+  for (const [, cl] of conversationLoggers) cl.stop();
+  conversationLoggers.clear();
 
   // Kill all CLI subprocesses managed by the process registry
   processRegistry

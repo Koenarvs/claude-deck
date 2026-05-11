@@ -10,10 +10,17 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
-  // Default: document not found
-  fetchMock.mockResolvedValue({
-    ok: true,
-    json: async () => ({ exists: false, content: null, name: 'plan.md' }),
+  fetchMock.mockImplementation((url: string) => {
+    if (url.includes('/documents')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ files: ['plan.md', 'conversation.md'] }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({ exists: false, content: null, name: 'plan.md' }),
+    });
   });
   localStorage.clear();
   usePlanStore.setState({ byGoalId: {} });
@@ -35,16 +42,13 @@ function makePlan(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('GoalPlanPane', () => {
-  it('renders all seven tabs', async () => {
+  it('renders all four tabs', async () => {
     const { default: GoalPlanPane } = await import('../../../src/components/goal/GoalPlanPane');
 
     render(<GoalPlanPane goalId="test-goal-1" />);
 
     expect(screen.getByText('Health')).toBeInTheDocument();
-    expect(screen.getByText('Plan')).toBeInTheDocument();
-    expect(screen.getByText('Research')).toBeInTheDocument();
-    expect(screen.getByText('Notes')).toBeInTheDocument();
-    expect(screen.getByText('Handoff')).toBeInTheDocument();
+    expect(screen.getByText('Documents')).toBeInTheDocument();
     expect(screen.getByText('To Do')).toBeInTheDocument();
     expect(screen.getByText('Agents')).toBeInTheDocument();
   });
@@ -59,7 +63,6 @@ describe('GoalPlanPane', () => {
       />,
     );
 
-    // Session Health heading from ContextHealth component
     expect(screen.getByText('Session Health')).toBeInTheDocument();
   });
 
@@ -77,14 +80,11 @@ describe('GoalPlanPane', () => {
 
     render(<GoalPlanPane goalId="test-goal-1" />);
 
-    // Initially expanded
     expect(screen.getByTestId('plan-pane-expanded')).toBeInTheDocument();
 
-    // Click collapse
     await user.click(screen.getByLabelText('Collapse pane'));
     expect(screen.getByTestId('plan-pane-collapsed')).toBeInTheDocument();
 
-    // Click expand
     await user.click(screen.getByLabelText('Expand pane'));
     expect(screen.getByTestId('plan-pane-expanded')).toBeInTheDocument();
   });
@@ -108,49 +108,58 @@ describe('GoalPlanPane', () => {
     expect(screen.getByTestId('plan-pane-collapsed')).toBeInTheDocument();
   });
 
-  it('fetches document when switching to Plan tab', async () => {
+  it('fetches file list when switching to Documents tab', async () => {
     const user = userEvent.setup();
     const { default: GoalPlanPane } = await import('../../../src/components/goal/GoalPlanPane');
 
     render(<GoalPlanPane goalId="test-goal-1" />);
 
-    await user.click(screen.getByText('Plan'));
+    await user.click(screen.getByText('Documents'));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/goals/test-goal-1/document?name=plan.md'),
+        expect.stringContaining('/api/goals/test-goal-1/documents'),
       );
     });
   });
 
-  it('shows empty state on Plan tab when no document exists', async () => {
+  it('shows empty state on Documents tab when no files exist', async () => {
     const user = userEvent.setup();
     const { default: GoalPlanPane } = await import('../../../src/components/goal/GoalPlanPane');
 
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/documents')) {
+        return Promise.resolve({ ok: true, json: async () => ({ files: [] }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ exists: false, content: null }) });
+    });
+
     render(<GoalPlanPane goalId="test-goal-1" />);
 
-    await user.click(screen.getByText('Plan'));
+    await user.click(screen.getByText('Documents'));
 
     await waitFor(() => {
-      expect(screen.getByText(/no plan found/i)).toBeInTheDocument();
+      expect(screen.getByText('No documents found')).toBeInTheDocument();
     });
   });
 
-  it('renders markdown content when document exists', async () => {
+  it('renders markdown content when document is selected', async () => {
     const user = userEvent.setup();
     const { default: GoalPlanPane } = await import('../../../src/components/goal/GoalPlanPane');
 
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        exists: true,
-        content: '# My Plan\n\nThis is the plan content.',
-      }),
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/documents')) {
+        return Promise.resolve({ ok: true, json: async () => ({ files: ['plan.md'] }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ exists: true, content: '# My Plan\n\nThis is the plan content.' }),
+      });
     });
 
     render(<GoalPlanPane goalId="test-goal-1" />);
 
-    await user.click(screen.getByText('Plan'));
+    await user.click(screen.getByText('Documents'));
 
     await waitFor(() => {
       expect(screen.getByText('My Plan')).toBeInTheDocument();
@@ -189,58 +198,15 @@ describe('GoalPlanPane', () => {
     expect(screen.getByText('No tasks yet')).toBeInTheDocument();
   });
 
-  it('fetches research.md when switching to Research tab', async () => {
-    const user = userEvent.setup();
-    const { default: GoalPlanPane } = await import('../../../src/components/goal/GoalPlanPane');
-
-    render(<GoalPlanPane goalId="test-goal-1" />);
-
-    await user.click(screen.getByText('Research'));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/goals/test-goal-1/document?name=research.md'),
-      );
-    });
-  });
-
-  it('fetches notes.md when switching to Notes tab', async () => {
-    const user = userEvent.setup();
-    const { default: GoalPlanPane } = await import('../../../src/components/goal/GoalPlanPane');
-
-    render(<GoalPlanPane goalId="test-goal-1" />);
-
-    await user.click(screen.getByText('Notes'));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/goals/test-goal-1/document?name=notes.md'),
-      );
-    });
-  });
-
-  it('fetches handoff.md when switching to Handoff tab', async () => {
-    const user = userEvent.setup();
-    const { default: GoalPlanPane } = await import('../../../src/components/goal/GoalPlanPane');
-
-    render(<GoalPlanPane goalId="test-goal-1" />);
-
-    await user.click(screen.getByText('Handoff'));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/goals/test-goal-1/document?name=handoff.md'),
-      );
-    });
-  });
-
   it('renders Agents tab with loading then empty state', async () => {
     const user = userEvent.setup();
     const { default: GoalPlanPane } = await import('../../../src/components/goal/GoalPlanPane');
 
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => [],
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/sessions')) {
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ files: [] }) });
     });
 
     render(<GoalPlanPane goalId="test-goal-1" />);
@@ -262,7 +228,6 @@ describe('GoalPlanPane', () => {
       />,
     );
 
-    // ContextHealth renders these values
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByText('$3.2500')).toBeInTheDocument();
   });

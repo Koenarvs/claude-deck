@@ -487,13 +487,12 @@ describe('GoalPlanPane', () => {
     expect(screen.getByTestId('plan-pane-expanded')).toBeInTheDocument();
   });
 
-  it('shows empty state on Plan tab when no file exists', async () => {
+  it('shows empty state on Documents tab when no files exist', async () => {
     const user = userEvent.setup();
     render(<GoalPlanPane goalId="test-goal-1" />);
-    // Default tab is now Health — click Plan tab
-    await user.click(screen.getByText('Plan'));
+    await user.click(screen.getByText('Documents'));
     await waitFor(() => {
-      expect(screen.getByText(/no plan found/i)).toBeInTheDocument();
+      expect(screen.getByText(/no documents found/i)).toBeInTheDocument();
     });
   });
 

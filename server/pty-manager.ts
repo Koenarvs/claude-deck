@@ -79,7 +79,7 @@ export class PtyManager implements Killable {
 
   start(initialPrompt?: string): void {
     const claudePath = resolveClaudePath();
-    const args: string[] = [];
+    const args: string[] = ['--session-id', this.goalId];
     if (this.goal.permission_mode === 'autonomous') {
       args.push('--permission-mode', 'bypassPermissions');
     }

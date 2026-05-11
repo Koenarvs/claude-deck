@@ -104,6 +104,11 @@ export const GoalInstructionEventSchema = z.object({
   message: InterGoalMessageSchema,
 });
 
+export const ConversationUpdatedEventSchema = z.object({
+  type: z.literal('conversation:updated'),
+  goal_id: z.string(),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   GoalCreatedEventSchema,
   GoalUpdatedEventSchema,
@@ -121,6 +126,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   TerminalStartedEventSchema,
   TerminalExitedEventSchema,
   GoalInstructionEventSchema,
+  ConversationUpdatedEventSchema,
 ]);
 
 export type ServerEvent = z.infer<typeof ServerEventSchema>;

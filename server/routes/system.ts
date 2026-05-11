@@ -279,9 +279,35 @@ router.get('/analytics/daily-costs', (_req, res) => {
 });
 
 /**
- * GET /api/goals/:id/document?name=plan.md
+ * GET /api/goals/:id/documents
+ * Lists all .md files in the goal's cwd directory.
+ */
+router.get('/goals/:id/documents', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) { res.status(500).json({ error: 'Database not available' }); return; }
+
+    const goalId = String(req.params['id']);
+    const goal = db.prepare('SELECT cwd FROM goals WHERE id = ?').get(goalId) as { cwd: string } | undefined;
+    if (!goal) { res.status(404).json({ error: 'Goal not found' }); return; }
+
+    if (!fs.existsSync(goal.cwd)) { res.json({ files: [] }); return; }
+
+    const entries = fs.readdirSync(goal.cwd);
+    const mdFiles = entries
+      .filter(f => f.endsWith('.md') && !f.startsWith('.'))
+      .sort();
+    res.json({ files: mdFiles });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * GET /api/goals/:id/document?name=plan.md&tail=500
  * Reads a document file from the goal's cwd.
- * Returns { content, exists } — content is null if file doesn't exist.
+ * Optional tail param returns last N lines with hasMore/totalLines metadata.
  */
 router.get('/goals/:id/document', (req, res) => {
   try {
@@ -294,7 +320,6 @@ router.get('/goals/:id/document', (req, res) => {
     const goalId = String(req.params['id']);
     const fileName = String(req.query['name'] ?? 'plan.md');
 
-    // Validate filename — prevent path traversal
     if (fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
       res.status(400).json({ error: 'Invalid filename' });
       return;
@@ -307,11 +332,24 @@ router.get('/goals/:id/document', (req, res) => {
     }
 
     const filePath = path.join(goal.cwd, fileName);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      res.json({ exists: true, content, name: fileName });
-    } else {
+    if (!fs.existsSync(filePath)) {
       res.json({ exists: false, content: null, name: fileName });
+      return;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const tail = parseInt(String(req.query['tail'] ?? '0'), 10);
+    const offset = parseInt(String(req.query['offset'] ?? '0'), 10);
+
+    if (tail > 0) {
+      const lines = content.split('\n');
+      const totalLines = lines.length;
+      const end = Math.max(0, totalLines - offset);
+      const start = Math.max(0, end - tail);
+      const sliced = lines.slice(start, end).join('\n');
+      res.json({ exists: true, content: sliced, name: fileName, totalLines, hasMore: start > 0 });
+    } else {
+      res.json({ exists: true, content, name: fileName });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

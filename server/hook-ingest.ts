@@ -122,17 +122,28 @@ export class HookIngest {
       return;
     }
 
-    // Create new external session with display_name from cwd basename
     const now = Date.now();
     const cwd = payload.cwd ?? null;
     const displayName = cwd ? cwd.replace(/\\/g, '/').split('/').pop() ?? cwd : null;
 
-    // Check if there's an active goal awaiting a session in the same cwd.
-    // This catches MCP-spawned sessions where the session row wasn't pre-created
-    // (e.g., race condition or alternative spawn path).
+    // Direct match: session_id = goal_id for dashboard-spawned sessions
+    // (we pass --session-id <goalId> when spawning PTYs).
     let linkedGoalId: string | null = null;
     let origin: 'external' | 'dashboard' = 'external';
-    if (cwd) {
+
+    const matchingGoal = this.db.prepare(
+      `SELECT id FROM goals WHERE id = ? AND status IN ('planning', 'active', 'waiting')`,
+    ).get(sessionId) as { id: string } | undefined;
+
+    if (matchingGoal) {
+      linkedGoalId = matchingGoal.id;
+      origin = 'dashboard';
+      logger.info(
+        { sessionId, goalId: linkedGoalId },
+        'Linked session to goal by ID match (session_id = goal_id)',
+      );
+    } else if (cwd) {
+      // Fallback: cwd match for MCP-spawned or externally-linked sessions
       const waitingGoal = this.db.prepare(
         `SELECT id FROM goals
          WHERE cwd = ? AND current_session_id IS NULL
@@ -145,7 +156,7 @@ export class HookIngest {
         origin = 'dashboard';
         logger.info(
           { sessionId, goalId: linkedGoalId, cwd },
-          'Linked new session to waiting goal by cwd match',
+          'Linked session to goal by cwd fallback match',
         );
       }
     }
@@ -197,7 +208,7 @@ export class HookIngest {
       });
     }
 
-    logger.info({ sessionId, cwd: payload.cwd }, 'External session created from hook');
+    logger.info({ sessionId, goalId: linkedGoalId, origin, cwd: payload.cwd }, 'Session created from hook');
   }
 
   /**

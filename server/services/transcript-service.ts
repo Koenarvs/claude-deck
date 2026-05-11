@@ -5,7 +5,7 @@ import logger from '../logger';
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 
-function findJsonlFile(sessionId: string): string | null {
+export function findJsonlFile(sessionId: string): string | null {
   if (!existsSync(CLAUDE_PROJECTS_DIR)) return null;
   try {
     const projects = readdirSync(CLAUDE_PROJECTS_DIR);

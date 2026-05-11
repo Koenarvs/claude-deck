@@ -223,6 +223,7 @@ export class DashboardApiClient {
     model?: string | undefined;
     initialPrompt?: string | undefined;
     tags?: string[] | undefined;
+    permission_mode?: string | undefined;
   }): Promise<Goal> {
     const body: Record<string, unknown> = {
       title: input.title,
@@ -231,6 +232,7 @@ export class DashboardApiClient {
     if (input.model !== undefined) body['model'] = input.model;
     if (input.initialPrompt !== undefined) body['initialPrompt'] = input.initialPrompt;
     if (input.tags !== undefined) body['tags'] = input.tags;
+    if (input.permission_mode !== undefined) body['permission_mode'] = input.permission_mode;
     return this.request('POST', '/api/goals', body, GoalResponseSchema);
   }
 
