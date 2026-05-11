@@ -11,3 +11,8 @@ Thumbs.db
 *.log
 coverage/
 .vite/
+conversation.md
+handoff.md
+docs/plans/
+.claude/worktrees/
+mcp/dist/

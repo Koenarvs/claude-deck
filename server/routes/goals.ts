@@ -64,7 +64,20 @@ export function createGoalsRouter(
     (req: Request, res: Response) => {
       try {
         const goal = goalService.create(req.body);
-        res.status(201).json(goal);
+
+        let sessionId: string | undefined;
+        if (req.body.initialPrompt && spawnTerminal) {
+          try {
+            sessionId = spawnTerminal(goal.id, req.body.initialPrompt);
+          } catch (spawnErr) {
+            logger.warn({ err: spawnErr, goalId: goal.id }, 'Failed to spawn session on goal creation');
+          }
+        }
+
+        res.status(201).json({
+          ...goal,
+          session_id: sessionId ?? null,
+        });
       } catch (err) {
         logger.error({ err }, 'Failed to create goal');
         res.status(500).json({ error: 'Failed to create goal' });

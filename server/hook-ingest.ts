@@ -402,21 +402,13 @@ export class HookIngest {
     return row?.goal_id ?? null;
   }
 
-  /**
-   * Reads the permission_mode for a goal directly from the DB.
-   * Stub for B2 — B3 will provide a goalService with this method.
-   *
-   * @returns 'autonomous' | 'supervised', defaults to 'supervised'
-   */
-  private getGoalPermissionMode(goalId: string | null): 'autonomous' | 'supervised' {
-    if (!goalId) return 'supervised';
-
-    const row = this.db.prepare(`SELECT permission_mode FROM goals WHERE id = ?`).get(goalId) as
-      | { permission_mode: string }
-      | undefined;
-
-    return (row?.permission_mode as 'autonomous' | 'supervised') ?? 'supervised';
-  }
+  // TODO(B3): goalService will provide getGoalPermissionMode — remove DB stub
+  // private _getGoalPermissionMode(goalId: string | null): 'autonomous' | 'supervised' {
+  //   if (!goalId) return 'supervised';
+  //   const row = this.db.prepare(`SELECT permission_mode FROM goals WHERE id = ?`).get(goalId) as
+  //     | { permission_mode: string } | undefined;
+  //   return (row?.permission_mode as 'autonomous' | 'supervised') ?? 'supervised';
+  // }
 
   /**
    * Extracts plan data from a TodoWrite tool_input and updates the linked goal.
