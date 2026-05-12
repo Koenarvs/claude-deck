@@ -1,10 +1,16 @@
 import { useCallback, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { X } from 'lucide-react';
 import { CreateGoalInputSchema } from '../../shared/schemas';
 import type { Goal, GoalModel, PermissionMode, CreateGoalInput } from '../../shared/types';
 import { GoalSchema } from '../../shared/schemas';
-import { apiPost } from '../../lib/api';
+import { apiPost, ApiError } from '../../lib/api';
 import { useGoalsStore } from '../../stores/useGoalsStore';
+
+interface DuplicateInfo {
+  existing_goal_id: string;
+  existing_title: string;
+}
 
 interface NewGoalModalProps {
   open: boolean;
@@ -24,6 +30,7 @@ const PERMISSION_OPTIONS: { value: PermissionMode; label: string }[] = [
 ];
 
 export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
+  const navigate = useNavigate();
   const upsertGoal = useGoalsStore((s) => s.upsertGoal);
   const backdropRef = useRef<HTMLDivElement>(null);
 
@@ -35,6 +42,7 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
   const [tagsInput, setTagsInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<DuplicateInfo | null>(null);
 
   const resetForm = useCallback(() => {
     setTitle('');
@@ -44,6 +52,7 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
     setInitialPrompt('');
     setTagsInput('');
     setError(null);
+    setDuplicate(null);
     setSubmitting(false);
   }, []);
 
@@ -70,10 +79,24 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
     [handleClose],
   );
 
+  const handleResumeExisting = useCallback(() => {
+    if (!duplicate) return;
+    handleClose();
+    navigate(`/goals/${duplicate.existing_goal_id}`);
+  }, [duplicate, handleClose, navigate]);
+
+  const handleUseNewName = useCallback(() => {
+    setDuplicate(null);
+    setError(null);
+    const titleInput = document.getElementById('goal-title');
+    if (titleInput) titleInput.focus();
+  }, []);
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       setError(null);
+      setDuplicate(null);
 
       const tags = tagsInput
         .split(',')
@@ -129,6 +152,17 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
       } catch (err) {
         // Rollback optimistic insert
         useGoalsStore.getState().removeGoal(tempId);
+        if (err instanceof ApiError && err.status === 409) {
+          const body = err.body as Record<string, unknown>;
+          if (body && typeof body.existing_goal_id === 'string') {
+            setDuplicate({
+              existing_goal_id: body.existing_goal_id,
+              existing_title: (body.existing_title as string) ?? title.trim(),
+            });
+            setSubmitting(false);
+            return;
+          }
+        }
         if (err instanceof Error) {
           setError(err.message);
         } else {
@@ -167,7 +201,41 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
           </button>
         </div>
 
-        {/* Form */}
+        {/* Duplicate goal resolution */}
+        {duplicate ? (
+          <div className="space-y-4 px-5 py-4">
+            <p className="text-sm text-deck-text">
+              A goal named <strong>&ldquo;{duplicate.existing_title}&rdquo;</strong> already exists.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleResumeExisting}
+                className="rounded-md bg-deck-accent px-4 py-2 text-sm font-medium text-white transition-colors
+                  hover:bg-deck-accent-hover focus:outline-none focus:ring-2 focus:ring-deck-accent focus:ring-offset-1 focus:ring-offset-deck-bg"
+              >
+                Resume existing goal
+              </button>
+              <button
+                type="button"
+                onClick={handleUseNewName}
+                className="rounded-md border border-deck-border px-4 py-2 text-sm font-medium text-deck-text transition-colors
+                  hover:bg-deck-border focus:outline-none focus:ring-2 focus:ring-deck-accent"
+              >
+                Use a different name
+              </button>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="rounded-md px-4 py-2 text-sm font-medium text-deck-muted transition-colors
+                  hover:bg-deck-border hover:text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+        /* Form */
         <form onSubmit={handleSubmit} className="space-y-4 px-5 py-4">
           {/* Title */}
           <div>
@@ -304,6 +372,7 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );
