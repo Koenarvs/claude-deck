@@ -273,7 +273,46 @@ setTerminalHandler({
 const scheduler = new Scheduler(scheduledTaskService, createGoal);
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
 const goalsRouter = createGoalsRouter(goalService, spawnGoalSession, spawnTerminalSession, interGoalMessageService);
-const sessionsRouter = createSessionsRouter(sessionService, messageService);
+/**
+ * Restarts an ended session by spawning a new PTY with --resume.
+ * Called by the sessions route POST /sessions/:id/restart.
+ */
+function restartSession(sessionId: string, goalId: string): void {
+  const goal = goalService.get(goalId);
+  if (!goal) throw new Error('Goal not found');
+
+  const existing = processRegistry.get(goalId);
+  if (existing && existing instanceof PtyManager && existing.isAlive()) {
+    throw new Error('A session is already running for this goal');
+  }
+
+  if (existing) {
+    void existing.interrupt().then(() => existing.cleanup());
+    processRegistry.remove(goalId);
+  }
+
+  const ptyMgr = new PtyManager(goal, {
+    broadcast,
+    onExit(gId, exitCode) {
+      logger.info({ goalId: gId, exitCode }, 'Restarted session ended');
+      goalService.update(gId, { status: 'waiting' });
+      const cl = conversationLoggers.get(gId);
+      if (cl) { cl.stop(); conversationLoggers.delete(gId); }
+    },
+  });
+
+  processRegistry.set(goalId, ptyMgr);
+  goalService.update(goalId, { status: 'active' });
+  goalService.setCurrentSession(goalId, goalId);
+
+  const convLogger = new ConversationLogger(goalId, goal.cwd, broadcast);
+  conversationLoggers.set(goalId, convLogger);
+  convLogger.rebuild();
+
+  ptyMgr.resume(sessionId);
+}
+
+const sessionsRouter = createSessionsRouter(sessionService, messageService, restartSession);
 const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
 const systemRouterWithSkills = createSystemRouter(skillDirectoryService);

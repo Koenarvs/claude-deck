@@ -294,5 +294,38 @@ export function createSessionsRouter(
     },
   );
 
+  /**
+   * POST /api/sessions/:id/restart
+   * Restarts an ended session by spawning a new PTY with --resume.
+   * Only valid for sessions that have ended (ended_at IS NOT NULL) and are linked to a goal.
+   */
+  router.post('/sessions/:id/restart', (req, res) => {
+    const sessionId = String(req.params['id']);
+    const session = sessionService.get(sessionId);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    if (session.ended_at == null) {
+      res.status(409).json({ error: 'Session is still active' });
+      return;
+    }
+    if (!session.goal_id) {
+      res.status(400).json({ error: 'Session is not linked to a goal' });
+      return;
+    }
+    if (!restartSession) {
+      res.status(501).json({ error: 'Restart not available' });
+      return;
+    }
+    try {
+      restartSession(sessionId, session.goal_id);
+      res.json({ ok: true, session_id: sessionId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to restart session';
+      res.status(500).json({ error: message });
+    }
+  });
+
   return router;
 }
