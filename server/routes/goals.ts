@@ -435,10 +435,12 @@ export function createGoalsRouter(
         );
 
         // Auto-deliver: if target goal has an active session, send as follow-up prompt
+        let delivered = false;
         if (toGoal.current_session_id && spawnSession) {
           try {
             spawnSession(toGoalId, content);
             interGoalMessageService.markDelivered(message.id);
+            delivered = true;
           } catch (deliveryErr) {
             logger.warn(
               { err: deliveryErr, messageId: message.id, targetGoalId: toGoalId },
@@ -447,7 +449,8 @@ export function createGoalsRouter(
           }
         }
 
-        res.status(201).json(message);
+        const finalMessage = delivered ? (interGoalMessageService.get(message.id) ?? message) : message;
+        res.status(201).json(finalMessage);
       } catch (err) {
         logger.error({ err }, 'Failed to send instruction');
         res.status(500).json({ error: 'Failed to send instruction' });
