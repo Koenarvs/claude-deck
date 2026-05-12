@@ -1,16 +1,19 @@
 import { create } from 'zustand';
-import type { Goal, GoalStatus } from '../shared/types';
+import type { Goal, GoalStatus, InterGoalMessage } from '../shared/types';
 
 interface GoalsState {
   goals: Goal[];
+  pendingInstructions: Map<string, InterGoalMessage[]>;
   setGoals: (goals: Goal[]) => void;
   upsertGoal: (goal: Goal) => void;
   removeGoal: (id: string) => void;
+  addInstruction: (message: InterGoalMessage) => void;
   goalsByStatus: (status: GoalStatus) => Goal[];
 }
 
 export const useGoalsStore = create<GoalsState>((set, get) => ({
   goals: [],
+  pendingInstructions: new Map(),
 
   setGoals: (goals) => set({ goals }),
 
@@ -29,6 +32,16 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
     set((state) => ({
       goals: state.goals.filter((g) => g.id !== id),
     })),
+
+  addInstruction: (message) =>
+    set((state) => {
+      const map = new Map(state.pendingInstructions);
+      const existing = map.get(message.to_goal_id) ?? [];
+      if (!existing.some((m) => m.id === message.id)) {
+        map.set(message.to_goal_id, [...existing, message]);
+      }
+      return { pendingInstructions: map };
+    }),
 
   goalsByStatus: (status) =>
     get()

@@ -251,6 +251,18 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     convLogger.start();
     ptyMgr.start(initialPrompt);
   }
+
+  // Deliver any pending inter-goal messages queued while this goal had no active session
+  const pending = interGoalMessageService.getInstructions(goalId);
+  if (pending.length > 0) {
+    logger.info({ goalId, count: pending.length }, 'Delivering pending inter-goal messages');
+    for (const msg of pending) {
+      if (msg.status === 'pending') {
+        interGoalMessageService.markDelivered(msg.id);
+      }
+    }
+  }
+
   return goalId;
 }
 

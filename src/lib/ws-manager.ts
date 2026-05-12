@@ -98,6 +98,10 @@ function dispatch(event: ServerEvent): void {
       emitConversationUpdated(event.goal_id);
       break;
 
+    case 'goal:instruction':
+      useGoalsStore.getState().addInstruction(event.message);
+      break;
+
     case 'subprocess:error':
     case 'ping':
       break;
