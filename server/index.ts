@@ -16,10 +16,7 @@ import { createHooksRouter } from './routes/hooks';
 import { createApprovalsRouter } from './routes/approvals';
 import { processRegistry } from './process-registry';
 import { hookInstallerService } from './services/hook-installer-service';
-import { SessionRunner } from './session-runner';
-import type { MessageService as RunnerMessageService, GoalService as RunnerGoalService, TraceWriter as RunnerTraceWriter, SkillProvider } from './session-runner';
 import { createSkillDirectoryService } from './services/skill-directory-service';
-import { scanSkillsForInjection } from './skill-scanner';
 import { PtyManager } from './pty-manager';
 import { SessionService } from './services/session-service';
 import { MessageService } from './services/message-service';
@@ -98,114 +95,12 @@ function createGoal(input: import('../src/shared/types').CreateGoalInput): { id:
 const sessionService = new SessionService(db, broadcast);
 const messageService = new MessageService(db, broadcast);
 
-/**
- * SkillProvider that reads enabled skill directories from the DB
- * and scans them for skills not under the goal's cwd.
- */
-const skillProvider: SkillProvider = {
-  getExternalSkills(cwd: string): Array<{ name: string; content: string }> {
-    const enabledDirs = skillDirectoryService.listEnabled();
-    if (enabledDirs.length === 0) return [];
-
-    const dirPaths = enabledDirs.map((d) => d.path);
-    const skills = scanSkillsForInjection(dirPaths, cwd);
-
-    return skills
-      .filter((s) => s.content != null)
-      .map((s) => ({ name: s.name, content: s.content! }));
-  },
-};
-
-/**
- * Spawns or resumes a Claude CLI session for a goal.
- * Called by the goals route POST /goals/:id/messages.
- */
-function spawnGoalSession(goalId: string, prompt: string): string {
-  const goal = goalService.get(goalId);
-  if (!goal) throw new Error('Goal not found');
-
-  // Check for existing runner
-  const existing = processRegistry.get(goalId);
-  if (existing) {
-    if (existing instanceof SessionRunner) {
-      if (existing.hasExited()) {
-        void existing.cleanup();
-        processRegistry.remove(goalId);
-      } else {
-        void existing.sendFollowup(prompt);
-        return existing.getSessionId() ?? 'resuming';
-      }
-    } else {
-      // PtyManager or other — kill it before spawning a SessionRunner
-      void existing.interrupt().then(() => existing.cleanup());
-      processRegistry.remove(goalId);
-    }
-  }
-
-  // Create adapter for SessionRunner dependencies
-  const noopTraceWriter: RunnerTraceWriter = {
-    appendStream() {},
-    appendStderr() {},
-    async close() {},
-  };
-
-  const msgAdapter: RunnerMessageService = {
-    createSession(session) {
-      sessionService.create({
-        id: session.id,
-        origin: session.origin as 'dashboard' | 'external',
-        cwd: session.cwd ?? undefined,
-        model: session.model ?? undefined,
-        started_at: session.started_at ?? Date.now(),
-        goal_id: session.goal_id,
-      });
-    },
-    saveMessage(message) {
-      messageService.add({
-        session_id: message.session_id,
-        role: message.role,
-        content: message.content,
-        tool_name: message.tool_name,
-        tool_args: message.tool_args,
-        tool_result: message.tool_result,
-        tool_use_id: message.tool_use_id,
-      });
-    },
-    endSession(sessionId) {
-      sessionService.end(sessionId);
-    },
-    incrementStreamEventCount(sessionId) {
-      sessionService.incrementCounters(sessionId, { stream: 1 });
-    },
-  };
-
-  const goalAdapter: RunnerGoalService = {
-    setCurrentSession(gId, sId) {
-      goalService.setCurrentSession(gId, sId);
-    },
-    setStatus(gId, status) {
-      goalService.update(gId, { status });
-    },
-  };
-
-  const runner = new SessionRunner(goal, {
-    traceWriter: noopTraceWriter,
-    messageService: msgAdapter,
-    goalService: goalAdapter,
-    broadcast,
-    skillProvider,
-  });
-
-  void runner.start(prompt);
-  return runner.getSessionId() ?? 'starting';
-}
-
 const conversationLoggers = new Map<string, ConversationLogger>();
 
 /**
  * Spawns or resumes a PTY-based terminal session for a goal.
- * If the goal has a previous session that was never ended (ended_at IS NULL),
- * resumes it with --resume instead of creating a new session.
+ * If a PTY is already running and a prompt is provided, delivers
+ * the prompt to the running session instead of silently dropping it.
  */
 function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
   const goal = goalService.get(goalId);
@@ -213,6 +108,11 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
 
   const existing = processRegistry.get(goalId);
   if (existing && existing instanceof PtyManager && existing.isAlive()) {
+    if (initialPrompt) {
+      existing.write(initialPrompt);
+      setTimeout(() => existing.write('\r'), 200);
+      logger.info({ goalId, promptLength: initialPrompt.length }, 'Delivered prompt to running PTY session');
+    }
     return 'already_running';
   }
 
@@ -284,7 +184,7 @@ setTerminalHandler({
 
 const scheduler = new Scheduler(scheduledTaskService, createGoal);
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
-const goalsRouter = createGoalsRouter(goalService, spawnGoalSession, spawnTerminalSession, interGoalMessageService);
+const goalsRouter = createGoalsRouter(goalService, spawnTerminalSession, interGoalMessageService);
 /**
  * Restarts an ended session by spawning a new PTY with --resume.
  * Called by the sessions route POST /sessions/:id/restart.

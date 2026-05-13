@@ -457,7 +457,7 @@ describe('Goals API routes (with inter-goal messaging)', () => {
 
     const app = express();
     app.use(express.json());
-    app.use('/api', createGoalsRouter(goalService2, undefined, undefined, interGoalService));
+    app.use('/api', createGoalsRouter(goalService2, undefined, interGoalService));
     app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       res.status(500).json({ error: err.message });
     });

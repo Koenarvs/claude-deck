@@ -47,7 +47,6 @@ const AdoptSessionBodySchema = z.object({
  */
 export function createGoalsRouter(
   goalService: GoalService,
-  spawnSession?: (goalId: string, prompt: string) => string,
   spawnTerminal?: (goalId: string, initialPrompt?: string) => string,
   interGoalMessageService?: InterGoalMessageService,
 ): Router {
@@ -155,9 +154,9 @@ export function createGoalsRouter(
 
         // Step 3: Optionally spawn a session
         let sessionId: string | undefined;
-        if (spawn_session !== false && spawnSession) {
+        if (spawn_session !== false && spawnTerminal) {
           try {
-            sessionId = spawnSession(goal.id, instruction);
+            sessionId = spawnTerminal(goal.id, instruction);
             interGoalMessageService.markDelivered(message.id);
           } catch (spawnErr) {
             logger.warn(
@@ -436,9 +435,9 @@ export function createGoalsRouter(
 
         // Auto-deliver: if target goal has an active session, send as follow-up prompt
         let delivered = false;
-        if (toGoal.current_session_id && spawnSession) {
+        if (toGoal.current_session_id && spawnTerminal) {
           try {
-            spawnSession(toGoalId, content);
+            spawnTerminal(toGoalId, content);
             interGoalMessageService.markDelivered(message.id);
             delivered = true;
           } catch (deliveryErr) {
