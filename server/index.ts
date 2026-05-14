@@ -127,6 +127,9 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
       goalService.update(gId, { status: 'waiting' });
+      sessionService.end(gId);
+      goalService.setCurrentSession(gId, null);
+      processRegistry.remove(gId);
       broadcast({ type: 'conversation:updated', goal_id: gId } as ServerEvent);
       const cl = conversationLoggers.get(gId);
       if (cl) { cl.stop(); conversationLoggers.delete(gId); }
@@ -213,6 +216,10 @@ function restartSession(sessionId: string, goalId: string): void {
     broadcast,
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Restarted session ended');
+      goalService.update(gId, { status: 'waiting' });
+      sessionService.end(gId);
+      goalService.setCurrentSession(gId, null);
+      processRegistry.remove(gId);
       broadcast({ type: 'conversation:updated', goal_id: gId } as ServerEvent);
       const cl = conversationLoggers.get(gId);
       if (cl) { cl.stop(); conversationLoggers.delete(gId); }
