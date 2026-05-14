@@ -233,9 +233,34 @@ export function createGoalService(db: Database.Database) {
 
     const messages: Message[] = messageRows.map(rowToMessage);
 
+    const igmRows = db
+      .prepare<[string]>(
+        `SELECT * FROM inter_goal_messages
+         WHERE to_goal_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(id) as Array<{
+        id: string; from_goal_id: string; to_goal_id: string;
+        content: string; message_type: string; status: string;
+        created_at: number; delivered_at: number | null; acknowledged_at: number | null;
+      }>;
+
+    const interGoalMessages: import('../../src/shared/types').InterGoalMessage[] = igmRows.map(r => ({
+      id: r.id,
+      from_goal_id: r.from_goal_id,
+      to_goal_id: r.to_goal_id,
+      content: r.content,
+      message_type: r.message_type as import('../../src/shared/types').InterGoalMessageType,
+      status: r.status as import('../../src/shared/types').InterGoalMessageStatus,
+      created_at: r.created_at,
+      delivered_at: r.delivered_at,
+      acknowledged_at: r.acknowledged_at,
+    }));
+
     return {
       goal,
       messages,
+      interGoalMessages,
       plan: goal.plan_json,
     };
   }

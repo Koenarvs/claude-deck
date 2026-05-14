@@ -193,6 +193,7 @@ export interface InterGoalMessage {
 export interface GoalDetail {
   goal: Goal;
   messages: Message[];
+  interGoalMessages: InterGoalMessage[];
   plan: PlanJson | null;
 }
 

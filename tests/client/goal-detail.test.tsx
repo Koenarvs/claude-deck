@@ -589,6 +589,7 @@ describe('GoalDetailPage', () => {
     const goalDetail: GoalDetail = {
       goal,
       messages,
+      interGoalMessages: [],
       plan: null,
     };
 
@@ -629,6 +630,7 @@ describe('GoalDetailPage', () => {
     const goalDetail: GoalDetail = {
       goal: makeGoal(),
       messages: [],
+      interGoalMessages: [],
       plan,
     };
 
@@ -660,7 +662,7 @@ describe('GoalDetailPage', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
-        Promise.resolve({ goal, messages: [], plan: null } as GoalDetail),
+        Promise.resolve({ goal, messages: [], interGoalMessages: [], plan: null } as GoalDetail),
     });
 
     renderPage();
@@ -700,7 +702,7 @@ describe('GoalDetailPage', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
-        Promise.resolve({ goal, messages: [], plan: null } as GoalDetail),
+        Promise.resolve({ goal, messages: [], interGoalMessages: [], plan: null } as GoalDetail),
     });
 
     renderPage();
@@ -731,7 +733,7 @@ describe('GoalDetailPage', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
-        Promise.resolve({ goal, messages: [], plan: null } as GoalDetail),
+        Promise.resolve({ goal, messages: [], interGoalMessages: [], plan: null } as GoalDetail),
     });
 
     renderPage();
@@ -762,7 +764,7 @@ describe('QA Checklist', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
-        Promise.resolve({ goal, messages: [], plan: null } as GoalDetail),
+        Promise.resolve({ goal, messages: [], interGoalMessages: [], plan: null } as GoalDetail),
     });
 
     render(
