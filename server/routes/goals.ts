@@ -233,6 +233,16 @@ export function createGoalsRouter(
     (req: Request, res: Response) => {
       try {
         const goal = goalService.update(String(String(req.params['id'])), req.body);
+
+        // Auto-spawn a PTY session when a goal transitions to 'active'
+        if (goal.status === 'active' && spawnTerminal) {
+          try {
+            spawnTerminal(goal.id);
+          } catch (spawnErr) {
+            logger.warn({ err: spawnErr, goalId: goal.id }, 'Failed to auto-spawn session on status change to active');
+          }
+        }
+
         res.json(goal);
       } catch (err) {
         if (err instanceof GoalNotFoundError) {
