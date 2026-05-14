@@ -242,12 +242,12 @@ describe('Goals API routes', () => {
       expect(body.to).toBe('waiting');
     });
 
-    it('returns 400 for archived → active', async () => {
+    it('allows archived → active (restart)', async () => {
       const goal = goalService.create({ title: 'Test', cwd: '/tmp' });
       goalService.update(goal.id, { status: 'archived' });
 
       const res = await patchJson(`/goals/${goal.id}`, { status: 'active' });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
 
     it('returns 404 for nonexistent goal', async () => {

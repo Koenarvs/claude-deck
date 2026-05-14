@@ -73,6 +73,7 @@ const ListEventsQuerySchema = z.object({
 export function createSessionsRouter(
   sessionService: SessionService,
   messageService: MessageService,
+  restartSession?: (sessionId: string, goalId: string) => void,
 ): Router {
   const router = Router();
 

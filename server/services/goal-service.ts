@@ -392,6 +392,14 @@ export function createGoalService(db: Database.Database) {
     const now = Date.now();
     archiveStmt.run(now, now, id);
 
+    // End all open sessions — goal is off the board now
+    const endedSessions = db.prepare(
+      `UPDATE sessions SET ended_at = ? WHERE goal_id = ? AND ended_at IS NULL`,
+    ).run(now, id);
+    if (endedSessions.changes > 0) {
+      logger.info({ goalId: id, count: endedSessions.changes }, 'Ended open sessions for archived goal');
+    }
+
     const updated = get(id);
     if (!updated) {
       throw new Error(`Goal disappeared after archive (id=${id})`);

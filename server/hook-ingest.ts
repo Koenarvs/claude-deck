@@ -358,6 +358,18 @@ export class HookIngest {
     }, 'Hook: SubagentStop');
 
     if (childSessionId) {
+      // Don't end child session if its goal is still on the board
+      const goalId = this.getGoalIdForSession(childSessionId);
+      if (goalId) {
+        const goal = this.db.prepare(`SELECT status FROM goals WHERE id = ?`).get(goalId) as
+          | { status: string }
+          | undefined;
+        if (goal && goal.status !== 'archived') {
+          logger.info({ childSessionId, goalId }, 'SubagentStop: child session kept active (goal still on board)');
+          return;
+        }
+      }
+
       const now = Date.now();
       this.db.prepare(`UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL`)
         .run(now, childSessionId);
@@ -375,6 +387,19 @@ export class HookIngest {
     if (!sessionId) {
       logger.warn('Stop hook missing session_id');
       return;
+    }
+
+    // Don't end the session if its goal is still on the board —
+    // sessions stay "active" until the goal is archived.
+    const goalId = this.getGoalIdForSession(sessionId);
+    if (goalId) {
+      const goal = this.db.prepare(`SELECT status FROM goals WHERE id = ?`).get(goalId) as
+        | { status: string }
+        | undefined;
+      if (goal && goal.status !== 'archived') {
+        logger.info({ sessionId, goalId }, 'Stop hook: session kept active (goal still on board)');
+        return;
+      }
     }
 
     const now = Date.now();

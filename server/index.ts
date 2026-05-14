@@ -22,6 +22,7 @@ import { SessionService } from './services/session-service';
 import { MessageService } from './services/message-service';
 import { createSessionsRouter } from './routes/sessions';
 import { createSystemRouter } from './routes/system';
+import type { ServerEvent } from '../src/shared/events';
 import { broadcast, setTerminalHandler } from './ws';
 import { ConversationLogger } from './services/conversation-logger';
 import { findJsonlFile } from './services/transcript-service';
@@ -125,7 +126,8 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     broadcast,
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
-      goalService.update(gId, { status: exitCode === 0 ? 'waiting' : 'waiting' });
+      goalService.update(gId, { status: 'waiting' });
+      broadcast({ type: 'conversation:updated', goal_id: gId } as ServerEvent);
       const cl = conversationLoggers.get(gId);
       if (cl) { cl.stop(); conversationLoggers.delete(gId); }
     },
@@ -139,7 +141,7 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
   goalService.update(goalId, { status: 'active' });
   goalService.setCurrentSession(goalId, goalId);
 
-  const convLogger = new ConversationLogger(goalId, goal.cwd, broadcast);
+  const convLogger = new ConversationLogger(goalId, broadcast);
   conversationLoggers.set(goalId, convLogger);
 
   if (hasExistingSession) {
@@ -203,21 +205,26 @@ function restartSession(sessionId: string, goalId: string): void {
     processRegistry.remove(goalId);
   }
 
+  // Re-activate the session so it shows as active on the Sessions tab
+  db.prepare(`UPDATE sessions SET ended_at = NULL WHERE id = ?`).run(sessionId);
+  broadcast({ type: 'session:started', session: { id: sessionId, goal_id: goalId, ended_at: null } });
+
   const ptyMgr = new PtyManager(goal, {
     broadcast,
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Restarted session ended');
-      goalService.update(gId, { status: 'waiting' });
+      broadcast({ type: 'conversation:updated', goal_id: gId } as ServerEvent);
       const cl = conversationLoggers.get(gId);
       if (cl) { cl.stop(); conversationLoggers.delete(gId); }
     },
   });
 
   processRegistry.set(goalId, ptyMgr);
+  // Restore goal to the board if it was archived
   goalService.update(goalId, { status: 'active' });
   goalService.setCurrentSession(goalId, goalId);
 
-  const convLogger = new ConversationLogger(goalId, goal.cwd, broadcast);
+  const convLogger = new ConversationLogger(goalId, broadcast);
   conversationLoggers.set(goalId, convLogger);
   convLogger.rebuild();
 

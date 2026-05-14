@@ -6,6 +6,7 @@ import { hookInstallerService } from '../services/hook-installer-service';
 import type { SkillDirectoryService } from '../services/skill-directory-service';
 import { getAggregateTotals, getDailyCosts } from '../services/usage-service';
 import { scanSkills, type ScannedSkill } from '../skill-scanner';
+import { findJsonlFile, getFormattedConversation } from '../services/transcript-service';
 import logger from '../logger';
 
 /**
@@ -297,6 +298,9 @@ router.get('/goals/:id/documents', (req, res) => {
     const mdFiles = entries
       .filter(f => f.endsWith('.md') && !f.startsWith('.'))
       .sort();
+    if (!mdFiles.includes('conversation.md') && findJsonlFile(goalId) !== null) {
+      mdFiles.unshift('conversation.md');
+    }
     res.json({ files: mdFiles });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -328,6 +332,19 @@ router.get('/goals/:id/document', (req, res) => {
     const goal = db.prepare('SELECT cwd FROM goals WHERE id = ?').get(goalId) as { cwd: string } | undefined;
     if (!goal) {
       res.status(404).json({ error: 'Goal not found' });
+      return;
+    }
+
+    // Virtual document: conversation.md reads from JSONL, not filesystem
+    if (fileName === 'conversation.md') {
+      const tail = parseInt(String(req.query['tail'] ?? '0'), 10);
+      const offset = parseInt(String(req.query['offset'] ?? '0'), 10);
+      const result = getFormattedConversation(goalId, { tail, offset });
+      if (!result) {
+        res.json({ exists: false, content: null, name: fileName });
+        return;
+      }
+      res.json({ exists: true, content: result.content, name: fileName, totalLines: result.totalLines, hasMore: result.hasMore });
       return;
     }
 
