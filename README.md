@@ -61,6 +61,52 @@ Claude Deck exposes these tools so Claude Code sessions can interact with the da
 - **Analytics** — Token usage, cost tracking, tool frequency charts
 - **Settings** — Configuration and scheduled task management
 
+## Daily Skills
+
+Claude Deck ships with six skills for daily workflow automation. These are Claude Code slash commands that integrate with the dashboard, Jira, Outlook, and Teams.
+
+| Skill | Command | Purpose |
+|-------|---------|---------|
+| Good Morning | `/goodmorning` | Daily planning — calendar, Jira sprint, email, Teams, and last session handoff review |
+| Good Night | `/goodnight` | Session close-out — capture state, log time, update Jira |
+| Pickup | `/pickup` | Quick session start — reload context from latest handoff and git state |
+| Plan Sprint | `/plan-sprint` | Sprint planning — research stories via sub-agents, generate implementation plans |
+| Start Sprint | `/start-sprint` | Sprint kickoff — validate stories, create goals per story with autonomous research |
+| Sprint Close | `/sprint-close` | Sprint close-out — transition tickets, roll incomplete work, generate summary |
+
+### Installing Skills
+
+Copy the skills into your Claude Code user directory:
+
+```bash
+cp -r skills/* ~/.claude/skills/
+```
+
+After copying, the skills are available as slash commands in any Claude Code session. They require the Claude Deck MCP server to be configured (for goal creation and orchestration) and the Playwright MCP server (for `/goodmorning` calendar/email/Teams access).
+
+### Playwright MCP (required for /goodmorning)
+
+The `/goodmorning` skill reads Outlook calendar, inbox, and Teams via Playwright. Configure with a browser profile that has M365 auth cookies:
+
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--user-data-dir",
+        "<path-to-playwright-profile>"
+      ]
+    }
+  }
+}
+```
+
+### Atlassian MCP (required for Jira integration)
+
+All skills that interact with Jira require the Atlassian MCP plugin. See the [Atlassian MCP documentation](https://github.com/anthropics/claude-code-plugins) for setup.
+
 ## Getting Started
 
 ### Prerequisites
@@ -131,6 +177,7 @@ claude-deck/
 ├── hooks/             # Claude Code hook scripts
 ├── scripts/           # Setup and utility scripts
 ├── tests/             # Test files (Vitest)
+├── skills/            # Daily workflow skills (goodmorning, goodnight, etc.)
 ├── docs/              # Architecture docs, flow diagrams, UI guides
 ├── public/            # Static assets
 ├── Dockerfile         # Production container
