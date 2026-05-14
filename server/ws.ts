@@ -115,6 +115,8 @@ function getEventGoalId(event: ServerEvent): string | null {
       return event.goal_id;
     case 'goal:instruction':
       return event.message.to_goal_id;
+    case 'conversation:updated':
+      return event.goal_id;
     default:
       return null;
   }

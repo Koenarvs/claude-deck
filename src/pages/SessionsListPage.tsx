@@ -123,6 +123,21 @@ export default function SessionsListPage() {
     }
   }, [sessions, setSessions]);
 
+  // Restart session handler
+  const handleRestartSession = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/restart`, { method: 'POST' });
+      if (!res.ok) return;
+      setSessions(
+        sessions.map((s) =>
+          s.id === sessionId ? { ...s, ended_at: null } : s,
+        ),
+      );
+    } catch {
+      // silently fail
+    }
+  }, [sessions, setSessions]);
+
   // Filter change handler
   const handleFiltersChange = useCallback((newFilters: SessionFiltersState) => {
     setFilters(newFilters);
@@ -160,6 +175,7 @@ export default function SessionsListPage() {
             originFilter={filters.origin}
             activeOnly={filters.activeOnly}
             onEndSession={handleEndSession}
+            onRestartSession={handleRestartSession}
           />
 
           {/* Load more */}

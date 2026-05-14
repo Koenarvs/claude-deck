@@ -122,17 +122,28 @@ export class HookIngest {
       return;
     }
 
-    // Create new external session with display_name from cwd basename
     const now = Date.now();
     const cwd = payload.cwd ?? null;
     const displayName = cwd ? cwd.replace(/\\/g, '/').split('/').pop() ?? cwd : null;
 
-    // Check if there's an active goal awaiting a session in the same cwd.
-    // This catches MCP-spawned sessions where the session row wasn't pre-created
-    // (e.g., race condition or alternative spawn path).
+    // Direct match: session_id = goal_id for dashboard-spawned sessions
+    // (we pass --session-id <goalId> when spawning PTYs).
     let linkedGoalId: string | null = null;
     let origin: 'external' | 'dashboard' = 'external';
-    if (cwd) {
+
+    const matchingGoal = this.db.prepare(
+      `SELECT id FROM goals WHERE id = ? AND status IN ('planning', 'active', 'waiting')`,
+    ).get(sessionId) as { id: string } | undefined;
+
+    if (matchingGoal) {
+      linkedGoalId = matchingGoal.id;
+      origin = 'dashboard';
+      logger.info(
+        { sessionId, goalId: linkedGoalId },
+        'Linked session to goal by ID match (session_id = goal_id)',
+      );
+    } else if (cwd) {
+      // Fallback: cwd match for MCP-spawned or externally-linked sessions
       const waitingGoal = this.db.prepare(
         `SELECT id FROM goals
          WHERE cwd = ? AND current_session_id IS NULL
@@ -145,7 +156,7 @@ export class HookIngest {
         origin = 'dashboard';
         logger.info(
           { sessionId, goalId: linkedGoalId, cwd },
-          'Linked new session to waiting goal by cwd match',
+          'Linked session to goal by cwd fallback match',
         );
       }
     }
@@ -197,7 +208,7 @@ export class HookIngest {
       });
     }
 
-    logger.info({ sessionId, cwd: payload.cwd }, 'External session created from hook');
+    logger.info({ sessionId, goalId: linkedGoalId, origin, cwd: payload.cwd }, 'Session created from hook');
   }
 
   /**
@@ -347,6 +358,18 @@ export class HookIngest {
     }, 'Hook: SubagentStop');
 
     if (childSessionId) {
+      // Don't end child session if its goal is still on the board
+      const goalId = this.getGoalIdForSession(childSessionId);
+      if (goalId) {
+        const goal = this.db.prepare(`SELECT status FROM goals WHERE id = ?`).get(goalId) as
+          | { status: string }
+          | undefined;
+        if (goal && goal.status !== 'archived') {
+          logger.info({ childSessionId, goalId }, 'SubagentStop: child session kept active (goal still on board)');
+          return;
+        }
+      }
+
       const now = Date.now();
       this.db.prepare(`UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL`)
         .run(now, childSessionId);
@@ -364,6 +387,19 @@ export class HookIngest {
     if (!sessionId) {
       logger.warn('Stop hook missing session_id');
       return;
+    }
+
+    // Don't end the session if its goal is still on the board —
+    // sessions stay "active" until the goal is archived.
+    const goalId = this.getGoalIdForSession(sessionId);
+    if (goalId) {
+      const goal = this.db.prepare(`SELECT status FROM goals WHERE id = ?`).get(goalId) as
+        | { status: string }
+        | undefined;
+      if (goal && goal.status !== 'archived') {
+        logger.info({ sessionId, goalId }, 'Stop hook: session kept active (goal still on board)');
+        return;
+      }
     }
 
     const now = Date.now();
@@ -391,21 +427,13 @@ export class HookIngest {
     return row?.goal_id ?? null;
   }
 
-  /**
-   * Reads the permission_mode for a goal directly from the DB.
-   * Stub for B2 — B3 will provide a goalService with this method.
-   *
-   * @returns 'autonomous' | 'supervised', defaults to 'supervised'
-   */
-  private getGoalPermissionMode(goalId: string | null): 'autonomous' | 'supervised' {
-    if (!goalId) return 'supervised';
-
-    const row = this.db.prepare(`SELECT permission_mode FROM goals WHERE id = ?`).get(goalId) as
-      | { permission_mode: string }
-      | undefined;
-
-    return (row?.permission_mode as 'autonomous' | 'supervised') ?? 'supervised';
-  }
+  // TODO(B3): goalService will provide getGoalPermissionMode — remove DB stub
+  // private _getGoalPermissionMode(goalId: string | null): 'autonomous' | 'supervised' {
+  //   if (!goalId) return 'supervised';
+  //   const row = this.db.prepare(`SELECT permission_mode FROM goals WHERE id = ?`).get(goalId) as
+  //     | { permission_mode: string } | undefined;
+  //   return (row?.permission_mode as 'autonomous' | 'supervised') ?? 'supervised';
+  // }
 
   /**
    * Extracts plan data from a TodoWrite tool_input and updates the linked goal.

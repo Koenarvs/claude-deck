@@ -350,13 +350,12 @@ describe('GoalService', () => {
       expect(updated.status).toBe('active');
     });
 
-    it('archived → active throws InvalidTransitionError', () => {
+    it('archived → active is allowed (restart)', () => {
       const goal = goalService.create(makeInput());
       goalService.update(goal.id, { status: 'archived' });
 
-      expect(() => goalService.update(goal.id, { status: 'active' })).toThrow(
-        InvalidTransitionError,
-      );
+      const updated = goalService.update(goal.id, { status: 'active' });
+      expect(updated.status).toBe('active');
     });
 
     it('planning → waiting throws InvalidTransitionError', () => {

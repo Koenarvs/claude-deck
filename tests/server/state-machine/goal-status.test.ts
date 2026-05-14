@@ -52,8 +52,8 @@ describe('goal-status state machine', () => {
 
     // ── Invalid transitions ─────────────────────────────────────────────
 
-    it('archived → active is blocked (terminal state)', () => {
-      expect(canTransition('archived', 'active')).toBe(false);
+    it('archived → active is allowed (restart)', () => {
+      expect(canTransition('archived', 'active')).toBe(true);
     });
 
     it('archived → planning is blocked', () => {
@@ -132,9 +132,10 @@ describe('goal-status state machine', () => {
       expect(targets).toHaveLength(2);
     });
 
-    it('archived has no valid transitions', () => {
+    it('archived can reach active (restart)', () => {
       const targets = allowedTransitions('archived');
-      expect(targets).toHaveLength(0);
+      expect(targets).toContain('active');
+      expect(targets).toHaveLength(1);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -6,9 +6,6 @@ import {
   ChevronRight,
   ClipboardList,
   FileText,
-  Search,
-  StickyNote,
-  ArrowRightLeft,
   CheckSquare,
   Activity,
   GitBranch,
@@ -17,6 +14,7 @@ import {
 import { usePlanStore } from '@/stores/usePlanStore';
 import { PlanRenderer } from './PlanRenderer';
 import ContextHealth from './ContextHealth';
+import { onConversationUpdated } from '@/lib/conversation-events';
 
 interface GoalPlanPaneProps {
   goalId: string;
@@ -32,21 +30,17 @@ interface GoalPlanPaneProps {
   };
 }
 
-type TabId = 'health' | 'plan' | 'research' | 'notes' | 'handoff' | 'todo' | 'agents';
+type TabId = 'health' | 'documents' | 'todo' | 'agents';
 
 interface TabDef {
   id: TabId;
   label: string;
   icon: typeof FileText;
-  fileName?: string;
 }
 
 const TABS: TabDef[] = [
   { id: 'health', label: 'Health', icon: Activity },
-  { id: 'plan', label: 'Plan', icon: FileText, fileName: 'plan.md' },
-  { id: 'research', label: 'Research', icon: Search, fileName: 'research.md' },
-  { id: 'notes', label: 'Notes', icon: StickyNote, fileName: 'notes.md' },
-  { id: 'handoff', label: 'Handoff', icon: ArrowRightLeft, fileName: 'handoff.md' },
+  { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'todo', label: 'To Do', icon: CheckSquare },
   { id: 'agents', label: 'Agents', icon: GitBranch },
 ];
@@ -71,14 +65,20 @@ interface DocumentState {
   loading: boolean;
   exists: boolean;
   content: string | null;
+  hasMore: boolean;
+  totalLines: number;
 }
 
 export default function GoalPlanPane({ goalId, sessionHealth, collapsed: controlledCollapsed, onCollapseChange }: GoalPlanPaneProps) {
   const [internalCollapsed, setInternalCollapsed] = useState(readCollapsed);
   const collapsed = controlledCollapsed ?? internalCollapsed;
   const [activeTab, setActiveTab] = useState<TabId>('health');
-  const [doc, setDoc] = useState<DocumentState>({ loading: false, exists: false, content: null });
+  const [doc, setDoc] = useState<DocumentState>({ loading: false, exists: false, content: null, hasMore: false, totalLines: 0 });
+  const [mdFiles, setMdFiles] = useState<string[]>([]);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [loadedOffset, setLoadedOffset] = useState(0);
   const plan = usePlanStore((state) => state.byGoalId[goalId] ?? null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const toggleCollapse = useCallback(() => {
     const next = !collapsed;
@@ -87,34 +87,115 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
     onCollapseChange?.(next);
   }, [collapsed, onCollapseChange]);
 
-  // Fetch document whenever active tab changes
+  // Fetch list of .md files when Documents tab is selected
   useEffect(() => {
-    const tab = TABS.find((t) => t.id === activeTab);
-    if (!tab?.fileName) {
-      setDoc({ loading: false, exists: false, content: null });
+    if (activeTab !== 'documents') return;
+    let cancelled = false;
+
+    fetch(`/api/goals/${goalId}/documents`)
+      .then((r) => r.ok ? r.json() : { files: [] })
+      .then((data: { files: string[] }) => {
+        if (cancelled) return;
+        setMdFiles(data.files);
+        if (!selectedFile || !data.files.includes(selectedFile)) {
+          const defaultFile = data.files.includes('conversation.md')
+            ? 'conversation.md'
+            : data.files.includes('plan.md')
+              ? 'plan.md'
+              : data.files[0] ?? null;
+          setSelectedFile(defaultFile);
+        }
+      })
+      .catch(() => { if (!cancelled) setMdFiles([]); });
+
+    return () => { cancelled = true; };
+  }, [activeTab, goalId]);
+
+  // Fetch selected document content
+  useEffect(() => {
+    if (activeTab !== 'documents' || !selectedFile) {
+      setDoc({ loading: false, exists: false, content: null, hasMore: false, totalLines: 0 });
       return;
     }
 
     let cancelled = false;
-    setDoc({ loading: true, exists: false, content: null });
+    setDoc({ loading: true, exists: false, content: null, hasMore: false, totalLines: 0 });
+    setLoadedOffset(0);
 
-    fetch(`/api/goals/${goalId}/document?name=${encodeURIComponent(tab.fileName)}`)
+    const isConversation = selectedFile === 'conversation.md';
+    const tailParam = isConversation ? '&tail=500' : '';
+
+    fetch(`/api/goals/${goalId}/document?name=${encodeURIComponent(selectedFile)}${tailParam}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { exists: boolean; content: string | null } | null) => {
+      .then((data: { exists: boolean; content: string | null; hasMore?: boolean; totalLines?: number } | null) => {
         if (!cancelled) {
           setDoc({
             loading: false,
             exists: data?.exists ?? false,
             content: data?.content ?? null,
+            hasMore: data?.hasMore ?? false,
+            totalLines: data?.totalLines ?? 0,
           });
+          if (isConversation) {
+            requestAnimationFrame(() => {
+              if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            });
+          }
         }
       })
       .catch(() => {
-        if (!cancelled) setDoc({ loading: false, exists: false, content: null });
+        if (!cancelled) setDoc({ loading: false, exists: false, content: null, hasMore: false, totalLines: 0 });
       });
 
     return () => { cancelled = true; };
-  }, [activeTab, goalId]);
+  }, [activeTab, goalId, selectedFile]);
+
+  // Auto-refresh when conversation.md updates via WebSocket
+  useEffect(() => {
+    if (activeTab !== 'documents' || selectedFile !== 'conversation.md') return;
+
+    const unsub = onConversationUpdated(goalId, () => {
+      fetch(`/api/goals/${goalId}/document?name=conversation.md&tail=500`)
+        .then(res => res.ok ? res.json() : null)
+        .then((data: { exists: boolean; content: string | null; hasMore?: boolean; totalLines?: number } | null) => {
+          if (data) {
+            setDoc({
+              loading: false,
+              exists: data.exists,
+              content: data.content,
+              hasMore: data.hasMore ?? false,
+              totalLines: data.totalLines ?? 0,
+            });
+            setLoadedOffset(0);
+            requestAnimationFrame(() => {
+              if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            });
+          }
+        })
+        .catch(() => {});
+    });
+
+    return unsub;
+  }, [activeTab, goalId, selectedFile]);
+
+  const loadMore = useCallback(() => {
+    if (!selectedFile || !doc.hasMore) return;
+    const newOffset = loadedOffset + 500;
+
+    fetch(`/api/goals/${goalId}/document?name=${encodeURIComponent(selectedFile)}&tail=500&offset=${newOffset}`)
+      .then(res => res.ok ? res.json() : null)
+      .then((data: { exists: boolean; content: string | null; hasMore?: boolean } | null) => {
+        if (data?.content) {
+          setDoc(prev => ({
+            ...prev,
+            content: data.content + '\n' + (prev.content ?? ''),
+            hasMore: data.hasMore ?? false,
+          }));
+          setLoadedOffset(newOffset);
+        }
+      })
+      .catch(() => {});
+  }, [goalId, selectedFile, doc.hasMore, loadedOffset]);
 
   useEffect(() => { setInternalCollapsed(readCollapsed()); }, []);
 
@@ -138,8 +219,6 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
       </div>
     );
   }
-
-  const currentTab = TABS.find((t) => t.id === activeTab);
 
   return (
     <div
@@ -180,7 +259,7 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-4 py-3">
         {activeTab === 'health' ? (
           <ContextHealth
             tokensIn={sessionHealth?.tokensIn ?? 0}
@@ -197,36 +276,91 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
           )
         ) : activeTab === 'agents' ? (
           <AgentTree goalId={goalId} />
-        ) : doc.loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 size={20} className="animate-spin text-deck-muted" />
-          </div>
-        ) : doc.exists && doc.content ? (
-          <div className="prose prose-invert prose-sm max-w-none
-            prose-headings:text-deck-text prose-p:text-deck-text/80
-            prose-a:text-deck-accent prose-strong:text-deck-text
-            prose-code:text-deck-accent prose-code:bg-deck-bg prose-code:px-1 prose-code:rounded
-            prose-pre:bg-deck-bg prose-pre:border prose-pre:border-deck-border
-            prose-table:border-collapse
-            prose-th:border prose-th:border-deck-border prose-th:bg-deck-bg prose-th:px-3 prose-th:py-1.5 prose-th:text-left prose-th:text-xs prose-th:text-deck-muted
-            prose-td:border prose-td:border-deck-border prose-td:px-3 prose-td:py-1.5 prose-td:text-sm
-            prose-li:text-deck-text/80
-            prose-hr:border-deck-border
-            prose-blockquote:border-deck-accent/40 prose-blockquote:text-deck-muted
-          ">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
-          </div>
-        ) : (
-          <EmptyState
-            icon={currentTab?.icon ?? FileText}
-            message={`No ${currentTab?.label.toLowerCase() ?? 'document'} found`}
-            detail={`Place ${currentTab?.fileName ?? 'file'} in the goal's working directory`}
+        ) : activeTab === 'documents' ? (
+          <DocumentsView
+            mdFiles={mdFiles}
+            selectedFile={selectedFile}
+            onSelectFile={setSelectedFile}
+            doc={doc}
+            hasMore={doc.hasMore ?? false}
+            onLoadMore={loadMore}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
+
+// ── Documents View ─────────────────────────────────────────────────────────────
+
+interface DocumentsViewProps {
+  mdFiles: string[];
+  selectedFile: string | null;
+  onSelectFile: (file: string) => void;
+  doc: DocumentState;
+  hasMore: boolean;
+  onLoadMore: () => void;
+}
+
+function DocumentsView({ mdFiles, selectedFile, onSelectFile, doc, hasMore, onLoadMore }: DocumentsViewProps) {
+  if (mdFiles.length === 0) {
+    return <EmptyState icon={FileText} message="No documents found" detail="Place .md files in the goal's working directory" />;
+  }
+
+  return (
+    <div>
+      {/* File picker */}
+      <div className="mb-3">
+        <select
+          value={selectedFile ?? ''}
+          onChange={(e) => onSelectFile(e.target.value)}
+          className="w-full rounded border border-deck-border bg-deck-bg px-2 py-1.5 text-xs text-deck-text focus:border-deck-accent focus:outline-none"
+        >
+          {mdFiles.map((f) => (
+            <option key={f} value={f}>{f}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Load more button */}
+      {hasMore && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          className="w-full text-center text-xs text-deck-muted hover:text-deck-accent py-2 mb-3 border-b border-deck-border transition-colors"
+        >
+          Load earlier messages...
+        </button>
+      )}
+
+      {/* Document content */}
+      {doc.loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 size={20} className="animate-spin text-deck-muted" />
+        </div>
+      ) : doc.exists && doc.content ? (
+        <div className="prose prose-invert prose-sm max-w-none
+          prose-headings:text-deck-text prose-p:text-deck-text/80
+          prose-a:text-deck-accent prose-strong:text-deck-text
+          prose-code:text-deck-accent prose-code:bg-deck-bg prose-code:px-1 prose-code:rounded
+          prose-pre:bg-deck-bg prose-pre:border prose-pre:border-deck-border
+          prose-table:border-collapse
+          prose-th:border prose-th:border-deck-border prose-th:bg-deck-bg prose-th:px-3 prose-th:py-1.5 prose-th:text-left prose-th:text-xs prose-th:text-deck-muted
+          prose-td:border prose-td:border-deck-border prose-td:px-3 prose-td:py-1.5 prose-td:text-sm
+          prose-li:text-deck-text/80
+          prose-hr:border-deck-border
+          prose-blockquote:border-deck-accent/40 prose-blockquote:text-deck-muted
+        ">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
+        </div>
+      ) : (
+        <EmptyState icon={FileText} message={`${selectedFile ?? 'File'} not found`} detail="File may not exist yet" />
+      )}
+    </div>
+  );
+}
+
+// ── Shared Components ──────────────────────────────────────────────────────────
 
 function EmptyState({ icon: Icon, message, detail }: { icon: typeof FileText; message: string; detail: string }) {
   return (
@@ -269,7 +403,6 @@ function AgentTree({ goalId }: { goalId: string }) {
       .then((sessions: AgentSession[]) => {
         if (cancelled || !Array.isArray(sessions)) return;
 
-        // Build tree
         const byId = new Map(sessions.map((s) => [s.id, s]));
         const childrenMap = new Map<string, AgentSession[]>();
         const roots: AgentSession[] = [];
@@ -330,18 +463,11 @@ function AgentNodeRow({ node, depth }: { node: AgentNode; depth: number }) {
         className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-deck-border/50 transition-colors"
         style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
-        {/* Connector line for children */}
-        {depth > 0 && <span className="text-deck-muted text-xs">└</span>}
-
-        {/* Status dot */}
+        {depth > 0 && <span className="text-deck-muted text-xs">&#9492;</span>}
         <span className={`h-2 w-2 shrink-0 rounded-full ${isActive ? 'bg-deck-success animate-pulse' : 'bg-deck-muted'}`} />
-
-        {/* Name */}
         <span className="text-sm font-medium text-deck-text truncate" title={s.id}>
           {name}
         </span>
-
-        {/* Status label */}
         <span className={`text-[10px] font-medium rounded px-1.5 py-0.5 ${
           isActive
             ? 'bg-deck-success/15 text-deck-success'
@@ -349,19 +475,13 @@ function AgentNodeRow({ node, depth }: { node: AgentNode; depth: number }) {
         }`}>
           {isActive ? 'Active' : 'Done'}
         </span>
-
-        {/* Spacer */}
         <span className="flex-1" />
-
-        {/* Turn count */}
         {s.stream_event_count > 0 && (
           <span className="text-[10px] text-deck-muted">
             {s.stream_event_count}t
           </span>
         )}
       </div>
-
-      {/* Render children */}
       {node.children.map((child) => (
         <AgentNodeRow key={child.session.id} node={child} depth={depth + 1} />
       ))}

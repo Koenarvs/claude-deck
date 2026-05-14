@@ -79,7 +79,7 @@ export class PtyManager implements Killable {
 
   start(initialPrompt?: string): void {
     const claudePath = resolveClaudePath();
-    const args: string[] = [];
+    const args: string[] = ['--session-id', this.goalId];
     if (this.goal.permission_mode === 'autonomous') {
       args.push('--permission-mode', 'bypassPermissions');
     }
@@ -136,8 +136,31 @@ export class PtyManager implements Killable {
     }
 
     // Track whether the initial prompt has been sent
-    let promptSent = !initialPrompt; // true if no prompt to send
-    let outputBuffer = '';
+    const pendingPrompt = initialPrompt ?? '';
+    let promptSent = !pendingPrompt;
+
+    const sendPrompt = (method: string) => {
+      if (promptSent) return;
+      promptSent = true;
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+      setTimeout(() => {
+        this.write(pendingPrompt);
+        setTimeout(() => {
+          this.write('\r');
+          logger.info({ goalId: this.goalId, promptLength: pendingPrompt.length, method }, 'PTY: Sent initial prompt');
+        }, 200);
+      }, 500);
+    };
+
+    // Two-layer detection: idle-based + hard timeout fallback.
+    // Idle: after PTY output stops for 3s, Claude Code is likely at its prompt.
+    // Fallback: if no data at all after 45s, send anyway (covers very slow startups).
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    if (!promptSent) {
+      fallbackTimer = setTimeout(() => sendPrompt('timeout-fallback'), 45_000);
+    }
 
     this.terminal.onData((data: string) => {
       this.broadcast({
@@ -146,18 +169,15 @@ export class PtyManager implements Killable {
         data,
       });
 
-      // Detect when Claude Code is ready for input, then send the initial prompt.
-      // The actual input prompt is a single ">" or "❯" at the start of a line, followed by a space.
-      // Must NOT trigger on ">>" in ">> bypass permissions on (shift+tab to cycle)".
+      // Reset idle timer on every data chunk — when output stops for 3s, send prompt.
       if (!promptSent) {
-        outputBuffer += data;
-        // Match a single > or ❯ prompt at end of output (not >> from bypass banner)
-        if (/\n[>❯] \s*$/.test(outputBuffer) || /^[>❯] \s*$/.test(outputBuffer)) {
-          promptSent = true;
-          setTimeout(() => {
-            this.write(initialPrompt + '\r');
-            logger.info({ goalId: this.goalId, promptLength: initialPrompt.length }, 'PTY: Sent initial prompt after ready detection');
-          }, 300);
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => sendPrompt('idle'), 5_000);
+
+        // Also try regex-based prompt detection (best-effort on Windows conpty).
+        const clean = data.replace(/\x1b[^\x1b]*/g, '');
+        if (/(?:>{1,2}|❯) \s*$/.test(clean)) {
+          sendPrompt('regex');
         }
       }
     });
@@ -186,6 +206,11 @@ export class PtyManager implements Killable {
     const args = ['--resume', sessionId];
     if (this.goal.permission_mode === 'autonomous') {
       args.push('--permission-mode', 'bypassPermissions');
+    }
+
+    const mcpConfig = this.buildMcpConfig();
+    if (mcpConfig) {
+      args.push('--mcp-config', mcpConfig);
     }
 
     const env: Record<string, string> = {};

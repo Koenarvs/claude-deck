@@ -8,7 +8,6 @@ import type { GoalService } from '../services/goal-service';
 import { GoalNotFoundError, InvalidTransitionError } from '../services/goal-service';
 import type { InterGoalMessageService } from '../services/inter-goal-message-service';
 import { InterGoalMessageNotFoundError } from '../services/inter-goal-message-service';
-import { getTranscript, formatTranscriptForTerminal } from '../services/transcript-service';
 import logger from '../logger';
 
 // ── Query Schemas ────────────────────────────────────────────────────────────
@@ -48,7 +47,6 @@ const AdoptSessionBodySchema = z.object({
  */
 export function createGoalsRouter(
   goalService: GoalService,
-  spawnSession?: (goalId: string, prompt: string) => string,
   spawnTerminal?: (goalId: string, initialPrompt?: string) => string,
   interGoalMessageService?: InterGoalMessageService,
 ): Router {
@@ -65,7 +63,20 @@ export function createGoalsRouter(
     (req: Request, res: Response) => {
       try {
         const goal = goalService.create(req.body);
-        res.status(201).json(goal);
+
+        let sessionId: string | undefined;
+        if (req.body.initialPrompt && spawnTerminal) {
+          try {
+            sessionId = spawnTerminal(goal.id, req.body.initialPrompt);
+          } catch (spawnErr) {
+            logger.warn({ err: spawnErr, goalId: goal.id }, 'Failed to spawn session on goal creation');
+          }
+        }
+
+        res.status(201).json({
+          ...goal,
+          session_id: sessionId ?? null,
+        });
       } catch (err) {
         logger.error({ err }, 'Failed to create goal');
         res.status(500).json({ error: 'Failed to create goal' });
@@ -143,9 +154,9 @@ export function createGoalsRouter(
 
         // Step 3: Optionally spawn a session
         let sessionId: string | undefined;
-        if (spawn_session !== false && spawnSession) {
+        if (spawn_session !== false && spawnTerminal) {
           try {
-            sessionId = spawnSession(goal.id, instruction);
+            sessionId = spawnTerminal(goal.id, instruction);
             interGoalMessageService.markDelivered(message.id);
           } catch (spawnErr) {
             logger.warn(
@@ -222,6 +233,16 @@ export function createGoalsRouter(
     (req: Request, res: Response) => {
       try {
         const goal = goalService.update(String(String(req.params['id'])), req.body);
+
+        // Auto-spawn a PTY session when a goal transitions to 'active'
+        if (goal.status === 'active' && spawnTerminal) {
+          try {
+            spawnTerminal(goal.id);
+          } catch (spawnErr) {
+            logger.warn({ err: spawnErr, goalId: goal.id }, 'Failed to auto-spawn session on status change to active');
+          }
+        }
+
         res.json(goal);
       } catch (err) {
         if (err instanceof GoalNotFoundError) {
@@ -289,11 +310,10 @@ export function createGoalsRouter(
 
         const prompt = req.body.prompt as string;
 
-        if (spawnSession) {
-          const sessionId = spawnSession(goal.id, prompt);
+        if (spawnTerminal) {
+          const sessionId = spawnTerminal(goal.id, prompt);
           res.json({ session_id: sessionId });
         } else {
-          // No session spawner configured
           res.json({ session_id: goal.current_session_id });
         }
       } catch (err) {
@@ -385,25 +405,6 @@ export function createGoalsRouter(
   });
 
   /**
-   * GET /goals/:id/transcript — Return conversation history from Claude Code's JSONL transcript.
-   * Reads the JSONL file for the goal's current session and formats it for terminal display.
-   */
-  router.get('/goals/:id/transcript', (req: Request, res: Response) => {
-    const goal = goalService.get(String(req.params['id']));
-    if (!goal) {
-      res.type('text/plain').send('');
-      return;
-    }
-    const sessionId = goal.current_session_id;
-    if (!sessionId) {
-      res.type('text/plain').send('');
-      return;
-    }
-    const messages = getTranscript(sessionId);
-    res.type('text/plain').send(formatTranscriptForTerminal(messages));
-  });
-
-  /**
    * POST /goals/:id/instruct/:targetId — Send an instruction from one goal to another.
    * Body: { content: string, message_type?: InterGoalMessageType }.
    * Returns: 201 with the created InterGoalMessage, 404 if either goal not found, 501 if service unavailable.
@@ -443,10 +444,12 @@ export function createGoalsRouter(
         );
 
         // Auto-deliver: if target goal has an active session, send as follow-up prompt
-        if (toGoal.current_session_id && spawnSession) {
+        let delivered = false;
+        if (toGoal.current_session_id && spawnTerminal) {
           try {
-            spawnSession(toGoalId, content);
+            spawnTerminal(toGoalId, content);
             interGoalMessageService.markDelivered(message.id);
+            delivered = true;
           } catch (deliveryErr) {
             logger.warn(
               { err: deliveryErr, messageId: message.id, targetGoalId: toGoalId },
@@ -455,7 +458,8 @@ export function createGoalsRouter(
           }
         }
 
-        res.status(201).json(message);
+        const finalMessage = delivered ? (interGoalMessageService.get(message.id) ?? message) : message;
+        res.status(201).json(finalMessage);
       } catch (err) {
         logger.error({ err }, 'Failed to send instruction');
         res.status(500).json({ error: 'Failed to send instruction' });

@@ -10,6 +10,7 @@ import { useApprovalsStore } from '../stores/useApprovalsStore';
 import { useConnectionStore } from '../stores/useConnectionStore';
 import { useActiveToolStore } from '../stores/useActiveToolStore';
 import { emitTerminalData, emitTerminalStarted, emitTerminalExited } from './terminal-events';
+import { emitConversationUpdated } from './conversation-events';
 
 let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
@@ -92,6 +93,14 @@ function dispatch(event: ServerEvent): void {
       }
       break;
     }
+
+    case 'conversation:updated':
+      emitConversationUpdated(event.goal_id);
+      break;
+
+    case 'goal:instruction':
+      useGoalsStore.getState().addInstruction(event.message);
+      break;
 
     case 'subprocess:error':
     case 'ping':

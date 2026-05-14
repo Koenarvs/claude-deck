@@ -28,7 +28,13 @@
       "Bash(head:*)",
       "Bash(tail:*)",
       "Bash(sort:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql",
+      "Read(//c/CTDW Repository/Wellsky/Daily//**)",
+      "Read(//c/CTDW Repository/Wellsky/Daily/**)",
+      "Bash(tree -L 2 -d /c/Claude-Deck --ignore 'node_modules|.git|dist')",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

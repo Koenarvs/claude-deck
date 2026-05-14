@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ApiError } from '../api-client.js';
 import type { DashboardApiClient } from '../api-client.js';
 
 /** Input schema for create_goal tool. */
@@ -45,6 +46,19 @@ export async function createGoal(
   if (input.permission_mode !== undefined) params.permission_mode = input.permission_mode;
   if (input.initialPrompt !== undefined) params.initialPrompt = input.initialPrompt;
   if (input.tags !== undefined) params.tags = input.tags;
-  const goal = await client.createGoal(params);
-  return JSON.stringify(goal, null, 2);
+  try {
+    const goal = await client.createGoal(params);
+    return JSON.stringify(goal, null, 2);
+  } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 409) {
+      let parsed: Record<string, unknown> = {};
+      try { parsed = JSON.parse(err.body) as Record<string, unknown>; } catch { /* ignore */ }
+      const existingId = parsed['existing_goal_id'] ?? 'unknown';
+      throw new Error(
+        `A goal with title "${input.title}" already exists (goal ID: ${existingId}). ` +
+        `Use send_message to resume it, or choose a different title.`,
+      );
+    }
+    throw err;
+  }
 }

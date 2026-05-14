@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowUpDown, ArrowUp, ArrowDown, Square } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, Square, RotateCcw } from 'lucide-react';
 import type { Session, SessionOrigin } from '../../shared/types';
 import { OriginBadge } from './OriginBadge';
 
@@ -26,6 +26,7 @@ export interface SessionsTableProps {
   originFilter: SessionOrigin | 'all';
   activeOnly: boolean;
   onEndSession?: (sessionId: string) => void;
+  onRestartSession?: (sessionId: string) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -174,7 +175,7 @@ function getDisplayName(session: EnrichedSession): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function SessionsTable({ sessions, originFilter, activeOnly, onEndSession }: SessionsTableProps) {
+export default function SessionsTable({ sessions, originFilter, activeOnly, onEndSession, onRestartSession }: SessionsTableProps) {
   const navigate = useNavigate();
   const [sort, setSort] = useState<SortConfig>({ field: 'started_at', direction: 'desc' });
 
@@ -338,6 +339,18 @@ export default function SessionsTable({ sessions, originFilter, activeOnly, onEn
                       }}
                     >
                       <Square size={14} />
+                    </button>
+                  )}
+                  {!isSessionActive(session) && onRestartSession && session.goal_id && (
+                    <button
+                      title="Restart session"
+                      className="rounded p-1 text-deck-muted hover:bg-deck-accent/15 hover:text-deck-accent transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRestartSession(session.id);
+                      }}
+                    >
+                      <RotateCcw size={14} />
                     </button>
                   )}
                 </td>

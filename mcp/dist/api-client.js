@@ -170,6 +170,8 @@ export class DashboardApiClient {
             body['initialPrompt'] = input.initialPrompt;
         if (input.tags !== undefined)
             body['tags'] = input.tags;
+        if (input.permission_mode !== undefined)
+            body['permission_mode'] = input.permission_mode;
         return this.request('POST', '/api/goals', body, GoalResponseSchema);
     }
     /** Update an existing goal's fields (title, description, status, tags). */

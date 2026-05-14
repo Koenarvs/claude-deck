@@ -11,6 +11,7 @@ import type { GoalStatus } from '../../src/shared/types';
  * waiting  ──[sendMessage]──> active
  * complete ──[reopen]───────> active
  * any (except archived) ───> archived
+ * archived ──[restart]─────> active
  * ```
  */
 const ALLOWED_TRANSITIONS: Record<GoalStatus, ReadonlySet<GoalStatus>> = {
@@ -18,7 +19,7 @@ const ALLOWED_TRANSITIONS: Record<GoalStatus, ReadonlySet<GoalStatus>> = {
   active: new Set<GoalStatus>(['planning', 'waiting', 'complete', 'archived']),
   waiting: new Set<GoalStatus>(['planning', 'active', 'complete', 'archived']),
   complete: new Set<GoalStatus>(['active', 'archived']),
-  archived: new Set<GoalStatus>([]),
+  archived: new Set<GoalStatus>(['active']),
 };
 
 /**

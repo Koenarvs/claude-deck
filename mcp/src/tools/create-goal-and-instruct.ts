@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ApiError } from '../api-client.js';
 import type { DashboardApiClient } from '../api-client.js';
 
 /** Input schema for create_goal_and_instruct tool. */
@@ -69,6 +70,19 @@ export async function createGoalAndInstruct(
   if (input.description !== undefined) params.description = input.description;
   if (input.spawn_session !== undefined) params.spawn_session = input.spawn_session;
 
-  const result = await client.createGoalAndInstruct(params);
-  return JSON.stringify(result, null, 2);
+  try {
+    const result = await client.createGoalAndInstruct(params);
+    return JSON.stringify(result, null, 2);
+  } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 409) {
+      let parsed: Record<string, unknown> = {};
+      try { parsed = JSON.parse(err.body) as Record<string, unknown>; } catch { /* ignore */ }
+      const existingId = parsed['existing_goal_id'] ?? 'unknown';
+      throw new Error(
+        `A goal with title "${input.title}" already exists (goal ID: ${existingId}). ` +
+        `Use send_goal_instruction to send work to it, or choose a different title.`,
+      );
+    }
+    throw err;
+  }
 }

@@ -135,7 +135,16 @@ export function createGoalService(db: Database.Database) {
     'UPDATE sessions SET goal_id = ? WHERE id = ?',
   );
 
+  const findByTitleStmt = db.prepare<[string], GoalRow>(
+    "SELECT * FROM goals WHERE title = ? COLLATE NOCASE AND status != 'archived' LIMIT 1",
+  );
+
   // ── Public API ───────────────────────────────────────────────────────────
+
+  function findByTitle(title: string): Goal | null {
+    const row = findByTitleStmt.get(title);
+    return row ? rowToGoal(row) : null;
+  }
 
   /**
    * Creates a new goal with the given input. Assigns a UUID, sets initial
@@ -148,6 +157,11 @@ export function createGoalService(db: Database.Database) {
    * @returns The newly created Goal
    */
   function create(input: CreateGoalInput): Goal {
+    const existing = findByTitle(input.title);
+    if (existing) {
+      throw new DuplicateGoalTitleError(existing.id, existing.title);
+    }
+
     const id = uuidv4();
     const now = Date.now();
 
@@ -219,9 +233,34 @@ export function createGoalService(db: Database.Database) {
 
     const messages: Message[] = messageRows.map(rowToMessage);
 
+    const igmRows = db
+      .prepare<[string]>(
+        `SELECT * FROM inter_goal_messages
+         WHERE to_goal_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(id) as Array<{
+        id: string; from_goal_id: string; to_goal_id: string;
+        content: string; message_type: string; status: string;
+        created_at: number; delivered_at: number | null; acknowledged_at: number | null;
+      }>;
+
+    const interGoalMessages: import('../../src/shared/types').InterGoalMessage[] = igmRows.map(r => ({
+      id: r.id,
+      from_goal_id: r.from_goal_id,
+      to_goal_id: r.to_goal_id,
+      content: r.content,
+      message_type: r.message_type as import('../../src/shared/types').InterGoalMessageType,
+      status: r.status as import('../../src/shared/types').InterGoalMessageStatus,
+      created_at: r.created_at,
+      delivered_at: r.delivered_at,
+      acknowledged_at: r.acknowledged_at,
+    }));
+
     return {
       goal,
       messages,
+      interGoalMessages,
       plan: goal.plan_json,
     };
   }
@@ -378,6 +417,14 @@ export function createGoalService(db: Database.Database) {
     const now = Date.now();
     archiveStmt.run(now, now, id);
 
+    // End all open sessions — goal is off the board now
+    const endedSessions = db.prepare(
+      `UPDATE sessions SET ended_at = ? WHERE goal_id = ? AND ended_at IS NULL`,
+    ).run(now, id);
+    if (endedSessions.changes > 0) {
+      logger.info({ goalId: id, count: endedSessions.changes }, 'Ended open sessions for archived goal');
+    }
+
     const updated = get(id);
     if (!updated) {
       throw new Error(`Goal disappeared after archive (id=${id})`);
@@ -520,6 +567,22 @@ export class InvalidTransitionError extends Error {
     this.name = 'InvalidTransitionError';
     this.from = from;
     this.to = to;
+  }
+}
+
+/**
+ * Error thrown when creating or renaming a goal to a title that already
+ * exists among non-archived goals (case-insensitive).
+ */
+export class DuplicateGoalTitleError extends Error {
+  public readonly existingGoalId: string;
+  public readonly existingTitle: string;
+
+  constructor(existingGoalId: string, existingTitle: string) {
+    super(`A goal with title "${existingTitle}" already exists`);
+    this.name = 'DuplicateGoalTitleError';
+    this.existingGoalId = existingGoalId;
+    this.existingTitle = existingTitle;
   }
 }
 

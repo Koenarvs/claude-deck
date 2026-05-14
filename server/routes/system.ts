@@ -6,6 +6,7 @@ import { hookInstallerService } from '../services/hook-installer-service';
 import type { SkillDirectoryService } from '../services/skill-directory-service';
 import { getAggregateTotals, getDailyCosts } from '../services/usage-service';
 import { scanSkills, type ScannedSkill } from '../skill-scanner';
+import { findJsonlFile, getFormattedConversation } from '../services/transcript-service';
 import logger from '../logger';
 
 /**
@@ -226,13 +227,15 @@ router.get('/hook-events', (req, res) => {
 });
 
 /**
- * GET /api/analytics/totals
+ * GET /api/analytics/totals?days=30
  * Returns aggregate totals computed from Claude Code JSONL session logs.
  * tokensIn = input + cache_creation + cache_read (matches Kanban card convention).
+ * days=0 means all time.
  */
-router.get('/analytics/totals', (_req, res) => {
+router.get('/analytics/totals', (req, res) => {
   try {
-    const totals = getAggregateTotals();
+    const days = Math.max(0, Number(req.query['days'] ?? 0));
+    const totals = getAggregateTotals(days);
     res.json(totals);
   } catch {
     res.json({ sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
@@ -240,7 +243,7 @@ router.get('/analytics/totals', (_req, res) => {
 });
 
 /**
- * GET /api/analytics/tool-usage
+ * GET /api/analytics/tool-usage?days=30
  * Returns tool usage counts from hook events.
  */
 router.get('/analytics/tool-usage', (req, res) => {
@@ -250,10 +253,15 @@ router.get('/analytics/tool-usage', (req, res) => {
       res.json([]);
       return;
     }
+    const days = Math.max(0, parseInt(String(req.query['days'] ?? '0'), 10) || 0);
+    const dateClause = days > 0
+      ? `AND created_at > (strftime('%s', 'now', '-${days} days') * 1000)`
+      : '';
     const rows = db.prepare(`
       SELECT tool_name as name, COUNT(*) as count
       FROM hook_events
       WHERE tool_name IS NOT NULL AND event_type IN ('PreToolUse', 'PostToolUse')
+      ${dateClause}
       GROUP BY tool_name
       ORDER BY count DESC
       LIMIT 20
@@ -265,13 +273,14 @@ router.get('/analytics/tool-usage', (req, res) => {
 });
 
 /**
- * GET /api/analytics/daily-costs
+ * GET /api/analytics/daily-costs?days=30
  * Returns daily cost aggregates computed from Claude Code JSONL session logs.
- * Covers the last 90 days (matches the heatmap range).
+ * days=0 means all time.
  */
-router.get('/analytics/daily-costs', (_req, res) => {
+router.get('/analytics/daily-costs', (req, res) => {
   try {
-    const rows = getDailyCosts(90);
+    const days = Math.max(0, Number(req.query['days'] ?? 0));
+    const rows = getDailyCosts(days);
     res.json(rows);
   } catch {
     res.json([]);
@@ -279,9 +288,38 @@ router.get('/analytics/daily-costs', (_req, res) => {
 });
 
 /**
- * GET /api/goals/:id/document?name=plan.md
+ * GET /api/goals/:id/documents
+ * Lists all .md files in the goal's cwd directory.
+ */
+router.get('/goals/:id/documents', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) { res.status(500).json({ error: 'Database not available' }); return; }
+
+    const goalId = String(req.params['id']);
+    const goal = db.prepare('SELECT cwd FROM goals WHERE id = ?').get(goalId) as { cwd: string } | undefined;
+    if (!goal) { res.status(404).json({ error: 'Goal not found' }); return; }
+
+    if (!fs.existsSync(goal.cwd)) { res.json({ files: [] }); return; }
+
+    const entries = fs.readdirSync(goal.cwd);
+    const mdFiles = entries
+      .filter(f => f.endsWith('.md') && !f.startsWith('.'))
+      .sort();
+    if (!mdFiles.includes('conversation.md') && findJsonlFile(goalId) !== null) {
+      mdFiles.unshift('conversation.md');
+    }
+    res.json({ files: mdFiles });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * GET /api/goals/:id/document?name=plan.md&tail=500
  * Reads a document file from the goal's cwd.
- * Returns { content, exists } — content is null if file doesn't exist.
+ * Optional tail param returns last N lines with hasMore/totalLines metadata.
  */
 router.get('/goals/:id/document', (req, res) => {
   try {
@@ -294,7 +332,6 @@ router.get('/goals/:id/document', (req, res) => {
     const goalId = String(req.params['id']);
     const fileName = String(req.query['name'] ?? 'plan.md');
 
-    // Validate filename — prevent path traversal
     if (fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
       res.status(400).json({ error: 'Invalid filename' });
       return;
@@ -306,12 +343,38 @@ router.get('/goals/:id/document', (req, res) => {
       return;
     }
 
+    // Virtual document: conversation.md reads from JSONL, not filesystem
+    if (fileName === 'conversation.md') {
+      const tail = parseInt(String(req.query['tail'] ?? '0'), 10);
+      const offset = parseInt(String(req.query['offset'] ?? '0'), 10);
+      const result = getFormattedConversation(goalId, { tail, offset });
+      if (!result) {
+        res.json({ exists: false, content: null, name: fileName });
+        return;
+      }
+      res.json({ exists: true, content: result.content, name: fileName, totalLines: result.totalLines, hasMore: result.hasMore });
+      return;
+    }
+
     const filePath = path.join(goal.cwd, fileName);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      res.json({ exists: true, content, name: fileName });
-    } else {
+    if (!fs.existsSync(filePath)) {
       res.json({ exists: false, content: null, name: fileName });
+      return;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const tail = parseInt(String(req.query['tail'] ?? '0'), 10);
+    const offset = parseInt(String(req.query['offset'] ?? '0'), 10);
+
+    if (tail > 0) {
+      const lines = content.split('\n');
+      const totalLines = lines.length;
+      const end = Math.max(0, totalLines - offset);
+      const start = Math.max(0, end - tail);
+      const sliced = lines.slice(start, end).join('\n');
+      res.json({ exists: true, content: sliced, name: fileName, totalLines, hasMore: start > 0 });
+    } else {
+      res.json({ exists: true, content, name: fileName });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -320,17 +383,22 @@ router.get('/goals/:id/document', (req, res) => {
 });
 
 /**
- * GET /api/analytics/activity-heatmap
- * Returns session counts per day for the last 90 days (for GitHub-style heatmap).
+ * GET /api/analytics/activity-heatmap?days=90
+ * Returns session counts per day (for GitHub-style heatmap).
+ * days=0 means all time.
  */
 router.get('/analytics/activity-heatmap', (req, res) => {
   try {
     const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
     if (!db) { res.json([]); return; }
+    const days = Math.max(0, Number(req.query['days'] ?? 0));
+    const dateClause = days > 0
+      ? `WHERE started_at > (strftime('%s', 'now', '-${days} days') * 1000)`
+      : '';
     const rows = db.prepare(`
       SELECT date(started_at / 1000, 'unixepoch') as date, COUNT(*) as count
       FROM sessions
-      WHERE started_at > (strftime('%s', 'now', '-90 days') * 1000)
+      ${dateClause}
       GROUP BY date(started_at / 1000, 'unixepoch')
       ORDER BY date
     `).all();
@@ -339,19 +407,24 @@ router.get('/analytics/activity-heatmap', (req, res) => {
 });
 
 /**
- * GET /api/analytics/sessions-per-day
+ * GET /api/analytics/sessions-per-day?days=30
  * Returns daily session counts for trend chart.
+ * days=0 means all time.
  */
 router.get('/analytics/sessions-per-day', (req, res) => {
   try {
     const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
     if (!db) { res.json([]); return; }
+    const days = Math.max(0, Number(req.query['days'] ?? 0));
+    const dateClause = days > 0
+      ? `WHERE started_at > (strftime('%s', 'now', '-${days} days') * 1000)`
+      : '';
     const rows = db.prepare(`
       SELECT date(started_at / 1000, 'unixepoch') as date, COUNT(*) as sessions,
         SUM(CASE WHEN origin = 'dashboard' THEN 1 ELSE 0 END) as dashboard,
         SUM(CASE WHEN origin = 'external' THEN 1 ELSE 0 END) as external
       FROM sessions
-      WHERE started_at > (strftime('%s', 'now', '-30 days') * 1000)
+      ${dateClause}
       GROUP BY date(started_at / 1000, 'unixepoch')
       ORDER BY date
     `).all();
@@ -360,13 +433,18 @@ router.get('/analytics/sessions-per-day', (req, res) => {
 });
 
 /**
- * GET /api/analytics/session-durations
+ * GET /api/analytics/session-durations?days=30
  * Returns session duration distribution buckets.
+ * days=0 means all time.
  */
 router.get('/analytics/session-durations', (req, res) => {
   try {
     const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
     if (!db) { res.json([]); return; }
+    const days = Math.max(0, Number(req.query['days'] ?? 0));
+    const dateClause = days > 0
+      ? `AND started_at > (strftime('%s', 'now', '-${days} days') * 1000)`
+      : '';
     const rows = db.prepare(`
       SELECT
         CASE
@@ -379,6 +457,7 @@ router.get('/analytics/session-durations', (req, res) => {
         COUNT(*) as count
       FROM sessions
       WHERE ended_at IS NOT NULL
+      ${dateClause}
       GROUP BY bucket
       ORDER BY MIN(ended_at - started_at)
     `).all();

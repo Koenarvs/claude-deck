@@ -63,6 +63,20 @@ interface DurationBucket { bucket: string; count: number; }
 
 type TimeRange = '7d' | '30d' | '90d' | 'all';
 
+function timeRangeToDays(range: TimeRange): number {
+  if (range === '7d') return 7;
+  if (range === '30d') return 30;
+  if (range === '90d') return 90;
+  return 0;
+}
+
+function timeRangeLabel(range: TimeRange): string {
+  if (range === '7d') return '7 days';
+  if (range === '30d') return '30 days';
+  if (range === '90d') return '90 days';
+  return 'all time';
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
@@ -77,13 +91,15 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     setLoading(true);
+    const days = timeRangeToDays(timeRange);
+    const qs = `?days=${days}`;
     Promise.all([
-      fetch('/api/analytics/tool-usage').then((r) => (r.ok ? r.json() : [])),
-      fetch('/api/analytics/daily-costs').then((r) => (r.ok ? r.json() : [])),
-      fetch('/api/analytics/totals').then((r) => (r.ok ? r.json() : { sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 })),
-      fetch('/api/analytics/activity-heatmap').then((r) => (r.ok ? r.json() : [])),
-      fetch('/api/analytics/sessions-per-day').then((r) => (r.ok ? r.json() : [])),
-      fetch('/api/analytics/session-durations').then((r) => (r.ok ? r.json() : [])),
+      fetch(`/api/analytics/tool-usage${qs}`).then((r) => (r.ok ? r.json() : [])),
+      fetch(`/api/analytics/daily-costs${qs}`).then((r) => (r.ok ? r.json() : [])),
+      fetch(`/api/analytics/totals${qs}`).then((r) => (r.ok ? r.json() : { sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 })),
+      fetch(`/api/analytics/activity-heatmap${qs}`).then((r) => (r.ok ? r.json() : [])),
+      fetch(`/api/analytics/sessions-per-day${qs}`).then((r) => (r.ok ? r.json() : [])),
+      fetch(`/api/analytics/session-durations${qs}`).then((r) => (r.ok ? r.json() : [])),
     ])
       .then(([tools, costs, tots, heat, spd, dur]) => {
         if (Array.isArray(tools)) setToolUsage(tools as ToolUsage[]);
@@ -95,13 +111,13 @@ export default function AnalyticsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
-
-  // Filter costs by time range
-  const filteredCosts = filterByRange(dailyCosts, timeRange);
+  }, [timeRange]);
 
   // Categorize tools
   const categoryData = categorizeTools(toolUsage);
+
+  const rangeLabel = timeRangeLabel(timeRange);
+  const heatmapDayCount = timeRangeToDays(timeRange) || 90;
 
   if (loading) {
     return (
@@ -133,18 +149,18 @@ export default function AnalyticsPage() {
       <div className="rounded-md border border-line bg-card p-4">
         <div className="mb-3 flex items-center gap-2">
           <Calendar size={16} className="text-dim" />
-          <h2 className="text-sm font-medium text-dim">Activity (90 days)</h2>
+          <h2 className="text-sm font-medium text-dim">Activity ({rangeLabel})</h2>
         </div>
-        <ActivityHeatmap data={heatmap} />
+        <ActivityHeatmap data={heatmap} dayCount={heatmapDayCount} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Daily cost chart */}
         <div className="rounded-md border border-line bg-card p-4">
           <h2 className="mb-4 text-sm font-medium text-dim">Daily Cost</h2>
-          {filteredCosts.length > 0 ? (
+          {dailyCosts.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={filteredCosts}>
+              <BarChart data={dailyCosts}>
                 <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
                 <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} tickFormatter={(v: number) => `$${v}`} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => [fmtCost(value), 'Cost']} />
@@ -253,13 +269,12 @@ function TimeRangeSelector({ value, onChange }: { value: TimeRange; onChange: (v
   );
 }
 
-function ActivityHeatmap({ data }: { data: HeatmapDay[] }) {
-  // Build 90-day grid
+function ActivityHeatmap({ data, dayCount }: { data: HeatmapDay[]; dayCount: number }) {
   const today = new Date();
   const days: { date: string; count: number; dayOfWeek: number }[] = [];
   const countMap = new Map(data.map((d) => [d.date, d.count]));
 
-  for (let i = 89; i >= 0; i--) {
+  for (let i = dayCount - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
@@ -329,15 +344,6 @@ function Empty({ text }: { text: string }) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function filterByRange(data: DailyCost[], range: TimeRange): DailyCost[] {
-  if (range === 'all') return data;
-  const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutoffStr = cutoff.toISOString().split('T')[0];
-  return data.filter((d) => d.date >= cutoffStr);
-}
 
 function categorizeTools(tools: ToolUsage[]): Array<{ category: string; label: string; color: string; count: number }> {
   const cats = new Map<string, number>();
