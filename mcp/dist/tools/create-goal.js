@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ApiError } from '../api-client.js';
 /** Input schema for create_goal tool. */
 export const CreateGoalInputSchema = z.object({
     title: z.string().min(1).describe('Goal title'),
@@ -34,6 +35,21 @@ export async function createGoal(client, input) {
         params.initialPrompt = input.initialPrompt;
     if (input.tags !== undefined)
         params.tags = input.tags;
-    const goal = await client.createGoal(params);
-    return JSON.stringify(goal, null, 2);
+    try {
+        const goal = await client.createGoal(params);
+        return JSON.stringify(goal, null, 2);
+    }
+    catch (err) {
+        if (err instanceof ApiError && err.statusCode === 409) {
+            let parsed = {};
+            try {
+                parsed = JSON.parse(err.body);
+            }
+            catch { /* ignore */ }
+            const existingId = parsed['existing_goal_id'] ?? 'unknown';
+            throw new Error(`A goal with title "${input.title}" already exists (goal ID: ${existingId}). ` +
+                `Use send_message to resume it, or choose a different title.`);
+        }
+        throw err;
+    }
 }

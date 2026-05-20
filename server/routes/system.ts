@@ -234,7 +234,24 @@ router.get('/hook-events', (req, res) => {
  */
 router.get('/analytics/totals', (req, res) => {
   try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
     const days = Math.max(0, Number(req.query['days'] ?? 0));
+
+    if (db) {
+      const hasTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_usage'").get();
+      if (hasTable) {
+        const whereClause = days > 0 ? `WHERE first_message_at > ${Date.now() - days * 86400000}` : '';
+        const row = db.prepare(`
+          SELECT COUNT(*) as sessions, COALESCE(SUM(estimated_cost_usd), 0) as cost,
+            COALESCE(SUM(input_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokensIn,
+            COALESCE(SUM(output_tokens), 0) as tokensOut
+          FROM session_usage ${whereClause}
+        `).get() as { sessions: number; cost: number; tokensIn: number; tokensOut: number };
+        res.json({ sessions: row.sessions, cost: Math.round(row.cost * 10000) / 10000, tokensIn: row.tokensIn, tokensOut: row.tokensOut });
+        return;
+      }
+    }
+
     const totals = getAggregateTotals(days);
     res.json(totals);
   } catch {
@@ -279,7 +296,24 @@ router.get('/analytics/tool-usage', (req, res) => {
  */
 router.get('/analytics/daily-costs', (req, res) => {
   try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
     const days = Math.max(0, Number(req.query['days'] ?? 0));
+
+    if (db) {
+      const hasTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_usage'").get();
+      if (hasTable) {
+        const whereClause = days > 0 ? `WHERE first_message_at > ${Date.now() - days * 86_400_000}` : '';
+        const rows = db.prepare(`
+          SELECT session_date as date, COALESCE(SUM(estimated_cost_usd), 0) as cost, COUNT(*) as sessions
+          FROM session_usage ${whereClause}
+          GROUP BY session_date
+          ORDER BY session_date
+        `).all() as Array<{ date: string; cost: number; sessions: number }>;
+        res.json(rows.map(r => ({ date: r.date, cost: Math.round(r.cost * 10000) / 10000, sessions: r.sessions })));
+        return;
+      }
+    }
+
     const rows = getDailyCosts(days);
     res.json(rows);
   } catch {
@@ -541,6 +575,238 @@ router.delete('/skill-directories/:id', (req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err: message }, 'Failed to remove skill directory');
     res.status(500).json({ error: message });
+  }
+});
+
+// ── Phase 2: Output Trends Endpoints ──────────────────────────────────────
+
+const analyticsCache = new Map<string, { data: unknown; expires: number }>();
+const CACHE_TTL = 5 * 60 * 1000;
+
+function getCached<T>(key: string): T | null {
+  const entry = analyticsCache.get(key);
+  if (entry && entry.expires > Date.now()) return entry.data as T;
+  analyticsCache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: unknown): void {
+  analyticsCache.set(key, { data, expires: Date.now() + CACHE_TTL });
+}
+
+/**
+ * GET /api/analytics/jira-stories?days=N
+ * Returns Jira stories completed grouped by week: [{ date, count }].
+ * Returns [] when Jira credentials are not configured.
+ */
+router.get('/analytics/jira-stories', async (req, res) => {
+  try {
+    const days = Math.max(0, Number(req.query['days'] ?? 30));
+    const cacheKey = `jira-stories-${days}`;
+    const cached = getCached<Array<{ date: string; count: number }>>(cacheKey);
+    if (cached) { res.json(cached); return; }
+
+    const username = process.env['JIRA_USERNAME'];
+    const token = process.env['JIRA_API_TOKEN'];
+    const baseUrl = process.env['JIRA_BASE_URL'];
+
+    if (!username || !token || !baseUrl) {
+      setCache(cacheKey, []);
+      res.json([]);
+      return;
+    }
+
+    const jql = `assignee = currentUser() AND status changed to Done AFTER -${days || 365}d`;
+    const response = await fetch(
+      `${baseUrl}/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=resolutiondate&maxResults=1000`,
+      { headers: { 'Authorization': `Basic ${Buffer.from(`${username}:${token}`).toString('base64')}`, 'Accept': 'application/json' } },
+    );
+
+    if (!response.ok) {
+      setCache(cacheKey, []);
+      res.json([]);
+      return;
+    }
+
+    const data = await response.json() as { issues?: Array<{ fields?: { resolutiondate?: string } }> };
+    const weekCounts = new Map<string, number>();
+
+    for (const issue of data.issues ?? []) {
+      const resolved = issue.fields?.resolutiondate;
+      if (!resolved) continue;
+      const d = new Date(resolved);
+      d.setDate(d.getDate() - d.getDay());
+      const weekStart = d.toISOString().split('T')[0];
+      weekCounts.set(weekStart, (weekCounts.get(weekStart) ?? 0) + 1);
+    }
+
+    const result = [...weekCounts.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    setCache(cacheKey, result);
+    res.json(result);
+  } catch {
+    res.json([]);
+  }
+});
+
+/**
+ * GET /api/analytics/prs-merged?days=N
+ * Returns PRs merged grouped by week: [{ date, count }].
+ * Returns [] when GitHub CLI is unavailable.
+ */
+router.get('/analytics/prs-merged', async (req, res) => {
+  try {
+    const days = Math.max(0, Number(req.query['days'] ?? 30));
+    const cacheKey = `prs-merged-${days}`;
+    const cached = getCached<Array<{ date: string; count: number }>>(cacheKey);
+    if (cached) { res.json(cached); return; }
+
+    const { execSync } = await import('node:child_process');
+    let output: string;
+    try {
+      const since = new Date(Date.now() - (days || 365) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      output = execSync(
+        `gh pr list --author @me --state merged --search "merged:>=${since}" --json mergedAt --limit 1000`,
+        { encoding: 'utf-8', timeout: 15000 },
+      );
+    } catch {
+      setCache(cacheKey, []);
+      res.json([]);
+      return;
+    }
+
+    const prs = JSON.parse(output) as Array<{ mergedAt?: string }>;
+    const weekCounts = new Map<string, number>();
+
+    for (const pr of prs) {
+      if (!pr.mergedAt) continue;
+      const d = new Date(pr.mergedAt);
+      d.setDate(d.getDate() - d.getDay());
+      const weekStart = d.toISOString().split('T')[0];
+      weekCounts.set(weekStart, (weekCounts.get(weekStart) ?? 0) + 1);
+    }
+
+    const result = [...weekCounts.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    setCache(cacheKey, result);
+    res.json(result);
+  } catch {
+    res.json([]);
+  }
+});
+
+/**
+ * GET /api/analytics/context-inventory?days=N
+ * Returns context items (skills, MCP servers, plugins, hooks) with usage counts.
+ */
+router.get('/analytics/context-inventory', (req, res) => {
+  try {
+    const days = Math.max(0, Number(req.query['days'] ?? 0));
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+
+    const usageMap = new Map<string, { count: number; lastUsed: number }>();
+    if (db) {
+      const dateClause = days > 0
+        ? `AND created_at > (strftime('%s', 'now', '-${days} days') * 1000)`
+        : '';
+      const rows = db.prepare(`
+        SELECT tool_name, COUNT(*) as count, MAX(created_at) as lastUsed
+        FROM hook_events
+        WHERE tool_name IS NOT NULL AND event_type IN ('PreToolUse', 'PostToolUse')
+        ${dateClause}
+        GROUP BY tool_name
+      `).all() as Array<{ tool_name: string; count: number; lastUsed: number }>;
+      for (const row of rows) {
+        usageMap.set(row.tool_name, { count: row.count, lastUsed: row.lastUsed });
+      }
+    }
+
+    interface ContextItem {
+      name: string;
+      type: string;
+      usageCount: number;
+      lastUsed: number | null;
+      estimatedSize: number;
+    }
+
+    const items: ContextItem[] = [];
+
+    const perSkillUsage = new Map<string, { count: number; lastUsed: number }>();
+    if (db) {
+      const dateClause2 = days > 0
+        ? `AND created_at > (strftime('%s', 'now', '-${days} days') * 1000)`
+        : '';
+      const skillRows = db.prepare(`
+        SELECT json_extract(payload_json, '$.tool_input.skill') as skill_name, COUNT(*) as count, MAX(created_at) as lastUsed
+        FROM hook_events
+        WHERE tool_name = 'Skill' AND event_type IN ('PreToolUse', 'PostToolUse')
+        AND json_extract(payload_json, '$.tool_input.skill') IS NOT NULL
+        ${dateClause2}
+        GROUP BY skill_name
+      `).all() as Array<{ skill_name: string; count: number; lastUsed: number }>;
+      for (const row of skillRows) {
+        perSkillUsage.set(row.skill_name, { count: row.count, lastUsed: row.lastUsed });
+      }
+    }
+
+    const skills = scanSkills({});
+    for (const skill of skills) {
+      if (skill.type === 'agents') continue;
+      let estimatedSize = 0;
+      try {
+        if (fs.existsSync(skill.path)) {
+          estimatedSize = fs.readFileSync(skill.path, 'utf-8').length;
+        }
+      } catch { /* skip */ }
+      const usage = perSkillUsage.get(skill.name) ?? { count: 0, lastUsed: 0 };
+      items.push({
+        name: skill.name,
+        type: 'skill',
+        usageCount: usage.count,
+        lastUsed: usage.lastUsed || null,
+        estimatedSize,
+      });
+    }
+
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    try {
+      if (fs.existsSync(settingsPath)) {
+        const raw = fs.readFileSync(settingsPath, 'utf-8');
+        const settings = JSON.parse(raw) as Record<string, unknown>;
+
+        const mcpServers = (settings.mcpServers ?? {}) as Record<string, unknown>;
+        for (const serverName of Object.keys(mcpServers)) {
+          let totalCount = 0;
+          let lastUsed: number | null = null;
+          for (const [toolName, usage] of usageMap.entries()) {
+            if (toolName.startsWith(`mcp__${serverName}__`)) {
+              totalCount += usage.count;
+              if (lastUsed === null || usage.lastUsed > lastUsed) lastUsed = usage.lastUsed;
+            }
+          }
+          items.push({ name: serverName, type: 'mcp', usageCount: totalCount, lastUsed, estimatedSize: 0 });
+        }
+
+        const plugins = (settings.enabledPlugins ?? {}) as Record<string, boolean>;
+        for (const [name, enabled] of Object.entries(plugins)) {
+          if (!enabled) continue;
+          items.push({ name, type: 'plugin', usageCount: 0, lastUsed: null, estimatedSize: 0 });
+        }
+
+        const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+        for (const hookType of Object.keys(hooks)) {
+          items.push({ name: hookType, type: 'hook', usageCount: 0, lastUsed: null, estimatedSize: 0 });
+        }
+      }
+    } catch { /* settings not available */ }
+
+    res.json(items);
+  } catch {
+    res.json([]);
   }
 });
 

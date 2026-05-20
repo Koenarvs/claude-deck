@@ -26,7 +26,12 @@ import type { ServerEvent } from '../src/shared/events';
 import { broadcast, setTerminalHandler } from './ws';
 import { ConversationLogger } from './services/conversation-logger';
 import { findJsonlFile } from './services/transcript-service';
+import { ingestAllSessions } from './services/ingestion-service';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import logger from './logger';
+
+const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 
 const env = loadEnv();
 
@@ -34,6 +39,24 @@ const env = loadEnv();
 const db = getDb(env.dataDir);
 runMigrations(db);
 logger.info({ dataDir: env.dataDir }, 'Database initialized');
+
+// Ingest JSONL session files into session_usage table (async, non-blocking)
+logger.info({ projectsDir: CLAUDE_PROJECTS_DIR }, 'Starting JSONL ingestion');
+const beforeCount = (db.prepare('SELECT COUNT(*) as c FROM session_usage').get() as { c: number }).c;
+logger.info({ beforeCount }, 'session_usage rows before ingestion');
+ingestAllSessions(db, CLAUDE_PROJECTS_DIR).then(() => {
+  const afterCount = (db.prepare('SELECT COUNT(*) as c FROM session_usage').get() as { c: number }).c;
+  logger.info({ afterCount }, 'Initial JSONL ingestion complete');
+}).catch((err) => {
+  logger.error({ err }, 'Initial JSONL ingestion failed');
+});
+
+// Periodic re-ingestion every 5 minutes
+const ingestionInterval = setInterval(() => {
+  ingestAllSessions(db, CLAUDE_PROJECTS_DIR).catch((err) => {
+    logger.error({ err }, 'Periodic JSONL ingestion failed');
+  });
+}, 5 * 60 * 1000);
 
 // On startup, log resumable sessions (goals with ended_at IS NULL).
 // These will be resumed when the user opens the goal in the UI.
@@ -122,6 +145,15 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     processRegistry.remove(goalId);
   }
 
+  // Session ID = Goal ID. Check Claude Code's own session storage
+  // (the JSONL file) to decide resume vs new — it's the source of truth.
+  const hasExistingSession = findJsonlFile(goalId) !== null;
+
+  // Update status before spawning PTY — throws DuplicateGoalTitleError
+  // if an archived goal's title conflicts with a non-archived goal
+  goalService.update(goalId, { status: 'active' });
+  goalService.setCurrentSession(goalId, goalId);
+
   const ptyMgr = new PtyManager(goal, {
     broadcast,
     onExit(gId, exitCode) {
@@ -134,15 +166,21 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
       const cl = conversationLoggers.get(gId);
       if (cl) { cl.stop(); conversationLoggers.delete(gId); }
     },
+    onReady() {
+      const pending = interGoalMessageService.getInstructions(goalId);
+      const toDeliver = pending.filter(m => m.status === 'pending');
+      if (toDeliver.length === 0) return;
+      logger.info({ goalId, count: toDeliver.length }, 'Notifying goal of pending instructions');
+      const runner = processRegistry.get(goalId);
+      if (runner instanceof PtyManager && runner.isAlive()) {
+        runner.write('You have ' + toDeliver.length + ' pending inter-goal instruction(s). '
+          + 'Use the check_instructions tool to retrieve and process them.');
+        setTimeout(() => runner.write('\r'), 200);
+      }
+    },
   });
 
-  // Session ID = Goal ID. Check Claude Code's own session storage
-  // (the JSONL file) to decide resume vs new — it's the source of truth.
-  const hasExistingSession = findJsonlFile(goalId) !== null;
-
   processRegistry.set(goalId, ptyMgr);
-  goalService.update(goalId, { status: 'active' });
-  goalService.setCurrentSession(goalId, goalId);
 
   const convLogger = new ConversationLogger(goalId, broadcast);
   conversationLoggers.set(goalId, convLogger);
@@ -155,17 +193,6 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     logger.info({ goalId }, 'Starting new session');
     convLogger.start();
     ptyMgr.start(initialPrompt);
-  }
-
-  // Deliver any pending inter-goal messages queued while this goal had no active session
-  const pending = interGoalMessageService.getInstructions(goalId);
-  if (pending.length > 0) {
-    logger.info({ goalId, count: pending.length }, 'Delivering pending inter-goal messages');
-    for (const msg of pending) {
-      if (msg.status === 'pending') {
-        interGoalMessageService.markDelivered(msg.id);
-      }
-    }
   }
 
   return goalId;
@@ -208,6 +235,11 @@ function restartSession(sessionId: string, goalId: string): void {
     processRegistry.remove(goalId);
   }
 
+  // Restore goal to the board if it was archived — do this before spawning
+  // the PTY so a DuplicateGoalTitleError bails out without orphaned processes
+  goalService.update(goalId, { status: 'active' });
+  goalService.setCurrentSession(goalId, goalId);
+
   // Re-activate the session so it shows as active on the Sessions tab
   db.prepare(`UPDATE sessions SET ended_at = NULL WHERE id = ?`).run(sessionId);
   broadcast({ type: 'session:started', session: { id: sessionId, goal_id: goalId, ended_at: null } });
@@ -224,12 +256,21 @@ function restartSession(sessionId: string, goalId: string): void {
       const cl = conversationLoggers.get(gId);
       if (cl) { cl.stop(); conversationLoggers.delete(gId); }
     },
+    onReady() {
+      const pending = interGoalMessageService.getInstructions(goalId);
+      const toDeliver = pending.filter(m => m.status === 'pending');
+      if (toDeliver.length === 0) return;
+      logger.info({ goalId, count: toDeliver.length }, 'Notifying restarted goal of pending instructions');
+      const runner = processRegistry.get(goalId);
+      if (runner instanceof PtyManager && runner.isAlive()) {
+        runner.write('You have ' + toDeliver.length + ' pending inter-goal instruction(s). '
+          + 'Use the check_instructions tool to retrieve and process them.');
+        setTimeout(() => runner.write('\r'), 200);
+      }
+    },
   });
 
   processRegistry.set(goalId, ptyMgr);
-  // Restore goal to the board if it was archived
-  goalService.update(goalId, { status: 'active' });
-  goalService.setCurrentSession(goalId, goalId);
 
   const convLogger = new ConversationLogger(goalId, broadcast);
   conversationLoggers.set(goalId, convLogger);
@@ -266,6 +307,7 @@ function shutdown(signal: string): void {
 
   // Stop the scheduler first — no more cron fires
   scheduler.stop();
+  clearInterval(ingestionInterval);
   logger.info('Scheduler stopped');
 
   // Deny all pending approvals so blocked hooks unblock

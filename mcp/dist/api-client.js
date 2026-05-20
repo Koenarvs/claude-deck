@@ -237,6 +237,14 @@ export class DashboardApiClient {
         }
         return this.request('POST', `/api/goals/${encodeURIComponent(fromGoalId)}/instruct/${encodeURIComponent(targetGoalId)}`, requestBody, InterGoalMessageResponseSchema);
     }
+    /** Get pending/delivered instructions for a goal. */
+    async getInstructions(goalId) {
+        return this.request('GET', `/api/goals/${encodeURIComponent(goalId)}/instructions`, undefined, z.array(InterGoalMessageResponseSchema));
+    }
+    /** Mark an instruction as delivered. */
+    async markDelivered(goalId, messageId) {
+        return this.request('POST', `/api/goals/${encodeURIComponent(goalId)}/instructions/${encodeURIComponent(messageId)}/acknowledge`, undefined, InterGoalMessageResponseSchema);
+    }
     // ── Scheduled Tasks ──────────────────────────────────────────────────────
     /** Create a scheduled task. */
     async createScheduledTask(input) {
