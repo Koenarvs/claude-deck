@@ -11,6 +11,7 @@ import { ScheduleTaskInputSchema, scheduleTask } from './tools/schedule-task.js'
 import { SendGoalInstructionInputSchema, sendGoalInstruction } from './tools/send-goal-instruction.js';
 import { CreateGoalAndInstructInputSchema, createGoalAndInstruct } from './tools/create-goal-and-instruct.js';
 import { UpdateGoalInputSchema, updateGoal } from './tools/update-goal.js';
+import { CheckInstructionsInputSchema, checkInstructions } from './tools/check-instructions.js';
 /**
  * MCP server for claude-deck.
  *
@@ -72,6 +73,7 @@ server.tool('get_session_messages', 'Get all messages for a specific Claude sess
 server.tool('schedule_task', 'Create a scheduled task that automatically creates goals on a cron schedule.', ScheduleTaskInputSchema.shape, async (input) => handleToolCall(() => scheduleTask(client, input)));
 server.tool('send_goal_instruction', 'Send an instruction or result to another goal. Use this to delegate work to other goals or report results back to a control goal.', SendGoalInstructionInputSchema.shape, async (input) => handleToolCall(() => sendGoalInstruction(client, input)));
 server.tool('create_goal_and_instruct', 'Atomically create a new goal, send an instruction to it, and optionally spawn a session. Use this to delegate work to a new goal in one step.', CreateGoalAndInstructInputSchema.shape, async (input) => handleToolCall(() => createGoalAndInstruct(client, input)));
+server.tool('check_instructions', 'Check for pending inter-goal instructions sent to this goal. Call this between tasks, when idle, or when notified about new messages. Returns all pending instructions with their content.', CheckInstructionsInputSchema.shape, async (input) => handleToolCall(() => checkInstructions(client, input)));
 // ── Boot ─────────────────────────────────────────────────────────────────────
 async function main() {
     const transport = new StdioServerTransport();

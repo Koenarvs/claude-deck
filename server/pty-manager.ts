@@ -60,6 +60,7 @@ function resolveClaudePath(): string {
 interface PtyManagerOptions {
   broadcast: (event: ServerEvent) => void;
   onExit?: (goalId: string, exitCode: number) => void;
+  onReady?: () => void;
 }
 
 export class PtyManager implements Killable {
@@ -68,6 +69,7 @@ export class PtyManager implements Killable {
   private readonly goal: Goal;
   private readonly broadcast: (event: ServerEvent) => void;
   private readonly onExitCallback: ((goalId: string, exitCode: number) => void) | undefined;
+  private readonly onReadyCallback: (() => void) | undefined;
   private exited = false;
 
   constructor(goal: Goal, options: PtyManagerOptions) {
@@ -75,6 +77,7 @@ export class PtyManager implements Killable {
     this.goalId = goal.id;
     this.broadcast = options.broadcast;
     this.onExitCallback = options.onExit;
+    this.onReadyCallback = options.onReady;
   }
 
   start(initialPrompt?: string): void {
@@ -135,32 +138,38 @@ export class PtyManager implements Killable {
       return;
     }
 
-    // Track whether the initial prompt has been sent
+    // Idle detection determines when the PTY is ready for input.
+    // When ready: send the initial prompt (if any), then fire onReady.
     const pendingPrompt = initialPrompt ?? '';
-    let promptSent = !pendingPrompt;
+    const hasPrompt = !!pendingPrompt;
+    let sessionReady = false;
 
-    const sendPrompt = (method: string) => {
-      if (promptSent) return;
-      promptSent = true;
+    const markReady = (method: string) => {
+      if (sessionReady) return;
+      sessionReady = true;
       if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
       if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
-      setTimeout(() => {
-        this.write(pendingPrompt);
+
+      if (hasPrompt) {
         setTimeout(() => {
-          this.write('\r');
-          logger.info({ goalId: this.goalId, promptLength: pendingPrompt.length, method }, 'PTY: Sent initial prompt');
-        }, 200);
-      }, 500);
+          this.write(pendingPrompt);
+          setTimeout(() => {
+            this.write('\r');
+            logger.info({ goalId: this.goalId, promptLength: pendingPrompt.length, method }, 'PTY: Sent initial prompt');
+            this.onReadyCallback?.();
+          }, 200);
+        }, 500);
+      } else {
+        this.onReadyCallback?.();
+      }
     };
 
     // Two-layer detection: idle-based + hard timeout fallback.
-    // Idle: after PTY output stops for 3s, Claude Code is likely at its prompt.
-    // Fallback: if no data at all after 45s, send anyway (covers very slow startups).
+    // Idle: after PTY output stops for 5s, Claude Code is likely at its prompt.
+    // Fallback: if no idle detected after 45s, fire anyway (covers very slow startups).
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    if (!promptSent) {
-      fallbackTimer = setTimeout(() => sendPrompt('timeout-fallback'), 45_000);
-    }
+    fallbackTimer = setTimeout(() => markReady('timeout-fallback'), 45_000);
 
     this.terminal.onData((data: string) => {
       this.broadcast({
@@ -169,21 +178,21 @@ export class PtyManager implements Killable {
         data,
       });
 
-      // Reset idle timer on every data chunk — when output stops for 3s, send prompt.
-      if (!promptSent) {
+      if (!sessionReady) {
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => sendPrompt('idle'), 5_000);
+        idleTimer = setTimeout(() => markReady('idle'), 5_000);
 
-        // Also try regex-based prompt detection (best-effort on Windows conpty).
         const clean = data.replace(/\x1b[^\x1b]*/g, '');
         if (/(?:>{1,2}|❯) \s*$/.test(clean)) {
-          sendPrompt('regex');
+          markReady('regex');
         }
       }
     });
 
     this.terminal.onExit(({ exitCode }) => {
       this.exited = true;
+      if (idleTimer) clearTimeout(idleTimer);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       logger.info({ goalId: this.goalId, exitCode }, 'PTY: Process exited');
       this.broadcast({
         type: 'terminal:exited',
@@ -242,16 +251,44 @@ export class PtyManager implements Killable {
       Object.defineProperty(process, 'execPath', { value: origExecPath, writable: true, configurable: true });
     }
 
+    // Idle detection for resumed sessions — fire onReady when output settles
+    let readyFired = false;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const fireReady = (method: string) => {
+      if (readyFired) return;
+      readyFired = true;
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+      logger.info({ goalId: this.goalId, method }, 'PTY: Resumed session ready');
+      this.onReadyCallback?.();
+    };
+
+    fallbackTimer = setTimeout(() => fireReady('timeout-fallback'), 45_000);
+
     this.terminal.onData((data: string) => {
       this.broadcast({
         type: 'terminal:data',
         goal_id: this.goalId,
         data,
       });
+
+      if (!readyFired) {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => fireReady('idle'), 5_000);
+
+        const clean = data.replace(/\x1b[^\x1b]*/g, '');
+        if (/(?:>{1,2}|❯) \s*$/.test(clean)) {
+          fireReady('regex');
+        }
+      }
     });
 
     this.terminal.onExit(({ exitCode }) => {
       this.exited = true;
+      if (idleTimer) clearTimeout(idleTimer);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       logger.info({ goalId: this.goalId, exitCode }, 'PTY: Resumed process exited');
       this.broadcast({
         type: 'terminal:exited',
@@ -311,7 +348,7 @@ export class PtyManager implements Killable {
           'claude-deck': {
             command: 'node',
             args: [mcpEntry],
-            env: { CLAUDE_DECK_URL: baseUrl },
+            env: { CLAUDE_DECK_URL: baseUrl, CLAUDE_DECK_GOAL_ID: this.goalId },
           },
         },
       });

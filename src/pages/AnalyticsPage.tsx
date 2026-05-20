@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { MemoryRouter, useSearchParams } from 'react-router';
 import { BarChart3, Loader2, Calendar } from 'lucide-react';
 import {
   BarChart,
@@ -60,7 +61,11 @@ interface DailyCost { date: string; cost: number; sessions: number; }
 interface HeatmapDay { date: string; count: number; }
 interface SessionsPerDay { date: string; sessions: number; dashboard: number; external: number; }
 interface DurationBucket { bucket: string; count: number; }
+interface WeeklyCount { date: string; count: number; }
+interface ContextItem { name: string; type: string; usageCount: number; lastUsed: number | null; estimatedSize: number; }
 
+type ContextFilter = 'all' | 'skill' | 'mcp' | 'plugin' | 'hook';
+type TabId = 'analytics' | 'context';
 type TimeRange = '7d' | '30d' | '90d' | 'all';
 
 function timeRangeToDays(range: TimeRange): number {
@@ -77,9 +82,36 @@ function timeRangeLabel(range: TimeRange): string {
   return 'all time';
 }
 
-// ── Component ───────────────────────────────────────────────────────────────
+// ── Router Fallback ────────────────────────────────────────────────────────
+
+class RouterFallback extends React.Component<
+  { children: React.ReactNode },
+  { needsRouter: boolean }
+> {
+  state = { needsRouter: false };
+  static getDerivedStateFromError() { return { needsRouter: true }; }
+  render() {
+    if (this.state.needsRouter) {
+      return <MemoryRouter>{this.props.children}</MemoryRouter>;
+    }
+    return this.props.children;
+  }
+}
 
 export default function AnalyticsPage() {
+  return (
+    <RouterFallback>
+      <AnalyticsPageContent />
+    </RouterFallback>
+  );
+}
+
+// ── Component ───────────────────────────────────────────────────────────────
+
+function AnalyticsPageContent() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab: TabId = searchParams.get('tab') === 'context' ? 'context' : 'analytics';
+  const setActiveTab = (tab: TabId) => setSearchParams({ tab }, { replace: true });
   const [toolUsage, setToolUsage] = useState<ToolUsage[]>([]);
   const [dailyCosts, setDailyCosts] = useState<DailyCost[]>([]);
   const [heatmap, setHeatmap] = useState<HeatmapDay[]>([]);
@@ -88,30 +120,68 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [totals, setTotals] = useState({ sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const [errors, setErrors] = useState<Record<string, boolean>>({});
+  const [jiraStories, setJiraStories] = useState<WeeklyCount[]>([]);
+  const [prsMerged, setPrsMerged] = useState<WeeklyCount[]>([]);
+  const [contextItems, setContextItems] = useState<ContextItem[]>([]);
+  const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
 
   useEffect(() => {
     setLoading(true);
     const days = timeRangeToDays(timeRange);
     const qs = `?days=${days}`;
-    Promise.all([
-      fetch(`/api/analytics/tool-usage${qs}`).then((r) => (r.ok ? r.json() : [])),
-      fetch(`/api/analytics/daily-costs${qs}`).then((r) => (r.ok ? r.json() : [])),
-      fetch(`/api/analytics/totals${qs}`).then((r) => (r.ok ? r.json() : { sessions: 0, cost: 0, tokensIn: 0, tokensOut: 0 })),
-      fetch(`/api/analytics/activity-heatmap${qs}`).then((r) => (r.ok ? r.json() : [])),
-      fetch(`/api/analytics/sessions-per-day${qs}`).then((r) => (r.ok ? r.json() : [])),
-      fetch(`/api/analytics/session-durations${qs}`).then((r) => (r.ok ? r.json() : [])),
-    ])
-      .then(([tools, costs, tots, heat, spd, dur]) => {
-        if (Array.isArray(tools)) setToolUsage(tools as ToolUsage[]);
-        if (Array.isArray(costs)) setDailyCosts(costs as DailyCost[]);
-        setTotals(tots as typeof totals);
-        if (Array.isArray(heat)) setHeatmap(heat as HeatmapDay[]);
-        if (Array.isArray(spd)) setSessionsPerDay(spd as SessionsPerDay[]);
-        if (Array.isArray(dur)) setDurations(dur as DurationBucket[]);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    const errs: Record<string, boolean> = {};
+
+    const fetches = [
+      fetch(`/api/analytics/tool-usage${qs}`)
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((data) => { if (Array.isArray(data)) setToolUsage(data as ToolUsage[]); })
+        .catch(() => { errs['tool-usage'] = true; }),
+      fetch(`/api/analytics/daily-costs${qs}`)
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((data) => { if (Array.isArray(data)) setDailyCosts(data as DailyCost[]); })
+        .catch(() => { errs['daily-costs'] = true; }),
+      fetch(`/api/analytics/totals${qs}`)
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((data) => setTotals(data as typeof totals))
+        .catch(() => { errs['totals'] = true; }),
+      fetch(`/api/analytics/activity-heatmap${qs}`)
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((data) => { if (Array.isArray(data)) setHeatmap(data as HeatmapDay[]); })
+        .catch(() => { errs['activity-heatmap'] = true; }),
+      fetch(`/api/analytics/sessions-per-day${qs}`)
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((data) => { if (Array.isArray(data)) setSessionsPerDay(data as SessionsPerDay[]); })
+        .catch(() => { errs['sessions-per-day'] = true; }),
+      fetch(`/api/analytics/session-durations${qs}`)
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((data) => { if (Array.isArray(data)) setDurations(data as DurationBucket[]); })
+        .catch(() => { errs['session-durations'] = true; }),
+      fetch(`/api/analytics/jira-stories${qs}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => { if (Array.isArray(data)) setJiraStories(data as WeeklyCount[]); })
+        .catch(() => {}),
+      fetch(`/api/analytics/prs-merged${qs}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => { if (Array.isArray(data)) setPrsMerged(data as WeeklyCount[]); })
+        .catch(() => {}),
+    ];
+
+    Promise.all(fetches).then(() => {
+      setErrors(errs);
+      setLoading(false);
+    });
   }, [timeRange]);
+
+  useEffect(() => {
+    if (activeTab === 'context') {
+      const days = timeRangeToDays(timeRange);
+      fetch(`/api/analytics/context-inventory?days=${days}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => { if (Array.isArray(data)) setContextItems(data as ContextItem[]); })
+        .catch(() => {});
+    }
+  }, [activeTab, timeRange]);
 
   // Categorize tools
   const categoryData = categorizeTools(toolUsage);
@@ -127,112 +197,170 @@ export default function AnalyticsPage() {
     );
   }
 
+  const tabs: Array<{ id: TabId; label: string }> = [
+    { id: 'analytics', label: 'Analytics' },
+    { id: 'context', label: 'Context Management' },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <div className="flex flex-col h-full">
+      <div className="flex-shrink-0 flex items-center justify-between pb-4">
+        <div className="flex items-center gap-3">
           <BarChart3 className="h-6 w-6 text-accent" />
-          <h1 className="text-2xl font-bold text-fg">Analytics</h1>
+          <div className="flex gap-1">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-accent text-accent'
+                    : 'border-transparent text-dim hover:text-fg'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
         <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatBox label="Total Sessions" value={totals.sessions} />
-        <StatBox label="Total Cost" value={fmtCost(totals.cost)} />
-        <StatBox label="Tokens In" value={fmtTokens(totals.tokensIn)} />
-        <StatBox label="Tokens Out" value={fmtTokens(totals.tokensOut)} />
-      </div>
+      <div className="flex-1 overflow-y-auto">
+      {activeTab === 'analytics' && (
+        <div className="space-y-6">
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <StatBox label="Total Sessions" value={totals.sessions} />
+            <StatBox label="Total Cost" value={fmtCost(totals.cost)} />
+            <StatBox label="Tokens In" value={fmtTokens(totals.tokensIn)} />
+            <StatBox label="Tokens Out" value={fmtTokens(totals.tokensOut)} />
+          </div>
 
-      {/* Activity Heatmap */}
-      <div className="rounded-md border border-line bg-card p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <Calendar size={16} className="text-dim" />
-          <h2 className="text-sm font-medium text-dim">Activity ({rangeLabel})</h2>
-        </div>
-        <ActivityHeatmap data={heatmap} dayCount={heatmapDayCount} />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Daily cost chart */}
-        <div className="rounded-md border border-line bg-card p-4">
-          <h2 className="mb-4 text-sm font-medium text-dim">Daily Cost</h2>
-          {dailyCosts.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={dailyCosts}>
-                <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
-                <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} tickFormatter={(v: number) => `$${v}`} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => [fmtCost(value), 'Cost']} />
-                <Bar dataKey="cost" fill="var(--cd-accent)" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <Empty text="No cost data yet" />
-          )}
-        </div>
-
-        {/* Sessions per day trend */}
-        <div className="rounded-md border border-line bg-card p-4">
-          <h2 className="mb-4 text-sm font-medium text-dim">Sessions Per Day</h2>
-          {sessionsPerDay.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={sessionsPerDay}>
-                <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
-                <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Line type="monotone" dataKey="sessions" stroke="var(--cd-accent)" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="dashboard" stroke="var(--cd-ok)" strokeWidth={1} dot={false} strokeDasharray="4 2" />
-                <Line type="monotone" dataKey="external" stroke="var(--cd-warn)" strokeWidth={1} dot={false} strokeDasharray="4 2" />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <Empty text="No session data yet" />
-          )}
-        </div>
-
-        {/* Tool usage by category */}
-        <div className="rounded-md border border-line bg-card p-4">
-          <h2 className="mb-4 text-sm font-medium text-dim">Tool Usage by Category</h2>
-          {categoryData.length > 0 ? (
-            <div className="space-y-2">
-              {categoryData.map((cat) => (
-                <div key={cat.category} className="flex items-center gap-3">
-                  <span className="w-16 text-right text-xs text-dim">{cat.label}</span>
-                  <div className="flex-1 h-6 bg-inset rounded overflow-hidden">
-                    <div
-                      className="h-full rounded transition-all"
-                      style={{
-                        width: `${(cat.count / Math.max(...categoryData.map((c) => c.count))) * 100}%`,
-                        backgroundColor: cat.color,
-                      }}
-                    />
-                  </div>
-                  <span className="w-10 text-right mono-tabular text-[10px] text-faint">{cat.count}</span>
-                </div>
-              ))}
+          {/* Activity Heatmap */}
+          <div className="rounded-md border border-line bg-card p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Calendar size={16} className="text-dim" />
+              <h2 className="text-sm font-medium text-dim">Activity ({rangeLabel})</h2>
             </div>
-          ) : (
-            <Empty text="No tool usage data yet" />
-          )}
-        </div>
+            <ActivityHeatmap data={heatmap} dayCount={heatmapDayCount} />
+          </div>
 
-        {/* Session duration distribution */}
-        <div className="rounded-md border border-line bg-card p-4">
-          <h2 className="mb-4 text-sm font-medium text-dim">Session Duration Distribution</h2>
-          {durations.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={durations}>
-                <XAxis dataKey="bucket" tick={{ fill: 'var(--cd-faint)', fontSize: 11 }} />
-                <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="count" fill="var(--cd-info)" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <Empty text="No completed sessions yet" />
-          )}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Daily cost chart */}
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-4 text-sm font-medium text-dim">Daily Cost</h2>
+              {errors['daily-costs'] ? (
+                <ChartError />
+              ) : dailyCosts.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={dailyCosts}>
+                    <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                    <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} tickFormatter={(v: number) => `$${v}`} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => [fmtCost(value), 'Cost']} />
+                    <Bar dataKey="cost" fill="var(--cd-accent)" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <Empty text="No cost data yet" />
+              )}
+            </div>
+
+            {/* Sessions per day trend */}
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-4 text-sm font-medium text-dim">Sessions Per Day</h2>
+              {errors['sessions-per-day'] ? (
+                <ChartError />
+              ) : sessionsPerDay.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={sessionsPerDay}>
+                    <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                    <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Line type="monotone" dataKey="sessions" stroke="var(--cd-accent)" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="dashboard" stroke="var(--cd-ok)" strokeWidth={1} dot={false} strokeDasharray="4 2" />
+                    <Line type="monotone" dataKey="external" stroke="var(--cd-warn)" strokeWidth={1} dot={false} strokeDasharray="4 2" />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <Empty text="No session data yet" />
+              )}
+            </div>
+
+            {/* Tool usage by category */}
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-4 text-sm font-medium text-dim">Tool Usage by Category</h2>
+              {errors['tool-usage'] ? (
+                <ChartError />
+              ) : categoryData.length > 0 ? (
+                <div className="space-y-2">
+                  {categoryData.map((cat) => (
+                    <div key={cat.category} className="flex items-center gap-3">
+                      <span className="w-16 text-right text-xs text-dim">{cat.label}</span>
+                      <div className="flex-1 h-6 bg-inset rounded overflow-hidden">
+                        <div
+                          className="h-full rounded transition-all"
+                          style={{
+                            width: `${(cat.count / Math.max(...categoryData.map((c) => c.count))) * 100}%`,
+                            backgroundColor: cat.color,
+                          }}
+                        />
+                      </div>
+                      <span className="w-10 text-right mono-tabular text-[10px] text-faint">{cat.count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Empty text="No tool usage data yet" />
+              )}
+            </div>
+
+            {/* Session duration distribution */}
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-4 text-sm font-medium text-dim">Session Duration Distribution</h2>
+              {errors['session-durations'] ? (
+                <ChartError />
+              ) : durations.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={durations}>
+                    <XAxis dataKey="bucket" tick={{ fill: 'var(--cd-faint)', fontSize: 11 }} />
+                    <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Bar dataKey="count" fill="var(--cd-info)" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <Empty text="No completed sessions yet" />
+              )}
+            </div>
+          </div>
+
+          {/* Output Trends */}
+          <div className="rounded-md border border-line bg-card p-4">
+            <h2 className="mb-4 text-sm font-medium text-dim">Output Trends</h2>
+            {jiraStories.length > 0 || prsMerged.length > 0 ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={mergeOutputTrends(jiraStories, prsMerged)}>
+                  <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                  <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="stories" name="Jira Stories" fill="var(--cd-accent)" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="prs" name="PRs Merged" fill="var(--cd-ok)" radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <Empty text="No output data available" />
+            )}
+          </div>
         </div>
+      )}
+
+      {activeTab === 'context' && (
+        <div className="space-y-6">
+          <ContextTab items={contextItems} filter={contextFilter} onFilterChange={setContextFilter} />
+        </div>
+      )}
       </div>
     </div>
   );
@@ -343,7 +471,110 @@ function Empty({ text }: { text: string }) {
   return <p className="py-8 text-center text-sm text-faint">{text}</p>;
 }
 
+function ChartError() {
+  return <p data-testid="chart-error" className="py-8 text-center text-sm text-red-500">Failed to load data</p>;
+}
+
+const CONTEXT_FILTERS: Array<{ value: ContextFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'skill', label: 'Skills' },
+  { value: 'mcp', label: 'MCP' },
+  { value: 'plugin', label: 'Plugins' },
+  { value: 'hook', label: 'Hooks' },
+];
+
+function ContextTab({ items, filter, onFilterChange }: { items: ContextItem[]; filter: ContextFilter; onFilterChange: (f: ContextFilter) => void }) {
+  const filtered = filter === 'all' ? items : items.filter((i) => i.type === filter);
+  const sorted = [...filtered].sort((a, b) => b.usageCount - a.usageCount);
+  const totalSize = items.reduce((sum, i) => sum + i.estimatedSize, 0);
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-dim">{items.length} items, {formatSize(totalSize)} total</p>
+        <div className="flex gap-1 rounded-md border border-line p-0.5">
+          {CONTEXT_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => onFilterChange(f.value)}
+              className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
+                filter === f.value
+                  ? 'bg-accent text-accent-fg'
+                  : 'text-dim hover:text-fg'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-md border border-line bg-card">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-xs text-dim">
+              <th className="px-4 py-2 font-medium">Name</th>
+              <th className="px-4 py-2 font-medium">Type</th>
+              <th className="px-4 py-2 font-medium">Usage Count</th>
+              <th className="px-4 py-2 font-medium">Last Used</th>
+              <th className="px-4 py-2 font-medium">Est. Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((item) => (
+              <tr
+                key={`${item.type}-${item.name}`}
+                className={`border-b border-line last:border-0 ${item.usageCount === 0 ? 'opacity-50' : ''}`}
+                {...(item.usageCount === 0 ? { 'data-zero-usage': '' } : {})}
+              >
+                <td className="px-4 py-2 text-fg">{item.name}</td>
+                <td className="px-4 py-2 text-dim">{item.type}</td>
+                <td className="px-4 py-2 mono-tabular text-fg">{item.usageCount}</td>
+                <td className="px-4 py-2 text-dim">{item.lastUsed ? formatRelativeTime(item.lastUsed) : '–'}</td>
+                <td className="px-4 py-2 mono-tabular text-dim">{formatSize(item.estimatedSize)}</td>
+              </tr>
+            ))}
+            {sorted.length === 0 && (
+              <tr><td colSpan={5}><Empty text="No items found" /></td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatSize(chars: number): string {
+  if (chars === 0) return '0';
+  if (chars < 1000) return `${chars}`;
+  return `${(chars / 1000).toFixed(1)}K`;
+}
+
+function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function mergeOutputTrends(stories: WeeklyCount[], prs: WeeklyCount[]): Array<{ date: string; stories: number; prs: number }> {
+  const map = new Map<string, { stories: number; prs: number }>();
+  for (const s of stories) map.set(s.date, { stories: s.count, prs: 0 });
+  for (const p of prs) {
+    const existing = map.get(p.date) ?? { stories: 0, prs: 0 };
+    existing.prs = p.count;
+    map.set(p.date, existing);
+  }
+  return [...map.entries()]
+    .map(([date, v]) => ({ date, ...v }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
 
 function categorizeTools(tools: ToolUsage[]): Array<{ category: string; label: string; color: string; count: number }> {
   const cats = new Map<string, number>();

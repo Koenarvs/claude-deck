@@ -58,6 +58,13 @@ export default function GoalDetailPage() {
         if (data.plan) {
           setPlan(id as string, data.plan);
         }
+
+        if (data.interGoalMessages && data.interGoalMessages.length > 0) {
+          const { addInstruction } = useGoalsStore.getState();
+          for (const msg of data.interGoalMessages) {
+            addInstruction(msg);
+          }
+        }
       } catch (err) {
         if (!cancelled) {
           setError(

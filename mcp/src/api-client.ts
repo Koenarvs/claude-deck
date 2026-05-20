@@ -350,6 +350,31 @@ export class DashboardApiClient {
     );
   }
 
+  /** Get pending/delivered instructions for a goal. */
+  async getInstructions(
+    goalId: string,
+  ): Promise<Array<z.infer<typeof InterGoalMessageResponseSchema>>> {
+    return this.request(
+      'GET',
+      `/api/goals/${encodeURIComponent(goalId)}/instructions`,
+      undefined,
+      z.array(InterGoalMessageResponseSchema),
+    );
+  }
+
+  /** Mark an instruction as delivered. */
+  async markDelivered(
+    goalId: string,
+    messageId: string,
+  ): Promise<z.infer<typeof InterGoalMessageResponseSchema>> {
+    return this.request(
+      'POST',
+      `/api/goals/${encodeURIComponent(goalId)}/instructions/${encodeURIComponent(messageId)}/acknowledge`,
+      undefined,
+      InterGoalMessageResponseSchema,
+    );
+  }
+
   // ── Scheduled Tasks ──────────────────────────────────────────────────────
 
   /** Create a scheduled task. */

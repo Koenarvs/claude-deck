@@ -547,6 +547,10 @@ export declare class DashboardApiClient {
         content: string;
         message_type?: string;
     }): Promise<z.infer<typeof InterGoalMessageResponseSchema>>;
+    /** Get pending/delivered instructions for a goal. */
+    getInstructions(goalId: string): Promise<Array<z.infer<typeof InterGoalMessageResponseSchema>>>;
+    /** Mark an instruction as delivered. */
+    markDelivered(goalId: string, messageId: string): Promise<z.infer<typeof InterGoalMessageResponseSchema>>;
     /** Create a scheduled task. */
     createScheduledTask(input: {
         name: string;

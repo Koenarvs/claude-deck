@@ -318,6 +318,15 @@ export function createGoalService(db: Database.Database) {
       if (!canTransition(existing.status, patch.status)) {
         throw new InvalidTransitionError(existing.status, patch.status);
       }
+
+      // When un-archiving, check that the title won't collide with a non-archived goal
+      if (existing.status === 'archived' && patch.status !== 'archived') {
+        const effectiveTitle = patch.title ?? existing.title;
+        const duplicate = findByTitle(effectiveTitle);
+        if (duplicate && duplicate.id !== id) {
+          throw new DuplicateGoalTitleError(duplicate.id, duplicate.title);
+        }
+      }
     }
 
     const now = Date.now();

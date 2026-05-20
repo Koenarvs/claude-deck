@@ -29,7 +29,7 @@ export async function sendGoalInstruction(
   client: DashboardApiClient,
   input: SendGoalInstructionInput,
 ): Promise<string> {
-  const fromGoalId = input.from_goal_id;
+  const fromGoalId = input.from_goal_id ?? process.env['CLAUDE_DECK_GOAL_ID'];
 
   if (!fromGoalId) {
     return JSON.stringify(
