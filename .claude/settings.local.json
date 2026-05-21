@@ -39,7 +39,8 @@
       "mcp__plugin_atlassian_atlassian__getJiraProjectIssueTypesMetadata",
       "mcp__plugin_atlassian_atlassian__createJiraIssue",
       "mcp__claude-deck__check_instructions",
-      "mcp__claude-deck__send_goal_instruction"
+      "mcp__claude-deck__send_goal_instruction",
+      "WebFetch(domain:www.npmjs.com)"
     ]
   }
 }
