@@ -146,6 +146,17 @@ export function createGoalService(db: Database.Database) {
     return row ? rowToGoal(row) : null;
   }
 
+  function resolveUniqueTitle(baseTitle: string, selfId: string): string {
+    const first = `${baseTitle} (restored)`;
+    if (!findByTitle(first) || findByTitle(first)!.id === selfId) return first;
+    for (let i = 2; i <= 100; i++) {
+      const candidate = `${baseTitle} (restored ${i})`;
+      const hit = findByTitle(candidate);
+      if (!hit || hit.id === selfId) return candidate;
+    }
+    return `${baseTitle} (restored 101)`;
+  }
+
   /**
    * Creates a new goal with the given input. Assigns a UUID, sets initial
    * status to 'planning', and computes kanban_order as max(kanban_order)+1
@@ -319,12 +330,12 @@ export function createGoalService(db: Database.Database) {
         throw new InvalidTransitionError(existing.status, patch.status);
       }
 
-      // When un-archiving, check that the title won't collide with a non-archived goal
+      // When un-archiving, auto-suffix the title if it collides with a non-archived goal
       if (existing.status === 'archived' && patch.status !== 'archived') {
         const effectiveTitle = patch.title ?? existing.title;
         const duplicate = findByTitle(effectiveTitle);
         if (duplicate && duplicate.id !== id) {
-          throw new DuplicateGoalTitleError(duplicate.id, duplicate.title);
+          patch = { ...patch, title: resolveUniqueTitle(effectiveTitle, id) };
         }
       }
     }
