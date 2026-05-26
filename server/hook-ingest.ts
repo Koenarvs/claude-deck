@@ -4,6 +4,8 @@ import type { HookEventType, PlanJson, PlanTodo } from '../src/shared/types';
 import { ApprovalCoordinator, type Decision } from './approval-coordinator';
 import { broadcast } from './ws';
 import logger from './logger';
+import type { SkillExecutionService } from './services/skill-execution-service';
+import { scanSkills } from './skill-scanner';
 
 /** Shape of a hook payload received from the CLI hook script. */
 export interface HookPayload {
@@ -51,10 +53,33 @@ function todoItemToPlanTodo(item: TodoItem): PlanTodo {
 export class HookIngest {
   private db: Database.Database;
   private approvalCoordinator: ApprovalCoordinator;
+  private skillExecutionService: SkillExecutionService | null;
+  private knownSkillNames: Set<string> | null = null;
 
-  constructor(db: Database.Database, approvalCoordinator: ApprovalCoordinator) {
+  constructor(
+    db: Database.Database,
+    approvalCoordinator: ApprovalCoordinator,
+    skillExecutionService?: SkillExecutionService,
+  ) {
     this.db = db;
     this.approvalCoordinator = approvalCoordinator;
+    this.skillExecutionService = skillExecutionService ?? null;
+  }
+
+  private getKnownSkillNames(): Set<string> {
+    if (!this.knownSkillNames) {
+      try {
+        const skills = scanSkills();
+        this.knownSkillNames = new Set(skills.map((s) => s.name));
+      } catch {
+        this.knownSkillNames = new Set();
+      }
+    }
+    return this.knownSkillNames;
+  }
+
+  refreshSkillCache(): void {
+    this.knownSkillNames = null;
   }
 
   /**
@@ -213,11 +238,41 @@ export class HookIngest {
 
   /**
    * Handles a UserPromptSubmit hook event.
-   * Persists the event and logs it.
+   * Persists the event. Detects skill invocations (prompts starting with /skillname)
+   * and creates skill_executions records.
    */
   onUserPromptSubmit(payload: HookPayload): void {
     this.persistEvent('UserPromptSubmit', payload);
     logger.debug({ session_id: payload.session_id }, 'UserPromptSubmit hook received');
+
+    if (!this.skillExecutionService) return;
+
+    const prompt = (payload.tool_input?.['prompt'] as string)
+      ?? (payload['prompt'] as string | undefined)
+      ?? null;
+    if (!prompt) return;
+
+    const match = prompt.match(/^\/([a-zA-Z0-9_-]+)/);
+    if (!match) return;
+
+    const candidateName = match[1];
+    const knownSkills = this.getKnownSkillNames();
+    if (!knownSkills.has(candidateName)) return;
+
+    const sessionId = payload.session_id ?? null;
+    const goalId = this.getGoalIdForSession(sessionId);
+
+    const skills = scanSkills();
+    const skill = skills.find((s) => s.name === candidateName);
+
+    this.skillExecutionService.createExecution(
+      sessionId,
+      candidateName,
+      skill?.path ?? null,
+      goalId,
+    );
+
+    logger.info({ sessionId, skillName: candidateName }, 'Skill invocation detected from UserPromptSubmit');
   }
 
   /**
@@ -387,6 +442,15 @@ export class HookIngest {
     if (!sessionId) {
       logger.warn('Stop hook missing session_id');
       return;
+    }
+
+    // Finalize any pending skill execution for this session
+    if (this.skillExecutionService) {
+      try {
+        this.skillExecutionService.finalizeExecution(sessionId);
+      } catch (err) {
+        logger.error({ err, sessionId }, 'Failed to finalize skill execution on Stop');
+      }
     }
 
     // Don't end the session if its goal is still on the board —

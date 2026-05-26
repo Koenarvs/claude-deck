@@ -17,6 +17,7 @@ import { createApprovalsRouter } from './routes/approvals';
 import { processRegistry } from './process-registry';
 import { hookInstallerService } from './services/hook-installer-service';
 import { createSkillDirectoryService } from './services/skill-directory-service';
+import { createSkillExecutionService } from './services/skill-execution-service';
 import { PtyManager } from './pty-manager';
 import { SessionService } from './services/session-service';
 import { MessageService } from './services/message-service';
@@ -82,7 +83,8 @@ const goalService = createGoalService(db);
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const approvalCoordinator = new ApprovalCoordinator(db);
-const hookIngest = new HookIngest(db, approvalCoordinator);
+const skillExecutionService = createSkillExecutionService(db);
+const hookIngest = new HookIngest(db, approvalCoordinator, skillExecutionService);
 
 /**
  * Goal creator — delegates to the real goal service.
