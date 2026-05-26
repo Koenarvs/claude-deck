@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { RefreshCw, Sparkles, Puzzle, Bot, Clock, X } from 'lucide-react';
+import SkillDetailPanel from '../components/SkillDetailPanel';
 
 interface Skill {
   name: string;
@@ -58,7 +59,7 @@ export default function SkillsPage() {
   const [error, setError] = useState<string | null>(null);
   const [skillDirs, setSkillDirs] = useState<SkillDirEntry[]>([]);
   const [newDir, setNewDir] = useState('');
-  const [viewerContent, setViewerContent] = useState<{ name: string; content: string } | null>(null);
+  const [viewerContent, setViewerContent] = useState<{ name: string; content: string; isSkill: boolean } | null>(null);
   const [viewerLoading, setViewerLoading] = useState(false);
   const migrated = useRef(false);
 
@@ -199,22 +200,25 @@ export default function SkillsPage() {
   }, []);
 
   /** Opens the skill/agent viewer modal by fetching file content. */
-  const openViewer = useCallback(async (name: string, filePath: string) => {
+  const openViewer = useCallback(async (name: string, filePath: string, isSkill: boolean) => {
     setViewerLoading(true);
     try {
       const res = await fetch(`/api/skill-content?path=${encodeURIComponent(filePath)}`);
       if (res.ok) {
         const data: { content: string } = await res.json();
-        setViewerContent({ name, content: data.content });
+        setViewerContent({ name, content: data.content, isSkill });
       } else {
-        setViewerContent({ name, content: '*Failed to load content.*' });
+        setViewerContent({ name, content: '*Failed to load content.*', isSkill });
       }
     } catch {
-      setViewerContent({ name, content: '*Failed to load content.*' });
+      setViewerContent({ name, content: '*Failed to load content.*', isSkill });
     } finally {
       setViewerLoading(false);
     }
   }, []);
+
+  const openSkill = useCallback((name: string, path: string) => void openViewer(name, path, true), [openViewer]);
+  const openAgent = useCallback((name: string, path: string) => void openViewer(name, path, false), [openViewer]);
 
   const tabs: Array<{ id: TabId; label: string; icon: typeof Sparkles }> = [
     { id: 'skills', label: 'Skills', icon: Sparkles },
@@ -310,9 +314,9 @@ export default function SkillsPage() {
           <span className="ml-2 text-sm text-deck-muted">Loading...</span>
         </div>
       ) : activeTab === 'skills' ? (
-        <SkillsList skills={skills} onViewSkill={openViewer} />
+        <SkillsList skills={skills} onViewSkill={openSkill} />
       ) : activeTab === 'agents' ? (
-        <AgentsList agents={agents} onViewAgent={openViewer} />
+        <AgentsList agents={agents} onViewAgent={openAgent} />
       ) : activeTab === 'routines' ? (
         <RoutinesList routines={routines} />
       ) : (
@@ -326,6 +330,7 @@ export default function SkillsPage() {
           content={viewerContent?.content ?? ''}
           loading={viewerLoading}
           onClose={() => { setViewerContent(null); setViewerLoading(false); }}
+          showDetailPanel={viewerContent?.isSkill ?? false}
         />
       )}
     </div>
@@ -553,11 +558,13 @@ function SkillViewerModal({
   content,
   loading,
   onClose,
+  showDetailPanel,
 }: {
   name: string;
   content: string;
   loading: boolean;
   onClose: () => void;
+  showDetailPanel?: boolean;
 }) {
   // Close on Escape key
   useEffect(() => {
@@ -610,6 +617,9 @@ function SkillViewerModal({
             ">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
+          )}
+          {showDetailPanel && name && !loading && (
+            <SkillDetailPanel skillName={name} />
           )}
         </div>
       </div>
