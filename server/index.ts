@@ -18,6 +18,9 @@ import { processRegistry } from './process-registry';
 import { hookInstallerService } from './services/hook-installer-service';
 import { createSkillDirectoryService } from './services/skill-directory-service';
 import { createSkillExecutionService } from './services/skill-execution-service';
+import { createSkillAnalysisService } from './services/skill-analysis-service';
+import { createSkillFileService } from './services/skill-file-service';
+import { createSkillsRouter } from './routes/skills';
 import { PtyManager } from './pty-manager';
 import { SessionService } from './services/session-service';
 import { MessageService } from './services/message-service';
@@ -84,6 +87,8 @@ const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const approvalCoordinator = new ApprovalCoordinator(db);
 const skillExecutionService = createSkillExecutionService(db);
+const skillAnalysisService = createSkillAnalysisService(db);
+const skillFileService = createSkillFileService(db);
 const hookIngest = new HookIngest(db, approvalCoordinator, skillExecutionService);
 
 /**
@@ -244,9 +249,10 @@ const sessionsRouter = createSessionsRouter(sessionService, messageService, rest
 const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
 const systemRouterWithSkills = createSystemRouter(skillDirectoryService);
+const skillsRouter = createSkillsRouter(skillExecutionService, skillAnalysisService, skillFileService);
 
 // Create Express app and HTTP server
-const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills] });
+const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter] });
 // Make db available to routes that need it (analytics, hook-events)
 (app as unknown as Record<string, unknown>).locals = { ...(app as unknown as { locals: Record<string, unknown> }).locals, db };
 const server = http.createServer(app);
