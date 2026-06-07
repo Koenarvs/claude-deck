@@ -17,12 +17,15 @@
   branch **`wip/single-port-deploy`** (`aea1f30`). NOT on `main`. Note: that branch also edits `index.ts`
   near the second PtyManager call site (line ~222) — coordinate when both land.
 - **⚠️ Prerequisite — green test baseline:** the suite is currently **red (337 failed / 309 passed)**, but this
-  is **pre-existing and environmental**, not caused by any work here (identical on pre-merge `66f3a15`). Root
-  cause: `tests/server/**` run in the jsdom/browser environment (`node:os`/`fs` externalized → `os.tmpdir is
-  not a function`), surfaced by running on **Node 24** while the repo pins **Node 22** (`.nvmrc`, Docker
-  `node:22-alpine`). **The implementation plan's FIRST task is to restore a green baseline (run under Node 22,
-  or fix the Vitest env split) before any refactor**, because the behavior-preserving strategy (§5/§6) depends
-  on it. Also: 3 trivial unused-import typecheck errors in test files — cosmetic, fix in passing.
+  is **pre-existing**, not caused by any work here (identical on pre-merge `66f3a15`). **Root cause (version-
+  independent):** `vite.config.ts` sets a single global `environment: 'jsdom'`, so all 28 `tests/server/**`
+  files run in the browser env (`node:os`/`fs` externalized → `os.tmpdir is not a function`); no server test
+  uses a `// @vitest-environment node` pragma. It would be red on Node 22 too. **Decision:** the plan's FIRST
+  task (Task 0) (a) fixes the Vitest environment split (client → jsdom, server → node via `test.projects`), and
+  (b) standardizes the runtime on **Node 24** (repo currently pins Node 22 via `.nvmrc`/Docker; we bump to 24 —
+  verified that `better-sqlite3 ^12.9` loads and `node-pty ^1.1` spawns on `v24.14.1`). The behavior-preserving
+  strategy (§5/§6) depends on the green baseline. Also: 3 trivial unused-import typecheck errors in test files
+  — cosmetic, fixed in passing.
 
 ---
 

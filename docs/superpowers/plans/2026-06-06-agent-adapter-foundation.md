@@ -14,27 +14,81 @@
 
 ---
 
-## Task 0: Prerequisite — restore a green test baseline
+## Task 0: Prerequisite — green baseline via Vitest env split + Node 24
 
-The suite is red in this environment because `tests/server/**` run under jsdom (`os.tmpdir is not a function`); the repo pins Node 22 (`.nvmrc`) but the session may be on Node 24. **No refactor starts until the baseline is green**, because every later task relies on "existing tests stay green."
+Two independent issues, fixed together because the refactor's safety net needs a green baseline:
+
+1. **The real cause of the 337 failures (version-independent):** `vite.config.ts` sets a single global
+   `environment: 'jsdom'`, so all 28 `tests/server/**` files run in the browser env where `node:os`/`fs` are
+   externalized (`os.tmpdir is not a function`). No server test uses a `// @vitest-environment node` pragma.
+   The fix is a per-project environment split (client → jsdom, server → node).
+2. **Runtime target → Node 24.** The repo pins Node 22 (`.nvmrc`, Docker), but we are standardizing on Node 24
+   (dev machine + forward-looking; Node 22 enters maintenance). **Verified on this machine:** `better-sqlite3`
+   `^12.9` loads and `node-pty` `^1.1` spawns+kills a PTY on `v24.14.1`.
+
+**No refactor starts until the baseline is green.**
 
 **Files:**
+- Modify: `vite.config.ts` (replace the `test` block with a projects split)
+- Modify: `.nvmrc` (`22` → `24`)
+- Modify: `package.json` (add `engines`)
+- Modify: `Dockerfile` (`node:22-alpine` → `node:24-alpine`, all 3 stages: lines 2, 8, 15)
 - Modify: `tests/client/components/Sidebar.test.tsx:25` (remove unused `makeSession`)
 - Modify: `tests/client/stores/useApprovalsStore.test.ts:3` (remove unused `ApprovalDecision`)
 - Modify: `tests/client/stores/useUIConfigStore.test.ts:3` (remove unused import line)
 
-- [ ] **Step 1: Select Node 22.** Run `node --version`. If not `v22.x`, switch: `nvm use 22` (Windows: `nvm use 22.x.x`). If Node 22 is not installed: `nvm install 22 && nvm use 22`. Then `npm ci` to rebuild native modules (`better-sqlite3`, `node-pty`) against Node 22's ABI.
+- [ ] **Step 1: Bump the runtime.**
+  - `.nvmrc` → `24`
+  - `package.json`: add a top-level `"engines": { "node": ">=24" }`
+  - `Dockerfile`: replace all three `FROM node:22-alpine` with `FROM node:24-alpine`
+  - Then: `nvm use 24` (install first if needed) and `npm ci` to (re)build native modules against Node 24.
 
-- [ ] **Step 2: Run the suite.** Run `npm test`. Expected: the server tests that failed with `os.tmpdir is not a function` now pass. If the jsdom/node split is still wrong under Node 22, inspect `vitest.config.ts` / `vitest.workspace.ts` for an `environmentMatchGlobs` or `projects` entry that should put `tests/server/**` in the `node` environment, and fix it so server tests use `environment: 'node'`. Do not change test logic — only the environment wiring.
+- [ ] **Step 2: Fix the Vitest environment split.** Replace the `test` block in `vite.config.ts` with:
+```ts
+  test: {
+    globals: true,
+    exclude: ['**/node_modules/**', '**/.claude/worktrees/**', '**/dist/**'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'client',
+          environment: 'jsdom',
+          setupFiles: ['./tests/setup-dom.ts'],
+          include: ['tests/client/**/*.test.{ts,tsx}', 'tests/shared/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'server',
+          environment: 'node',
+          setupFiles: ['./tests/setup.ts'],
+          include: ['tests/server/**/*.test.ts'],
+        },
+      },
+    ],
+  },
+```
+  (`extends: true` inherits the root `plugins`/`resolve`. `tests/setup.ts` and `tests/setup-dom.ts` both already
+  exist. Do not change any test logic — only the environment wiring.)
 
 - [ ] **Step 3: Fix the 3 unused-import typecheck errors** (delete the unused identifiers/imports named above).
 
-- [ ] **Step 4: Confirm green.** Run `npm run typecheck` (expect no errors) and `npm test` (expect 0 failed). Record the passing counts — this is the baseline the refactor must preserve.
+- [ ] **Step 4: Confirm green.** Run `npm run typecheck` (expect no errors) and `npm test` (expect the server
+  project's 28 files to now run under node and pass; **0 failed** overall). Record the passing counts — this is
+  the baseline the refactor must preserve.
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 5: Verify the runtime end-to-end.**
+  - `npm run dev` boots; create a goal and confirm a Claude session spawns (node-pty works on 24).
+  - `docker build -t claude-deck-test .` succeeds (native modules compile on `node:24-alpine`/musl). **If the
+    Docker native build fails**, leave dev green, revert only the Dockerfile change, and note "Docker → Node 24"
+    as a follow-up — do not block the Foundation on it.
+
+- [ ] **Step 6: Commit.**
 ```bash
-git add -A
-git commit -m "test: restore green baseline (node 22 env split + unused imports)"
+git add vite.config.ts .nvmrc package.json Dockerfile tests/client
+git commit -m "build: target Node 24 + split Vitest server/client test environments"
 ```
 
 > If the baseline cannot be made fully green for reasons unrelated to this work, STOP and report — do not proceed with a red baseline.
