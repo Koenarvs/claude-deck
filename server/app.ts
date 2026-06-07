@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'node:path';
 import type { Router, Request, Response, NextFunction } from 'express';
 import healthRouter from './routes/health';
 import logger from './logger';
@@ -42,6 +43,17 @@ export function createApp(options?: AppRouters): express.Express {
     for (const router of options.apiRouters) {
       app.use('/api', router);
     }
+  }
+
+  // Serve built frontend in production. Same-origin avoids CORS and lets one
+  // port (4100) expose both API and UI on LAN.
+  if (process.env['NODE_ENV'] === 'production') {
+    const clientDir = path.resolve(process.cwd(), 'dist', 'client');
+    app.use(express.static(clientDir));
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(clientDir, 'index.html'));
+    });
   }
 
   // 404 handler for unmatched routes

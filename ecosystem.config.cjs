@@ -2,7 +2,8 @@ module.exports = {
   apps: [
     {
       name: 'claude-deck',
-      script: 'dist/server/index.js',
+      script: 'node_modules/tsx/dist/cli.mjs',
+      args: 'server/index.ts',
       cwd: __dirname,
       env: {
         NODE_ENV: 'production',
