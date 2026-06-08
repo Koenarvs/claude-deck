@@ -51,7 +51,7 @@ function rowToSuggestion(row: SuggestionRow): SkillSuggestion {
 
 // ── Analysis Prompt ─────────────────────────────────────────────────────────
 
-function buildAnalysisPrompt(skillContent: string, skillName: string, executions: SkillExecution[]): string {
+function buildAnalysisPrompt(skillContent: string, _skillName: string, executions: SkillExecution[]): string {
   const executionSummaries = executions.map((e) => {
     return `- Execution ${e.id.slice(0, 8)}: outcome=${e.outcome}, duration=${e.duration_s?.toFixed(1) ?? '?'}s, cost=$${e.estimated_cost_usd?.toFixed(4) ?? '?'}, tools=${e.tool_call_count}, errors=${e.tool_error_count}, rating=${e.user_rating ?? 'unrated'}${e.user_notes ? `, notes="${e.user_notes}"` : ''}`;
   }).join('\n');
@@ -152,11 +152,12 @@ export function createSkillAnalysisService(db: Database.Database) {
 
     let rawOutput: string;
     try {
-      const { stdout } = await execFileAsync('claude', ['--print', '-'], {
-        input: prompt,
+      const resultPromise = execFileAsync('claude', ['--print'], {
         timeout: 120_000,
         maxBuffer: 10 * 1024 * 1024,
       });
+      resultPromise.child.stdin?.end(prompt);
+      const { stdout } = await resultPromise;
       rawOutput = stdout.trim();
     } catch (err) {
       logger.error({ err, skillName }, 'Claude CLI analysis failed');

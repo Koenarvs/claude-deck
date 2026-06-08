@@ -28,7 +28,7 @@ export function createSkillsRouter(
   // GET /skills/:name/metrics — aggregated performance metrics
   router.get('/skills/:name/metrics', (req: Request, res: Response) => {
     try {
-      const metrics = executionService.getSkillMetrics(req.params.name);
+      const metrics = executionService.getSkillMetrics(req.params.name as string);
       res.json(metrics);
     } catch (err) {
       logger.error({ err, skill: req.params.name }, 'Failed to get skill metrics');
@@ -40,7 +40,7 @@ export function createSkillsRouter(
   router.get('/skills/:name/executions', (req: Request, res: Response) => {
     try {
       const limit = parseInt(req.query.limit as string, 10) || 20;
-      const executions = executionService.getExecutionHistory(req.params.name, limit);
+      const executions = executionService.getExecutionHistory(req.params.name as string, limit);
       res.json(executions);
     } catch (err) {
       logger.error({ err, skill: req.params.name }, 'Failed to get execution history');
@@ -55,7 +55,7 @@ export function createSkillsRouter(
     (req: Request, res: Response) => {
       try {
         const execution = executionService.rateExecution(
-          req.params.id,
+          req.params.id as string,
           req.body.rating,
           req.body.notes ?? null,
         );
@@ -74,7 +74,7 @@ export function createSkillsRouter(
   // POST /skills/:name/analyze — trigger analysis
   router.post('/skills/:name/analyze', async (req: Request, res: Response) => {
     try {
-      const skillName = req.params.name;
+      const skillName = req.params.name as string;
       const skills = scanSkills({ includeContent: false });
       const skill = skills.find((s) => s.name === skillName);
 
@@ -95,7 +95,7 @@ export function createSkillsRouter(
   // GET /skills/:name/suggestions — list pending suggestions
   router.get('/skills/:name/suggestions', (req: Request, res: Response) => {
     try {
-      const suggestions = analysisService.getSuggestions(req.params.name);
+      const suggestions = analysisService.getSuggestions(req.params.name as string);
       res.json(suggestions);
     } catch (err) {
       logger.error({ err, skill: req.params.name }, 'Failed to get suggestions');
@@ -106,7 +106,7 @@ export function createSkillsRouter(
   // POST /skills/suggestions/:id/apply — apply a suggestion
   router.post('/skills/suggestions/:id/apply', (req: Request, res: Response) => {
     try {
-      const suggestion = analysisService.getSuggestion(req.params.id);
+      const suggestion = analysisService.getSuggestion(req.params.id as string);
       if (!suggestion) {
         res.status(404).json({ error: 'Suggestion not found' });
         return;
@@ -149,7 +149,7 @@ export function createSkillsRouter(
   // POST /skills/suggestions/:id/dismiss — dismiss a suggestion
   router.post('/skills/suggestions/:id/dismiss', (req: Request, res: Response) => {
     try {
-      const suggestion = analysisService.dismissSuggestion(req.params.id);
+      const suggestion = analysisService.dismissSuggestion(req.params.id as string);
       if (!suggestion) {
         res.status(404).json({ error: 'Suggestion not found' });
         return;
@@ -164,7 +164,7 @@ export function createSkillsRouter(
   // GET /skills/:name/versions — version history
   router.get('/skills/:name/versions', (req: Request, res: Response) => {
     try {
-      const versions = fileService.getVersionHistory(req.params.name);
+      const versions = fileService.getVersionHistory(req.params.name as string);
       res.json(versions);
     } catch (err) {
       logger.error({ err, skill: req.params.name }, 'Failed to get version history');
@@ -175,7 +175,7 @@ export function createSkillsRouter(
   // POST /skills/versions/:id/revert — revert to a version
   router.post('/skills/versions/:id/revert', (req: Request, res: Response) => {
     try {
-      const { version } = fileService.revertToVersion(req.params.id);
+      const { version } = fileService.revertToVersion(req.params.id as string);
       res.json({
         message: 'Reverted successfully',
         version_id: version.id,

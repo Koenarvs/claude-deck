@@ -109,6 +109,62 @@ export const ConversationUpdatedEventSchema = z.object({
   goal_id: z.string(),
 });
 
+// ── Skill Events (Server → Client) ──────────────────────────────────────────
+
+// Mirrors the SkillExecution interface in server/services/skill-execution-service.ts.
+// Kept in sync structurally — a drift will surface as a type error at the broadcast() call site.
+export const SkillExecutionSchema = z.object({
+  id: z.string(),
+  session_id: z.string().nullable(),
+  skill_name: z.string(),
+  skill_path: z.string().nullable(),
+  started_at: z.number(),
+  ended_at: z.number().nullable(),
+  duration_s: z.number().nullable(),
+  input_tokens: z.number().nullable(),
+  output_tokens: z.number().nullable(),
+  estimated_cost_usd: z.number().nullable(),
+  tool_call_count: z.number(),
+  tool_error_count: z.number(),
+  goal_id: z.string().nullable(),
+  outcome: z.enum(['pending', 'success', 'failure', 'partial']),
+  user_rating: z.number().nullable(),
+  user_notes: z.string().nullable(),
+  created_at: z.number(),
+  content_hash: z.string().nullable(),
+});
+
+export const SkillExecutionCreatedEventSchema = z.object({
+  type: z.literal('skill:execution-created'),
+  execution: SkillExecutionSchema,
+});
+
+export const SkillExecutionFinalizedEventSchema = z.object({
+  type: z.literal('skill:execution-finalized'),
+  execution: SkillExecutionSchema,
+});
+
+export const SkillExecutionRatedEventSchema = z.object({
+  type: z.literal('skill:execution-rated'),
+  execution: SkillExecutionSchema,
+});
+
+export const SkillSuggestionsGeneratedEventSchema = z.object({
+  type: z.literal('skill:suggestions-generated'),
+  skill_name: z.string(),
+  count: z.number(),
+});
+
+// session:started carries the minimal session identity re-activated on the Sessions tab.
+export const SessionStartedEventSchema = z.object({
+  type: z.literal('session:started'),
+  session: z.object({
+    id: z.string(),
+    goal_id: z.string().nullable(),
+    ended_at: z.number().nullable(),
+  }),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   GoalCreatedEventSchema,
   GoalUpdatedEventSchema,
@@ -127,6 +183,11 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   TerminalExitedEventSchema,
   GoalInstructionEventSchema,
   ConversationUpdatedEventSchema,
+  SkillExecutionCreatedEventSchema,
+  SkillExecutionFinalizedEventSchema,
+  SkillExecutionRatedEventSchema,
+  SkillSuggestionsGeneratedEventSchema,
+  SessionStartedEventSchema,
 ]);
 
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
