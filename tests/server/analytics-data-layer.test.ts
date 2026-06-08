@@ -346,25 +346,29 @@ describe('JSONL Ingestion Contract', () => {
 
   it('ingestion inserts correct session_usage rows', () => {
     const now = Date.now();
+    const firstMsgAt = now - 5 * DAY_MS;
+    const computedDate = new Date(firstMsgAt).toISOString().split('T')[0];
     db2.prepare(`
       INSERT INTO session_usage (session_id, project_dir, model, input_tokens, cache_creation_tokens, cache_read_tokens, output_tokens, total_tokens, estimated_cost_usd, message_count, session_date, first_message_at, last_message_at, ingested_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('test-1', '/test', 'opus', 100, 20, 30, 50, 200, 0.01, 5, '2026-05-15', now - 5 * DAY_MS, now - 5 * DAY_MS + 60000, now);
+    `).run('test-1', '/test', 'opus', 100, 20, 30, 50, 200, 0.01, 5, computedDate, firstMsgAt, firstMsgAt + 60000, now);
 
     const row = db2.prepare('SELECT * FROM session_usage WHERE session_id = ?').get('test-1') as Record<string, unknown>;
     expect(row).toBeTruthy();
     expect(row.input_tokens).toBe(100);
     expect(row.model).toBe('opus');
-    expect(row.session_date).toBe('2026-05-15');
+    expect(row.session_date).toBe(computedDate);
   });
 
   it('re-ingestion is idempotent (no duplicates)', () => {
     // INSERT OR REPLACE should upsert without duplicates
     const now = Date.now();
+    const firstMsgAt = now - 5 * DAY_MS;
+    const computedDate = new Date(firstMsgAt).toISOString().split('T')[0];
     db2.prepare(`
       INSERT OR REPLACE INTO session_usage (session_id, project_dir, model, input_tokens, cache_creation_tokens, cache_read_tokens, output_tokens, total_tokens, estimated_cost_usd, message_count, session_date, first_message_at, last_message_at, ingested_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('test-1', '/test', 'opus', 200, 40, 60, 100, 400, 0.02, 10, '2026-05-15', now - 5 * DAY_MS, now - 5 * DAY_MS + 120000, now);
+    `).run('test-1', '/test', 'opus', 200, 40, 60, 100, 400, 0.02, 10, computedDate, firstMsgAt, firstMsgAt + 120000, now);
 
     const count = db2.prepare('SELECT COUNT(*) as cnt FROM session_usage WHERE session_id = ?').get('test-1') as { cnt: number };
     expect(count.cnt).toBe(1); // not 2

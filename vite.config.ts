@@ -12,6 +12,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: true, // expose Vite dev server on all interfaces for LAN access
     port: 5173,
     proxy: {
       '/api': {
@@ -29,8 +30,26 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./tests/setup-dom.ts'],
     exclude: ['**/node_modules/**', '**/.claude/worktrees/**', '**/dist/**'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'client',
+          environment: 'jsdom',
+          setupFiles: ['./tests/setup-dom.ts'],
+          include: ['tests/client/**/*.test.{ts,tsx}', 'tests/shared/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'server',
+          environment: 'node',
+          setupFiles: [],
+          include: ['tests/server/**/*.test.ts'],
+        },
+      },
+    ],
   },
 });

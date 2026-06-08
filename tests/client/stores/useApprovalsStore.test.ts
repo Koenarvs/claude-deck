@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useApprovalsStore } from '../../../src/stores/useApprovalsStore';
-import type { Approval, ApprovalDecision } from '../../../src/shared/types';
+import type { Approval } from '../../../src/shared/types';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 

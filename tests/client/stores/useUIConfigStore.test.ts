@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useUIConfigStore } from '../../../src/stores/useUIConfigStore';
-import type { Aesthetic, Theme, BoardLayout, LiveActivity } from '../../../src/stores/useUIConfigStore';
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 

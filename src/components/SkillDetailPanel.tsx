@@ -244,11 +244,16 @@ function MetricsPanel({ metrics, onAnalyze, analyzing, hasExecutions }: {
     return <div className="text-sm text-deck-muted">Loading metrics...</div>;
   }
 
+  const execCount = metrics.execution_count ?? 0;
+  const successRate = metrics.success_rate ?? 0;
+  const avgDuration = metrics.avg_duration_s ?? 0;
+  const avgCost = metrics.avg_cost_usd ?? 0;
+
   const cards = [
-    { label: 'Executions', value: metrics.execution_count.toString(), icon: Zap },
-    { label: 'Success Rate', value: `${Math.round(metrics.success_rate * 100)}%`, icon: TrendingUp },
-    { label: 'Avg Duration', value: metrics.avg_duration_s > 0 ? formatDuration(metrics.avg_duration_s) : '--', icon: Clock },
-    { label: 'Avg Cost', value: metrics.avg_cost_usd > 0 ? formatCost(metrics.avg_cost_usd) : '--', icon: DollarSign },
+    { label: 'Executions', value: execCount.toString(), icon: Zap },
+    { label: 'Success Rate', value: `${Math.round(successRate * 100)}%`, icon: TrendingUp },
+    { label: 'Avg Duration', value: avgDuration > 0 ? formatDuration(avgDuration) : '--', icon: Clock },
+    { label: 'Avg Cost', value: avgCost > 0 ? formatCost(avgCost) : '--', icon: DollarSign },
   ];
 
   return (
@@ -268,9 +273,9 @@ function MetricsPanel({ metrics, onAnalyze, analyzing, hasExecutions }: {
         })}
       </div>
 
-      {metrics.total_cost_usd > 0 && (
+      {(metrics.total_cost_usd ?? 0) > 0 && (
         <div className="text-xs text-deck-muted">
-          Total cost: {formatCost(metrics.total_cost_usd)}
+          Total cost: {formatCost(metrics.total_cost_usd!)}
         </div>
       )}
 

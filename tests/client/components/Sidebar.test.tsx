@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { useApprovalsStore } from '../../../src/stores/useApprovalsStore';
 import { useSessionsStore } from '../../../src/stores/useSessionsStore';
-import type { Approval, Session } from '../../../src/shared/types';
+import type { Approval } from '../../../src/shared/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -18,25 +18,6 @@ function makeApproval(overrides: Partial<Approval> = {}): Approval {
     decided_reason: null,
     requested_at: Date.now(),
     resolved_at: null,
-    ...overrides,
-  };
-}
-
-function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: `sess-${Math.random().toString(36).slice(2)}`,
-    goal_id: null,
-    origin: 'dashboard',
-    cwd: '/test',
-    model: 'sonnet',
-    trace_dir: null,
-    display_name: null,
-    parent_session_id: null,
-    stream_event_count: 0,
-    hook_event_count: 0,
-    stderr_bytes: 0,
-    started_at: Date.now(),
-    ended_at: null,
     ...overrides,
   };
 }
