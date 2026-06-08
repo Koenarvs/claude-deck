@@ -14,6 +14,35 @@
 
 ---
 
+## ⚠️ Plan Revisions (2026-06-08) — read first; these OVERRIDE the task text below
+
+After this plan was written, `main` absorbed a large analytics redesign + skill-tracking merge
+(`DW-32001`/`DW-32000`) plus deploy/perf commits. Re-validated against current `main`. The architecture is
+unchanged; these deltas apply:
+
+- **Migration number:** `012_session_usage`, `013_skill_tracking`, `014_hook_events_session_index` now exist.
+  Task 3's migration is **`015_app_config.sql`** (version `15`), not `014`.
+- **Task 8 is simplified to "real `/api/config` + provider catalog only."** Analytics is now table-backed
+  (`server/services/ingestion-service.ts` → `session_usage` table; endpoints query it). Do **NOT** refactor the
+  analytics pipeline in the Foundation — it works and is Claude-only. Provider-aware ingestion is deferred to
+  **Spec B** (Antigravity), whose adapter usage methods (`listSessionLogs`/`parseUsage`) will feed
+  `ingestion-service` then. (Deviation from spec §5, intentional: preserves behavior, YAGNI.)
+- **Task 9:** `pty-manager.ts` was rewritten. Current anchors: `start()` ~L83, `resume()` ~L212,
+  `buildMcpConfig()` ~L339, constructor ~L75 (`constructor(goal, options)` with an `onReady?` option). The
+  arg-building logic is byte-identical to the `ClaudeAdapter` in Task 6 **except** the MCP env also includes
+  `CLAUDE_DECK_GOAL_ID: goalId` — so `McpServerDescriptor.env` must carry `{ CLAUDE_DECK_URL, CLAUDE_DECK_GOAL_ID }`.
+  Preserve the `onReady` callback and the idle/regex/45s-fallback machinery (parameterize `idleMs` + regex from
+  `adapter.promptStrategy`). `new PtyManager` call sites in `index.ts` are now **L164 and L254**.
+- **Task 5:** unchanged, but its primitives are consumed by the `ClaudeAdapter` interface impl only — not wired
+  into the (table-backed) analytics pipeline in the Foundation. That wiring is Spec B.
+- **Task 0 (expanded):** also fix the pre-existing red baseline (user-approved): the `broadcast()`/`ServerEvent`
+  typecheck mismatch for `skill:*` events (note `events.ts` already lists them in `ServerEventSchema` — pin the
+  actual mismatch, likely the `broadcast` signature in `server/ws.ts`), the `execFile` `input`-option type error
+  in the skill services, and the 2 failing `tests/client/pages/SkillsPage.test.tsx` cases (`toString` of
+  undefined). Target: `npm test` 0 failed, `npm run typecheck` clean.
+
+---
+
 ## Task 0: Prerequisite — green baseline via Vitest env split + Node 24
 
 Two independent issues, fixed together because the refactor's safety net needs a green baseline:
