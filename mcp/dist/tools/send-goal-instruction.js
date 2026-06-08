@@ -19,7 +19,7 @@ export const SendGoalInstructionInputSchema = z.object({
  * Returns the created inter-goal message from the dashboard API.
  */
 export async function sendGoalInstruction(client, input) {
-    const fromGoalId = input.from_goal_id;
+    const fromGoalId = input.from_goal_id ?? process.env['CLAUDE_DECK_GOAL_ID'];
     if (!fromGoalId) {
         return JSON.stringify({
             error: 'from_goal_id is required. Pass the current goal ID or set it explicitly.',

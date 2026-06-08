@@ -5,7 +5,7 @@ import type { GoalStatus } from '../../src/shared/types';
 import { CreateGoalInputSchema, UpdateGoalInputSchema, GoalStatusSchema, SendGoalInstructionSchema, CreateGoalAndInstructSchema } from '../../src/shared/schemas';
 import { validateBody, validateQuery } from '../middleware/validate';
 import type { GoalService } from '../services/goal-service';
-import { GoalNotFoundError, InvalidTransitionError } from '../services/goal-service';
+import { GoalNotFoundError, InvalidTransitionError, DuplicateGoalTitleError } from '../services/goal-service';
 import type { InterGoalMessageService } from '../services/inter-goal-message-service';
 import { InterGoalMessageNotFoundError } from '../services/inter-goal-message-service';
 import logger from '../logger';
@@ -257,6 +257,14 @@ export function createGoalsRouter(
           });
           return;
         }
+        if (err instanceof DuplicateGoalTitleError) {
+          res.status(409).json({
+            error: err.message,
+            existing_goal_id: err.existingGoalId,
+            existing_title: err.existingTitle,
+          });
+          return;
+        }
         logger.error({ err }, 'Failed to update goal');
         res.status(500).json({ error: 'Failed to update goal' });
       }
@@ -443,17 +451,21 @@ export function createGoalsRouter(
           message_type,
         );
 
-        // Auto-deliver: if target goal has an active session, send as follow-up prompt
+        // Notify active session about the new instruction via a short stdin prompt.
+        // The session retrieves the full content using the check_instructions MCP tool.
         let delivered = false;
         if (toGoal.current_session_id && spawnTerminal) {
           try {
-            spawnTerminal(toGoalId, content);
+            const notification = 'You have a new inter-goal ' + (message_type ?? 'instruction')
+              + ' from goal "' + fromGoal.title + '". '
+              + 'Use the check_instructions tool to retrieve and process it.';
+            spawnTerminal(toGoalId, notification);
             interGoalMessageService.markDelivered(message.id);
             delivered = true;
           } catch (deliveryErr) {
             logger.warn(
               { err: deliveryErr, messageId: message.id, targetGoalId: toGoalId },
-              'Failed to auto-deliver instruction to active session',
+              'Failed to notify about instruction',
             );
           }
         }
