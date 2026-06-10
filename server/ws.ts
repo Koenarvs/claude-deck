@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server as HttpServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { ClientMessageSchema } from '../src/shared/events';
 import type { ServerEvent } from '../src/shared/events';
 import logger from './logger';
@@ -7,6 +8,45 @@ import logger from './logger';
 export interface TerminalHandler {
   onInput(goalId: string, data: string): void;
   onResize(goalId: string, cols: number, rows: number): void;
+}
+
+export interface WssAuthConfig {
+  /** Shared secret. null = no token required. */
+  token: string | null;
+  /** Allowed Origin header values. Empty array = allow any origin. */
+  allowedOrigins: string[];
+}
+
+const SUBPROTOCOL_PREFIX = 'claude-deck-token.';
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+/** Pulls a token out of the upgrade request: ?token= or the subprotocol header. */
+function tokenFromUpgrade(
+  reqUrl: string | undefined,
+  protocolHeader: string | string[] | undefined,
+): string | null {
+  if (reqUrl) {
+    const qIdx = reqUrl.indexOf('?');
+    if (qIdx !== -1) {
+      const params = new URLSearchParams(reqUrl.slice(qIdx + 1));
+      const t = params.get('token');
+      if (t) return t;
+    }
+  }
+  const raw = Array.isArray(protocolHeader) ? protocolHeader.join(',') : protocolHeader;
+  if (typeof raw === 'string') {
+    for (const part of raw.split(',')) {
+      const p = part.trim();
+      if (p.startsWith(SUBPROTOCOL_PREFIX)) return p.slice(SUBPROTOCOL_PREFIX.length);
+    }
+  }
+  return null;
 }
 
 let terminalHandler: TerminalHandler | null = null;
@@ -26,8 +66,35 @@ const clients = new Map<WebSocket, ClientState>();
  * Handles subscribe, unsubscribe, and ping inbound messages.
  * Returns the WebSocketServer instance.
  */
-export function setupWss(httpServer: HttpServer): WebSocketServer {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+export function setupWss(httpServer: HttpServer, auth?: WssAuthConfig): WebSocketServer {
+  const token = auth?.token ?? null;
+  const allowedOrigins = auth?.allowedOrigins ?? [];
+
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/ws',
+    verifyClient: (info, done) => {
+      // Origin check (only when an allow-list is configured).
+      const origin = info.req.headers['origin'];
+      if (allowedOrigins.length > 0) {
+        if (typeof origin !== 'string' || !allowedOrigins.includes(origin)) {
+          logger.warn({ origin }, 'WS rejected: disallowed Origin');
+          done(false, 403, 'Forbidden');
+          return;
+        }
+      }
+      // Token check (only when a token is required).
+      if (token !== null) {
+        const presented = tokenFromUpgrade(info.req.url, info.req.headers['sec-websocket-protocol']);
+        if (presented === null || !safeEqual(presented, token)) {
+          logger.warn('WS rejected: missing/invalid token');
+          done(false, 401, 'Unauthorized');
+          return;
+        }
+      }
+      done(true);
+    },
+  });
 
   wss.on('connection', (ws) => {
     clients.set(ws, { subscribed: new Set() });

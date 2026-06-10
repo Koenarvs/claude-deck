@@ -301,8 +301,15 @@ const app = createApp({
 (app as unknown as Record<string, unknown>).locals = { ...(app as unknown as { locals: Record<string, unknown> }).locals, db };
 const server = http.createServer(app);
 
-// Attach WebSocket server
-setupWss(server);
+// Attach WebSocket server. Origin allow-list mirrors the CORS list in app.ts;
+// the token is the primary gate on LAN (Origin is CSRF defense-in-depth).
+const wsAllowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:4100',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:4100',
+];
+setupWss(server, { token: env.token, allowedOrigins: wsAllowedOrigins });
 
 // Start scheduler
 scheduler.start();
