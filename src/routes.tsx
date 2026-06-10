@@ -1,6 +1,6 @@
-import { Navigate } from 'react-router';
 import type { RouteObject } from 'react-router';
 import App from './App';
+import HomeRedirect from './components/HomeRedirect';
 import KanbanPage from './pages/KanbanPage';
 import DashboardPage from './pages/DashboardPage';
 import GoalDetailPage from './pages/GoalDetailPage';
@@ -17,7 +17,7 @@ export const routes: RouteObject[] = [
     path: '/',
     element: <App />,
     children: [
-      { index: true, element: <Navigate to="/board" replace /> },
+      { index: true, element: <HomeRedirect /> },
       { path: 'board', element: <KanbanPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'goals/:id', element: <GoalDetailPage /> },
