@@ -45,10 +45,16 @@ const AdoptSessionBodySchema = z.object({
  *
  * @param goalService - The GoalService instance
  */
+export interface GoalsRouterSecurity {
+  validateCwd?: (cwd: string) => { ok: true; resolved: string } | { ok: false; reason: string };
+  validateModel?: (model: string | undefined) => { ok: true } | { ok: false; reason: string };
+}
+
 export function createGoalsRouter(
   goalService: GoalService,
   spawnTerminal?: (goalId: string, initialPrompt?: string) => string,
   interGoalMessageService?: InterGoalMessageService,
+  security?: GoalsRouterSecurity,
 ): Router {
   const router = Router();
 
@@ -62,6 +68,14 @@ export function createGoalsRouter(
     validateBody(CreateGoalInputSchema),
     (req: Request, res: Response) => {
       try {
+        if (security?.validateCwd) {
+          const v = security.validateCwd(req.body.cwd);
+          if (!v.ok) {
+            res.status(400).json({ error: `Invalid cwd: ${v.reason}` });
+            return;
+          }
+        }
+
         const goal = goalService.create(req.body);
 
         let sessionId: string | undefined;
@@ -100,6 +114,14 @@ export function createGoalsRouter(
         if (!interGoalMessageService) {
           res.status(501).json({ error: 'Inter-goal messaging not available' });
           return;
+        }
+
+        if (security?.validateCwd) {
+          const v = security.validateCwd(req.body.cwd);
+          if (!v.ok) {
+            res.status(400).json({ error: `Invalid cwd: ${v.reason}` });
+            return;
+          }
         }
 
         const {
