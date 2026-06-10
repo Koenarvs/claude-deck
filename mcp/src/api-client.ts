@@ -160,6 +160,10 @@ export class DashboardApiClient {
     const headers: Record<string, string> = {
       'Accept': 'application/json',
     };
+    const token = process.env['CLAUDE_DECK_TOKEN'];
+    if (token && token.trim().length > 0) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     const init: RequestInit = { method, headers };
 

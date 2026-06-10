@@ -343,12 +343,22 @@ export class PtyManager implements Killable {
       const port = process.env['PORT'] ?? '4100';
       const baseUrl = `http://127.0.0.1:${port}`;
 
+      const mcpEnv: Record<string, string> = {
+        CLAUDE_DECK_URL: baseUrl,
+        CLAUDE_DECK_GOAL_ID: this.goalId,
+      };
+      // Pass the shared secret so in-session MCP tools authenticate back to /api.
+      const token = process.env['CLAUDE_DECK_TOKEN'];
+      if (token && token.trim().length > 0) {
+        mcpEnv['CLAUDE_DECK_TOKEN'] = token;
+      }
+
       return JSON.stringify({
         mcpServers: {
           'claude-deck': {
             command: 'node',
             args: [mcpEntry],
-            env: { CLAUDE_DECK_URL: baseUrl, CLAUDE_DECK_GOAL_ID: this.goalId },
+            env: mcpEnv,
           },
         },
       });

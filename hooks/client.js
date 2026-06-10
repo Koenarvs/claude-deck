@@ -57,15 +57,21 @@ function httpPostJson(path, body, timeoutMs) {
   return new Promise(function (resolve, reject) {
     var data = JSON.stringify(body);
 
+    var headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(data),
+    };
+    var token = process.env.CLAUDE_DECK_TOKEN;
+    if (token && token.trim().length > 0) {
+      headers['X-Claude-Deck-Token'] = token;
+    }
+
     var options = {
       hostname: HOST,
       port: PORT,
       path: path,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(data),
-      },
+      headers: headers,
       timeout: timeoutMs,
     };
 
