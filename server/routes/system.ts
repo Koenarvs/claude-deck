@@ -10,6 +10,9 @@ import { findJsonlFile, getFormattedConversation } from '../services/transcript-
 import { pathWithinRoots } from '../security/path-allow';
 import { buildCatalog } from '../agents/registry';
 import type { ConfigService } from '../services/config-service';
+import { getModelBreakdown, getModelMix, getCostPerGoal } from '../services/analytics-model-service';
+import { getProviderValue, getWindowUtilization } from '../services/analytics-value-service';
+import type { ProviderConfig } from '../../src/shared/agents/provider-config';
 import logger from '../logger';
 
 export interface SystemRouterConfig {
@@ -17,6 +20,8 @@ export interface SystemRouterConfig {
   skillRoots?: string[];
   /** When present, GET/PUT /config persist via this service instead of stubbing. */
   configService?: ConfigService;
+  /** Override the provider list (tests). Falls back to configService's providers. */
+  getProviders?: () => ProviderConfig[];
 }
 
 /** Default skill roots: project + user .claude surfaces (mirrors skill-scanner). */
@@ -38,6 +43,84 @@ export function createSystemRouter(skillDirService?: SkillDirectoryService, conf
 const router = Router();
 const skillRoots = config?.skillRoots ?? defaultSkillRoots();
 const configService = config?.configService;
+
+// Provider list for billing-aware analytics: explicit override (tests) →
+// persisted config → single-claude-seat default.
+const getProviders: () => ProviderConfig[] =
+  config?.getProviders ??
+  (() => configService?.getPersisted().providers ?? [{ id: 'claude', enabled: true, billingMode: 'seat' }]);
+
+/** The single billing label for endpoints that report one: metered-anywhere → cost, else equivalent_value. */
+function primaryLabel(): 'cost' | 'equivalent_value' {
+  const enabled = getProviders().filter((p) => p.enabled);
+  return enabled.some((p) => p.billingMode === 'metered') ? 'cost' : 'equivalent_value';
+}
+
+type WithDb = { locals: { db: import('better-sqlite3').Database } };
+
+/** GET /api/analytics/model-breakdown?days=N */
+router.get('/analytics/model-breakdown', (req, res) => {
+  try {
+    const db = (req.app as unknown as WithDb).locals?.db;
+    if (!db) { res.json({ label: primaryLabel(), models: [] }); return; }
+    const days = Math.max(0, Number(req.query['days'] ?? 30));
+    res.json({ label: primaryLabel(), models: getModelBreakdown(db, days) });
+  } catch (err) {
+    logger.error({ err: String(err) }, 'model-breakdown failed');
+    res.json({ label: 'equivalent_value', models: [] });
+  }
+});
+
+/** GET /api/analytics/model-mix?days=N&bucket=day */
+router.get('/analytics/model-mix', (req, res) => {
+  try {
+    const db = (req.app as unknown as WithDb).locals?.db;
+    if (!db) { res.json({ label: primaryLabel(), series: [] }); return; }
+    const days = Math.max(0, Number(req.query['days'] ?? 30));
+    res.json({ label: primaryLabel(), series: getModelMix(db, days, 'day') });
+  } catch (err) {
+    logger.error({ err: String(err) }, 'model-mix failed');
+    res.json({ label: 'equivalent_value', series: [] });
+  }
+});
+
+/** GET /api/analytics/value?days=N */
+router.get('/analytics/value', (req, res) => {
+  try {
+    const db = (req.app as unknown as WithDb).locals?.db;
+    if (!db) { res.json({ providers: [] }); return; }
+    const days = Math.max(0, Number(req.query['days'] ?? 30));
+    res.json({ providers: getProviderValue(db, days, getProviders()) });
+  } catch (err) {
+    logger.error({ err: String(err) }, 'value failed');
+    res.json({ providers: [] });
+  }
+});
+
+/** GET /api/analytics/window-utilization (seat only) */
+router.get('/analytics/window-utilization', (req, res) => {
+  try {
+    const db = (req.app as unknown as WithDb).locals?.db;
+    if (!db) { res.json({ rows: [] }); return; }
+    res.json({ rows: getWindowUtilization(db, getProviders()) });
+  } catch (err) {
+    logger.error({ err: String(err) }, 'window-utilization failed');
+    res.json({ rows: [] });
+  }
+});
+
+/** GET /api/analytics/cost-per-goal?days=N */
+router.get('/analytics/cost-per-goal', (req, res) => {
+  try {
+    const db = (req.app as unknown as WithDb).locals?.db;
+    if (!db) { res.json({ label: primaryLabel(), series: [] }); return; }
+    const days = Math.max(0, Number(req.query['days'] ?? 30));
+    res.json({ label: primaryLabel(), series: getCostPerGoal(db, days) });
+  } catch (err) {
+    logger.error({ err: String(err) }, 'cost-per-goal failed');
+    res.json({ label: 'equivalent_value', series: [] });
+  }
+});
 
 /**
  * GET /api/skills
