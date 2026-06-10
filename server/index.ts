@@ -329,6 +329,9 @@ const wsAllowedOrigins = [
   'http://localhost:4100',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:4100',
+  // SSH-tunnel alt port (a remote client whose local 5173 is taken forwards 5273 → 5173).
+  'http://localhost:5273',
+  'http://127.0.0.1:5273',
 ];
 setupWss(server, { token: env.token, allowedOrigins: wsAllowedOrigins });
 
