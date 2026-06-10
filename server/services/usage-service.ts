@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import logger from '../logger';
+import { resolveModel } from '../../src/shared/agents/model-registry';
 
 export interface SessionUsage {
   inputTokens: number;
@@ -34,57 +35,29 @@ export interface SessionUsageSummary {
   model: string | null;
 }
 
-interface ModelPricing {
-  input: number;
-  cache_read: number;
-  cache_creation: number;
-  output: number;
-}
-
-const MODEL_PRICING: Record<string, ModelPricing> = {
-  opus: {
-    input: 15 / 1_000_000,
-    cache_read: 1.5 / 1_000_000,
-    cache_creation: 18.75 / 1_000_000,
-    output: 75 / 1_000_000,
-  },
-  sonnet: {
-    input: 3 / 1_000_000,
-    cache_read: 0.3 / 1_000_000,
-    cache_creation: 3.75 / 1_000_000,
-    output: 15 / 1_000_000,
-  },
-  haiku: {
-    input: 0.80 / 1_000_000,
-    cache_read: 0.08 / 1_000_000,
-    cache_creation: 1 / 1_000_000,
-    output: 4 / 1_000_000,
-  },
-};
-
-function getPricing(model: string | null): ModelPricing {
-  if (!model) return MODEL_PRICING.opus;
-  const lower = model.toLowerCase();
-  if (lower.includes('opus')) return MODEL_PRICING.opus;
-  if (lower.includes('sonnet')) return MODEL_PRICING.sonnet;
-  if (lower.includes('haiku')) return MODEL_PRICING.haiku;
-  return MODEL_PRICING.opus;
+/**
+ * Per-token pricing for a model string, via the single model registry.
+ * Returns null when the model is unknown OR seat-only (pricing === null).
+ * Callers must treat null as "unpriced" (cost 0) — never fall back to Opus.
+ */
+function getPricing(
+  model: string | null,
+): { input: number; cache_read: number; cache_creation: number; output: number } | null {
+  return resolveModel(model)?.pricing ?? null;
 }
 
 function getContextWindow(model: string | null, currentContextTokens: number): number {
   // If tokens already exceed 200K, it's definitely a 1M context session
   if (currentContextTokens > 200_000) return 1_000_000;
 
-  if (!model) return 200_000;
-  const lower = model.toLowerCase();
+  // Explicit 1M context variants (e.g. a '[1m]' tag on any model) — preserved
+  // from the legacy behavior so non-fable 1M sessions still report 1M.
+  if (model && model.toLowerCase().includes('1m')) return 1_000_000;
 
-  // Explicit 1M context variants
-  if (lower.includes('1m')) return 1_000_000;
+  const entry = resolveModel(model);
+  if (entry) return entry.contextWindow;
 
-  // Haiku is always 200K
-  if (lower.includes('haiku')) return 200_000;
-
-  // Opus and Sonnet default to 200K unless proven otherwise
+  // Unknown model: keep the legacy 200K default for the gauge.
   return 200_000;
 }
 
@@ -158,11 +131,15 @@ export function getSessionUsage(sessionId: string, model?: string | null): Sessi
 
   const detectedModel = model ?? null;
   const pricing = getPricing(detectedModel);
-  const estimatedCostUsd =
-    inputTokens * pricing.input +
-    cacheReadTokens * pricing.cache_read +
-    cacheCreationTokens * pricing.cache_creation +
-    outputTokens * pricing.output;
+  if (!pricing) {
+    logger.warn({ model: detectedModel }, 'unknown model — usage uncosted');
+  }
+  const estimatedCostUsd = pricing
+    ? inputTokens * pricing.input +
+      cacheReadTokens * pricing.cache_read +
+      cacheCreationTokens * pricing.cache_creation +
+      outputTokens * pricing.output
+    : 0;
 
   const currentContext = lastInputTokens + lastCacheRead + lastCacheCreation;
   const contextWindow = getContextWindow(detectedModel, currentContext);
@@ -278,11 +255,15 @@ export function getAllSessionUsageSummaries(sinceDaysAgo = 0): SessionUsageSumma
         if (messageCount === 0) continue;
 
         const pricing = getPricing(detectedModel);
-        const estimatedCostUsd =
-          inputTokens * pricing.input +
-          cacheReadTokens * pricing.cache_read +
-          cacheCreationTokens * pricing.cache_creation +
-          outputTokens * pricing.output;
+        if (!pricing) {
+          logger.warn({ model: detectedModel }, 'unknown model — usage uncosted');
+        }
+        const estimatedCostUsd = pricing
+          ? inputTokens * pricing.input +
+            cacheReadTokens * pricing.cache_read +
+            cacheCreationTokens * pricing.cache_creation +
+            outputTokens * pricing.output
+          : 0;
 
         summaries.push({
           sessionId,
