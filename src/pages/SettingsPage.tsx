@@ -3,8 +3,13 @@ import { RefreshCw, Settings } from 'lucide-react';
 import HookInstallerSection from '../components/settings/HookInstallerSection';
 import DataDirSection from '../components/settings/DataDirSection';
 import HomeRouteToggle from '../components/settings/HomeRouteToggle';
+import AgentsSection from '../components/settings/AgentsSection';
 import { useConfigStore } from '../stores/useConfigStore';
+import { modelOptionsFromCatalog } from '../shared/agents/catalog-client';
+import type { AgentCatalogEntry } from '../shared/agents/types';
 import type { AppConfig, GoalModel, PermissionMode } from '../shared/types';
+
+type ConfigResponse = AppConfig & { catalog?: AgentCatalogEntry[] };
 
 const MODEL_OPTIONS: Array<{ value: GoalModel; label: string }> = [
   { value: 'default', label: 'Default' },
@@ -32,6 +37,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(!config);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<AgentCatalogEntry[]>([]);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -39,8 +45,9 @@ export default function SettingsPage() {
       setError(null);
       const res = await fetch('/api/config');
       if (!res.ok) throw new Error(`Failed to fetch config: ${res.statusText}`);
-      const data: AppConfig = await res.json();
+      const data: ConfigResponse = await res.json();
       setConfig(data);
+      if (data.catalog) setCatalog(data.catalog);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load config');
     } finally {
@@ -63,8 +70,9 @@ export default function SettingsPage() {
         body: JSON.stringify(updates),
       });
       if (!res.ok) throw new Error(`Failed to save: ${res.statusText}`);
-      const data: AppConfig = await res.json();
+      const data: ConfigResponse = await res.json();
       setConfig(data);
+      if (data.catalog) setCatalog(data.catalog);
       setSaveStatus('Saved');
       setTimeout(() => setSaveStatus(null), 2000);
     } catch (err) {
@@ -89,8 +97,10 @@ export default function SettingsPage() {
     );
   }
 
+  const modelOptions = catalog.length > 0 ? modelOptionsFromCatalog(catalog) : MODEL_OPTIONS;
+
   return (
-    <div className="space-y-6">
+    <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-deck-text">
@@ -153,7 +163,7 @@ export default function SettingsPage() {
               onChange={(e) => void updateConfig({ defaultModel: e.target.value as GoalModel })}
               className="w-full rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
             >
-              {MODEL_OPTIONS.map((opt) => (
+              {modelOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
@@ -187,6 +197,27 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Agents */}
+      <AgentsSection
+        providers={catalog}
+        onToggle={(ids) =>
+          void updateConfig({
+            providers: catalog.map((c) => {
+              const existing = config.providers.find((p) => p.id === c.id);
+              return {
+                id: c.id,
+                enabled: ids.includes(c.id),
+                billingMode: existing?.billingMode ?? 'seat',
+                ...(existing?.seatPriceUsdMonthly !== undefined
+                  ? { seatPriceUsdMonthly: existing.seatPriceUsdMonthly }
+                  : {}),
+                ...(existing?.budget !== undefined ? { budget: existing.budget } : {}),
+              };
+            }),
+          })
+        }
+      />
 
       {/* Trace Retention */}
       <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
