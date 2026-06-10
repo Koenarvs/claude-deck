@@ -304,9 +304,11 @@ setupWss(server);
 // Start scheduler
 scheduler.start();
 
-// Start listening
-server.listen(env.port, () => {
-  logger.info({ port: env.port }, 'claude-deck server listening');
+// Start listening — bind to loopback by default; LAN exposure requires
+// CLAUDE_DECK_BIND. loadEnv() already fail-closes a non-loopback bind with
+// no token.
+server.listen(env.port, env.bindHost, () => {
+  logger.info({ port: env.port, host: env.bindHost, lan: !env.isLoopback }, 'claude-deck server listening');
 });
 
 // Graceful shutdown
