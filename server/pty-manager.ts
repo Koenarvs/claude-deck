@@ -7,6 +7,7 @@ import type { Goal } from '../src/shared/types';
 import type { ServerEvent } from '../src/shared/events';
 import type { Killable } from './process-registry';
 import { processRegistry } from './process-registry';
+import { TraceWriter } from './trace-writer';
 import logger from './logger';
 import type { AgentAdapter } from './agents/agent-adapter';
 import type { SpawnContext, McpServerDescriptor } from '../src/shared/agents/types';
@@ -43,6 +44,8 @@ interface PtyManagerOptions {
   broadcast: (event: ServerEvent) => void;
   onExit?: (goalId: string, exitCode: number) => void;
   onReady?: () => void;
+  /** When set, the session's raw PTY stream + exit meta are written here. */
+  traceDir?: string;
 }
 
 export class PtyManager implements Killable {
@@ -53,6 +56,8 @@ export class PtyManager implements Killable {
   private readonly broadcast: (event: ServerEvent) => void;
   private readonly onExitCallback: ((goalId: string, exitCode: number) => void) | undefined;
   private readonly onReadyCallback: (() => void) | undefined;
+  private readonly traceDir: string | undefined;
+  private traceWriter: TraceWriter | null = null;
   private exited = false;
 
   constructor(goal: Goal, adapter: AgentAdapter, options: PtyManagerOptions) {
@@ -62,6 +67,28 @@ export class PtyManager implements Killable {
     this.broadcast = options.broadcast;
     this.onExitCallback = options.onExit;
     this.onReadyCallback = options.onReady;
+    this.traceDir = options.traceDir;
+  }
+
+  /** Lazily create the per-session trace writer (no-op when no trace dir is set). */
+  private initTrace(): void {
+    if (this.traceDir && !this.traceWriter) {
+      this.traceWriter = new TraceWriter(this.goalId, this.traceDir);
+    }
+  }
+
+  /** Write exit meta + close the trace writer (fire-and-forget; errors logged). */
+  private finishTrace(exitCode: number): void {
+    const writer = this.traceWriter;
+    if (!writer) return;
+    void (async () => {
+      try {
+        await writer.writeMeta({ session_id: this.goalId, exitCode, ended_at: Date.now() });
+        await writer.close();
+      } catch (err) {
+        logger.error({ err, goalId: this.goalId }, 'TraceWriter close failed');
+      }
+    })();
   }
 
   /** The spawn context for this goal's session. */
@@ -83,6 +110,7 @@ export class PtyManager implements Killable {
   start(initialPrompt?: string): void {
     const claudePath = this.adapter.resolveBinary();
     const args = this.buildLaunchArgs();
+    this.initTrace();
 
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
@@ -167,6 +195,7 @@ export class PtyManager implements Killable {
         goal_id: this.goalId,
         data,
       });
+      this.traceWriter?.appendStream(data);
 
       if (!sessionReady) {
         if (idleMs > 0) {
@@ -192,6 +221,7 @@ export class PtyManager implements Killable {
         goal_id: this.goalId,
         exitCode,
       });
+      this.finishTrace(exitCode);
       processRegistry.remove(this.goalId);
       this.onExitCallback?.(this.goalId, exitCode);
     });
@@ -205,6 +235,7 @@ export class PtyManager implements Killable {
   resume(sessionId: string): void {
     const claudePath = this.adapter.resolveBinary();
     const args = this.adapter.buildResumeArgs(sessionId, this.spawnContext());
+    this.initTrace();
 
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
@@ -260,6 +291,7 @@ export class PtyManager implements Killable {
         goal_id: this.goalId,
         data,
       });
+      this.traceWriter?.appendStream(data);
 
       if (!readyFired) {
         if (idleMs > 0) {
@@ -285,6 +317,7 @@ export class PtyManager implements Killable {
         goal_id: this.goalId,
         exitCode,
       });
+      this.finishTrace(exitCode);
       processRegistry.remove(this.goalId);
       this.onExitCallback?.(this.goalId, exitCode);
     });
@@ -323,6 +356,7 @@ export class PtyManager implements Killable {
   }
 
   async cleanup(): Promise<void> {
+    await this.traceWriter?.close();
     this.terminal = null;
   }
 

@@ -171,6 +171,7 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
   const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
   const ptyMgr = new PtyManager(goal, adapter, {
     broadcast,
+    traceDir: join(env.dataDir, 'traces', goalId),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
       goalService.update(gId, { status: 'waiting' });
@@ -268,6 +269,7 @@ function restartSession(sessionId: string, goalId: string): void {
   const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
   const ptyMgr = new PtyManager(goal, adapter, {
     broadcast,
+    traceDir: join(env.dataDir, 'traces', goalId),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Restarted session ended');
       goalService.update(gId, { status: 'waiting' });

@@ -330,7 +330,7 @@ describe('Goals API routes', () => {
   // ── POST /api/goals/:id/interrupt ──────────────────────────────────────
 
   describe('POST /api/goals/:id/interrupt', () => {
-    it('returns killed:true', async () => {
+    it('returns killed:false when no runner is live', async () => {
       const goal = goalService.create({ title: 'Interrupt', cwd: '/tmp' });
 
       const res = await fetch(url(`/goals/${goal.id}/interrupt`), {
@@ -338,8 +338,10 @@ describe('Goals API routes', () => {
       });
       expect(res.status).toBe(200);
 
+      // No PTY runner is registered for this goal, so nothing is killed.
+      // (The runner-present killed:true path is covered by goals-interrupt.test.ts.)
       const body = (await res.json()) as { killed: boolean };
-      expect(body.killed).toBe(true);
+      expect(body.killed).toBe(false);
     });
 
     it('returns 404 for nonexistent goal', async () => {
