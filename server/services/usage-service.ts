@@ -2,7 +2,8 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import logger from '../logger';
-import { resolveModel } from '../../src/shared/agents/model-registry';
+import { resolveModel, type ModelPricing } from '../../src/shared/agents/model-registry';
+import type { RawUsage, RawModelUsage } from '../../src/shared/agents/types';
 
 export interface SessionUsage {
   inputTokens: number;
@@ -356,4 +357,124 @@ export function getDailyCosts(sinceDaysAgo = 90): DailyCostEntry[] {
       sessions: v.sessions,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ── Adapter primitives (consumed by ClaudeAdapter; pricing via model-registry) ──
+
+/**
+ * Parses a single Claude transcript file into the shared RawUsage shape.
+ * Top-level fields are the rolled-up session totals; `byModel` aggregates tokens
+ * per per-message model (a session that switches models or uses subagents yields
+ * multiple rows). The top-level `model` is the session's detected model (init
+ * event or first message), matching the legacy summary convention.
+ */
+export function parseClaudeUsage(filePath: string): RawUsage {
+  const empty: RawUsage = {
+    inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    messageCount: 0, model: null, byModel: [],
+  };
+  let content: string;
+  try {
+    content = readFileSync(filePath, 'utf-8');
+  } catch {
+    return empty;
+  }
+
+  let initModel: string | null = null;
+  let inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheCreationTokens = 0, messageCount = 0;
+  const perModel = new Map<string, RawModelUsage>();
+
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line);
+
+      if (!initModel) {
+        if (parsed?.type === 'system' && parsed?.subtype === 'init' && parsed?.model) {
+          initModel = parsed.model as string;
+        } else if (parsed?.model && !parsed?.message) {
+          initModel = parsed.model as string;
+        }
+      }
+
+      const usage = parsed?.message?.usage;
+      if (!usage) continue;
+
+      const inp = (usage.input_tokens as number) ?? 0;
+      const cc = (usage.cache_creation_input_tokens as number) ?? 0;
+      const cr = (usage.cache_read_input_tokens as number) ?? 0;
+      const out = (usage.output_tokens as number) ?? 0;
+
+      inputTokens += inp;
+      cacheCreationTokens += cc;
+      cacheReadTokens += cr;
+      outputTokens += out;
+      messageCount++;
+
+      const msgModel: string | null = (parsed?.message?.model as string) ?? initModel ?? null;
+      const key = msgModel ?? '__null__';
+      let row = perModel.get(key);
+      if (!row) {
+        row = { model: msgModel, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, messageCount: 0 };
+        perModel.set(key, row);
+      }
+      row.inputTokens += inp;
+      row.cacheCreationTokens += cc;
+      row.cacheReadTokens += cr;
+      row.outputTokens += out;
+      row.messageCount++;
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  return { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, messageCount, model: initModel, byModel: [...perModel.values()] };
+}
+
+/** Per-token pricing via the single registry; zeros for unknown/seat-only models. */
+export function claudePricingFor(model: string | null): ModelPricing {
+  return resolveModel(model)?.pricing ?? { input: 0, cache_read: 0, cache_creation: 0, output: 0 };
+}
+
+/** Context window for a model (registry-backed; respects an observed-tokens override). */
+export function claudeContextWindow(model: string | null, currentContextTokens: number): number {
+  return getContextWindow(model, currentContextTokens);
+}
+
+/** Locate a Claude transcript file by session id. */
+export function locateClaudeJsonl(sessionId: string): string | null {
+  return findJsonlFile(sessionId);
+}
+
+/** Enumerate Claude transcript paths modified within the last `sinceMs` ms (0 = all). */
+export function listClaudeJsonl(sinceMs = 0): string[] {
+  if (!existsSync(CLAUDE_PROJECTS_DIR)) return [];
+  const cutoff = sinceMs > 0 ? Date.now() - sinceMs : 0;
+  const paths: string[] = [];
+  let projects: string[];
+  try {
+    projects = readdirSync(CLAUDE_PROJECTS_DIR);
+  } catch {
+    return [];
+  }
+  for (const project of projects) {
+    const dir = join(CLAUDE_PROJECTS_DIR, project);
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith('.jsonl')) continue;
+      const fp = join(dir, entry);
+      try {
+        if (cutoff > 0 && statSync(fp).mtimeMs < cutoff) continue;
+      } catch {
+        continue;
+      }
+      paths.push(fp);
+    }
+  }
+  return paths;
 }
