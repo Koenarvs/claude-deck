@@ -5,6 +5,7 @@ import ConnectionIndicator from './global/ConnectionIndicator';
 import ToastContainer from './global/ToastContainer';
 import CommandPalette from './global/CommandPalette';
 import TweaksPanel from './global/TweaksPanel';
+import GlobalApprovalQueue from './global/GlobalApprovalQueue';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useApplyUIConfig } from '../hooks/useApplyUIConfig';
 import { useUIConfigStore } from '../stores/useUIConfigStore';
@@ -29,6 +30,7 @@ export default function AppShell({ children }: AppShellProps) {
       {/* Global overlays */}
       <ConnectionIndicator />
       <ToastContainer />
+      <GlobalApprovalQueue />
       <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={closeCommandPalette}
