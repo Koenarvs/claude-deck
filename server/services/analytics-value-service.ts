@@ -29,19 +29,21 @@ export function getProviderValue(db: Database.Database, days: number, providers:
     const equivalentUsd = Math.round((usdByProvider.get(p.id) ?? 0) * 10000) / 10000;
     if (p.billingMode === 'seat') {
       const seat = p.seatPriceUsdMonthly;
+      const multiplier = seat && seat > 0 ? Math.round((equivalentUsd / seat) * 100) / 100 : undefined;
       return {
         provider: p.id,
         label: 'equivalent_value',
         equivalentUsd,
-        seatPriceUsdMonthly: seat,
-        valueMultiplier: seat && seat > 0 ? Math.round((equivalentUsd / seat) * 100) / 100 : undefined,
+        ...(seat !== undefined ? { seatPriceUsdMonthly: seat } : {}),
+        ...(multiplier !== undefined ? { valueMultiplier: multiplier } : {}),
       };
     }
+    const budgetUsd = p.budget?.monthlyUsd;
     return {
       provider: p.id,
       label: 'cost',
       equivalentUsd,
-      budgetUsd: p.budget?.monthlyUsd,
+      ...(budgetUsd !== undefined ? { budgetUsd } : {}),
     };
   });
 }
