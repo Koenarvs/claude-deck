@@ -116,6 +116,28 @@ describe('Ingestion Service', () => {
         ],
       }),
     );
+
+    fs.writeFileSync(
+      path.join(projectDir, 'session-fable.jsonl'),
+      createJsonlContent({
+        model: 'claude-fable-5[1m]',
+        timestamp: '2026-05-12T09:00:00Z',
+        messages: [
+          { input_tokens: 1000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 500 },
+        ],
+      }),
+    );
+
+    fs.writeFileSync(
+      path.join(projectDir, 'session-unknown.jsonl'),
+      createJsonlContent({
+        model: 'totally-made-up-model',
+        timestamp: '2026-05-13T09:00:00Z',
+        messages: [
+          { input_tokens: 1000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 500 },
+        ],
+      }),
+    );
   });
 
   afterAll(() => {
@@ -137,7 +159,7 @@ describe('Ingestion Service', () => {
     await ingestAllSessions(db, tmpDir);
 
     const rows = db.prepare('SELECT * FROM session_usage ORDER BY session_id').all() as Array<Record<string, unknown>>;
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(4);
   });
 
   it('ingested rows have correct token counts', async () => {
@@ -172,7 +194,7 @@ describe('Ingestion Service', () => {
     await ingestAllSessions(db, tmpDir);
 
     const count = db.prepare('SELECT COUNT(*) as cnt FROM session_usage').get() as { cnt: number };
-    expect(count.cnt).toBe(2);
+    expect(count.cnt).toBe(4);
   });
 
   it('re-ingestion updates rows when file has grown', async () => {
@@ -197,6 +219,24 @@ describe('Ingestion Service', () => {
     const row = db.prepare('SELECT estimated_cost_usd FROM session_usage WHERE session_id = ?').get('session-beta') as Record<string, unknown>;
     expect(row.estimated_cost_usd).toBeGreaterThan(0);
     expect(typeof row.estimated_cost_usd).toBe('number');
+  });
+
+  it('Fable 5 session is priced at the frontier (Opus) rate, not zero', async () => {
+    const row = db.prepare('SELECT model, estimated_cost_usd FROM session_usage WHERE session_id = ?').get('session-fable') as Record<string, unknown>;
+    expect(row).toBeTruthy();
+    expect((row.model as string)).toContain('fable');
+    // 1000 input @ $15/M + 500 output @ $75/M = 0.015 + 0.0375 = 0.0525
+    expect(row.estimated_cost_usd).toBeCloseTo(0.0525, 4);
+  });
+
+  it('unknown model is ingested with cost 0 and a non-null model string (row kept, not Opus-priced)', async () => {
+    const row = db.prepare('SELECT model, input_tokens, output_tokens, total_tokens, estimated_cost_usd FROM session_usage WHERE session_id = ?').get('session-unknown') as Record<string, unknown>;
+    expect(row).toBeTruthy(); // not dropped
+    expect(row.model).toBe('totally-made-up-model'); // non-null model preserved
+    expect(row.input_tokens).toBe(1000); // token counts intact
+    expect(row.output_tokens).toBe(500);
+    expect(row.total_tokens).toBe(1500);
+    expect(row.estimated_cost_usd).toBe(0); // uncosted, NOT Opus-priced
   });
 });
 
