@@ -34,6 +34,7 @@ import { ingestAllSessions } from './services/ingestion-service';
 import { createCwdValidator } from './security/path-allow';
 import { createModelValidator } from './security/model-allow';
 import { createConfigService } from './services/config-service';
+import { adapterForModel } from './agents/registry';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import logger from './logger';
@@ -165,7 +166,9 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
   goalService.update(goalId, { status: 'active' });
   goalService.setCurrentSession(goalId, goalId);
 
-  const ptyMgr = new PtyManager(goal, {
+  const enabledIds = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
+  const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
+  const ptyMgr = new PtyManager(goal, adapter, {
     broadcast,
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
@@ -257,7 +260,9 @@ function restartSession(sessionId: string, goalId: string): void {
   db.prepare(`UPDATE sessions SET ended_at = NULL WHERE id = ?`).run(sessionId);
   broadcast({ type: 'session:started', session: { id: sessionId, goal_id: goalId, ended_at: null } });
 
-  const ptyMgr = new PtyManager(goal, {
+  const enabledIds = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
+  const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
+  const ptyMgr = new PtyManager(goal, adapter, {
     broadcast,
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Restarted session ended');

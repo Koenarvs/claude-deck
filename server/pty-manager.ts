@@ -8,6 +8,8 @@ import type { ServerEvent } from '../src/shared/events';
 import type { Killable } from './process-registry';
 import { processRegistry } from './process-registry';
 import logger from './logger';
+import type { AgentAdapter } from './agents/agent-adapter';
+import type { SpawnContext, McpServerDescriptor } from '../src/shared/agents/types';
 
 // On Windows with Git Bash, process.execPath points to Git's bundled node stub
 // which doesn't exist as a real binary. node-pty's conpty agent needs the real
@@ -37,26 +39,6 @@ function findRealNodePath(): string {
   return realNodePath;
 }
 
-let resolvedClaudePath: string | null = null;
-function resolveClaudePath(): string {
-  if (resolvedClaudePath) return resolvedClaudePath;
-  try {
-    resolvedClaudePath = execSync('which claude', { encoding: 'utf-8' }).trim();
-    // Convert Git Bash path to Windows path
-    if (resolvedClaudePath.startsWith('/c/')) {
-      resolvedClaudePath = 'C:/' + resolvedClaudePath.slice(3);
-    }
-    // node-pty on Windows needs the .exe extension
-    if (process.platform === 'win32' && !resolvedClaudePath.endsWith('.exe')) {
-      resolvedClaudePath += '.exe';
-    }
-    logger.info({ path: resolvedClaudePath }, 'PTY: Resolved claude CLI path');
-  } catch {
-    resolvedClaudePath = process.platform === 'win32' ? 'claude.exe' : 'claude';
-  }
-  return resolvedClaudePath;
-}
-
 interface PtyManagerOptions {
   broadcast: (event: ServerEvent) => void;
   onExit?: (goalId: string, exitCode: number) => void;
@@ -67,34 +49,40 @@ export class PtyManager implements Killable {
   private terminal: pty.IPty | null = null;
   private readonly goalId: string;
   private readonly goal: Goal;
+  private readonly adapter: AgentAdapter;
   private readonly broadcast: (event: ServerEvent) => void;
   private readonly onExitCallback: ((goalId: string, exitCode: number) => void) | undefined;
   private readonly onReadyCallback: (() => void) | undefined;
   private exited = false;
 
-  constructor(goal: Goal, options: PtyManagerOptions) {
+  constructor(goal: Goal, adapter: AgentAdapter, options: PtyManagerOptions) {
     this.goal = goal;
     this.goalId = goal.id;
+    this.adapter = adapter;
     this.broadcast = options.broadcast;
     this.onExitCallback = options.onExit;
     this.onReadyCallback = options.onReady;
   }
 
-  start(initialPrompt?: string): void {
-    const claudePath = resolveClaudePath();
-    const args: string[] = ['--session-id', this.goalId];
-    if (this.goal.permission_mode === 'autonomous') {
-      args.push('--permission-mode', 'bypassPermissions');
-    }
-    if (this.goal.model && this.goal.model !== 'default') {
-      args.push('--model', this.goal.model);
-    }
+  /** The spawn context for this goal's session. */
+  private spawnContext(): SpawnContext {
+    return {
+      goalId: this.goalId,
+      model: this.goal.model ?? 'default',
+      cwd: this.goal.cwd,
+      permissionMode: this.goal.permission_mode,
+      mcpServer: this.buildMcpDescriptor(),
+    };
+  }
 
-    // Inject Claude Deck MCP server so goal sessions can orchestrate other goals
-    const mcpConfig = this.buildMcpConfig();
-    if (mcpConfig) {
-      args.push('--mcp-config', mcpConfig);
-    }
+  /** Pure: the launch argv the adapter builds for a new session. */
+  buildLaunchArgs(): string[] {
+    return this.adapter.buildStartArgs(this.spawnContext());
+  }
+
+  start(initialPrompt?: string): void {
+    const claudePath = this.adapter.resolveBinary();
+    const args = this.buildLaunchArgs();
 
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
@@ -164,9 +152,11 @@ export class PtyManager implements Killable {
       }
     };
 
-    // Two-layer detection: idle-based + hard timeout fallback.
-    // Idle: after PTY output stops for 5s, Claude Code is likely at its prompt.
-    // Fallback: if no idle detected after 45s, fire anyway (covers very slow startups).
+    // Prompt-readiness detection is driven by the adapter's promptStrategy
+    // (idle delay + optional prompt regex), with a hard 45s fallback.
+    const strategy = this.adapter.promptStrategy;
+    const idleMs = strategy.kind === 'flag' ? 0 : strategy.idleMs;
+    const promptRegex = strategy.kind === 'regex' ? strategy.promptRegex : null;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     fallbackTimer = setTimeout(() => markReady('timeout-fallback'), 45_000);
@@ -179,12 +169,15 @@ export class PtyManager implements Killable {
       });
 
       if (!sessionReady) {
-        if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => markReady('idle'), 5_000);
-
-        const clean = data.replace(/\x1b[^\x1b]*/g, '');
-        if (/(?:>{1,2}|❯) \s*$/.test(clean)) {
-          markReady('regex');
+        if (idleMs > 0) {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => markReady('idle'), idleMs);
+        }
+        if (promptRegex) {
+          const clean = data.replace(/\x1b[^\x1b]*/g, '');
+          if (promptRegex.test(clean)) {
+            markReady('regex');
+          }
         }
       }
     });
@@ -210,17 +203,8 @@ export class PtyManager implements Killable {
   }
 
   resume(sessionId: string): void {
-    const claudePath = resolveClaudePath();
-
-    const args = ['--resume', sessionId];
-    if (this.goal.permission_mode === 'autonomous') {
-      args.push('--permission-mode', 'bypassPermissions');
-    }
-
-    const mcpConfig = this.buildMcpConfig();
-    if (mcpConfig) {
-      args.push('--mcp-config', mcpConfig);
-    }
+    const claudePath = this.adapter.resolveBinary();
+    const args = this.adapter.buildResumeArgs(sessionId, this.spawnContext());
 
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
@@ -265,6 +249,9 @@ export class PtyManager implements Killable {
       this.onReadyCallback?.();
     };
 
+    const strategy = this.adapter.promptStrategy;
+    const idleMs = strategy.kind === 'flag' ? 0 : strategy.idleMs;
+    const promptRegex = strategy.kind === 'regex' ? strategy.promptRegex : null;
     fallbackTimer = setTimeout(() => fireReady('timeout-fallback'), 45_000);
 
     this.terminal.onData((data: string) => {
@@ -275,12 +262,15 @@ export class PtyManager implements Killable {
       });
 
       if (!readyFired) {
-        if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => fireReady('idle'), 5_000);
-
-        const clean = data.replace(/\x1b[^\x1b]*/g, '');
-        if (/(?:>{1,2}|❯) \s*$/.test(clean)) {
-          fireReady('regex');
+        if (idleMs > 0) {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => fireReady('idle'), idleMs);
+        }
+        if (promptRegex) {
+          const clean = data.replace(/\x1b[^\x1b]*/g, '');
+          if (promptRegex.test(clean)) {
+            fireReady('regex');
+          }
         }
       }
     });
@@ -336,34 +326,31 @@ export class PtyManager implements Killable {
     this.terminal = null;
   }
 
-  private buildMcpConfig(): string | null {
+  /**
+   * Builds the structured MCP descriptor for this goal's session. The adapter
+   * serializes it into its CLI-specific form (Claude → inline JSON + --mcp-config).
+   * The env shape is preserved exactly so the serialized output is unchanged.
+   */
+  private buildMcpDescriptor(): McpServerDescriptor | null {
     try {
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
       const mcpEntry = path.resolve(__dirname, '..', 'mcp', 'dist', 'index.js');
       const port = process.env['PORT'] ?? '4100';
       const baseUrl = `http://127.0.0.1:${port}`;
 
-      const mcpEnv: Record<string, string> = {
+      const env: Record<string, string> = {
         CLAUDE_DECK_URL: baseUrl,
         CLAUDE_DECK_GOAL_ID: this.goalId,
       };
       // Pass the shared secret so in-session MCP tools authenticate back to /api.
       const token = process.env['CLAUDE_DECK_TOKEN'];
       if (token && token.trim().length > 0) {
-        mcpEnv['CLAUDE_DECK_TOKEN'] = token;
+        env['CLAUDE_DECK_TOKEN'] = token;
       }
 
-      return JSON.stringify({
-        mcpServers: {
-          'claude-deck': {
-            command: 'node',
-            args: [mcpEntry],
-            env: mcpEnv,
-          },
-        },
-      });
+      return { name: 'claude-deck', command: 'node', args: [mcpEntry], env };
     } catch (err) {
-      logger.warn({ err }, 'PTY: Failed to build MCP config');
+      logger.warn({ err }, 'PTY: Failed to build MCP descriptor');
       return null;
     }
   }
