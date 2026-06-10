@@ -1,27 +1,14 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
+import logger from '../logger';
+import { resolveModel } from '../../src/shared/agents/model-registry';
 
-interface ModelPricing {
-  input: number;
-  cache_read: number;
-  cache_creation: number;
-  output: number;
-}
-
-const MODEL_PRICING: Record<string, ModelPricing> = {
-  opus: { input: 15 / 1_000_000, cache_read: 1.5 / 1_000_000, cache_creation: 18.75 / 1_000_000, output: 75 / 1_000_000 },
-  sonnet: { input: 3 / 1_000_000, cache_read: 0.3 / 1_000_000, cache_creation: 3.75 / 1_000_000, output: 15 / 1_000_000 },
-  haiku: { input: 0.80 / 1_000_000, cache_read: 0.08 / 1_000_000, cache_creation: 1 / 1_000_000, output: 4 / 1_000_000 },
-};
-
-function getPricing(model: string | null): ModelPricing {
-  if (!model) return MODEL_PRICING.opus;
-  const lower = model.toLowerCase();
-  if (lower.includes('opus')) return MODEL_PRICING.opus;
-  if (lower.includes('sonnet')) return MODEL_PRICING.sonnet;
-  if (lower.includes('haiku')) return MODEL_PRICING.haiku;
-  return MODEL_PRICING.opus;
+/** Per-token pricing via the single registry; null = unknown/seat-only (cost 0). */
+function getPricing(
+  model: string | null,
+): { input: number; cache_read: number; cache_creation: number; output: number } | null {
+  return resolveModel(model)?.pricing ?? null;
 }
 
 export async function ingestAllSessions(db: Database.Database, projectsDir: string): Promise<void> {
@@ -105,11 +92,15 @@ export async function ingestAllSessions(db: Database.Database, projectsDir: stri
       if (existingCount !== undefined && existingCount >= messageCount) continue;
 
       const pricing = getPricing(detectedModel);
-      const estimatedCostUsd =
-        inputTokens * pricing.input +
-        cacheReadTokens * pricing.cache_read +
-        cacheCreationTokens * pricing.cache_creation +
-        outputTokens * pricing.output;
+      if (!pricing) {
+        logger.warn({ model: detectedModel, sessionId }, 'unknown model — usage uncosted');
+      }
+      const estimatedCostUsd = pricing
+        ? inputTokens * pricing.input +
+          cacheReadTokens * pricing.cache_read +
+          cacheCreationTokens * pricing.cache_creation +
+          outputTokens * pricing.output
+        : 0;
 
       const sessionDate = firstTimestamp > 0
         ? new Date(firstTimestamp).toISOString().split('T')[0]
