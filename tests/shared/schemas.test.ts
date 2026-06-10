@@ -387,3 +387,38 @@ describe('AppConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('AppConfigSchema providers (Delta B)', () => {
+  it('defaults providers to a single enabled claude seat record', async () => {
+    const { AppConfigSchema } = await import('../../src/shared/schemas');
+    const parsed = AppConfigSchema.parse({
+      homeRoute: '/board',
+      dataDir: '',
+      hooksInstalled: false,
+      tracePruneDays: 90,
+      defaultModel: 'default',
+      defaultPermissionMode: 'supervised',
+    });
+    expect(parsed.providers).toEqual([{ id: 'claude', enabled: true, billingMode: 'seat' }]);
+  });
+
+  it('ProviderConfigSchema defaults billingMode to seat', async () => {
+    const { ProviderConfigSchema } = await import('../../src/shared/schemas');
+    const p = ProviderConfigSchema.parse({ id: 'antigravity', enabled: false });
+    expect(p.billingMode).toBe('seat');
+  });
+
+  it('PersistedConfigSchema picks only the settable fields (incl. providers)', async () => {
+    const { PersistedConfigSchema } = await import('../../src/shared/schemas');
+    const p = PersistedConfigSchema.parse({
+      homeRoute: '/board',
+      tracePruneDays: 90,
+      defaultModel: 'opus',
+      defaultPermissionMode: 'autonomous',
+      providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
+    });
+    expect(Object.keys(p).sort()).toEqual(
+      ['defaultModel', 'defaultPermissionMode', 'homeRoute', 'providers', 'tracePruneDays'],
+    );
+  });
+});

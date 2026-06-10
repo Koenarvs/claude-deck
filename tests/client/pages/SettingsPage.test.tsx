@@ -15,6 +15,7 @@ const defaultConfig: AppConfig = {
   tracePruneDays: 30,
   defaultModel: 'sonnet',
   defaultPermissionMode: 'supervised',
+  providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
 };
 
 beforeEach(() => {

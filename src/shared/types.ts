@@ -249,6 +249,14 @@ export interface CostSeries {
 
 // ── App Config ────────────────────────────────────────────────────────────────
 
+export interface ProviderConfig {
+  id: string;
+  enabled: boolean;
+  billingMode: 'metered' | 'seat';
+  seatPriceUsdMonthly?: number;
+  budget?: { dailyUsd?: number; monthlyUsd?: number; perGoalUsd?: number };
+}
+
 export interface AppConfig {
   homeRoute: string;
   dataDir: string;
@@ -256,6 +264,7 @@ export interface AppConfig {
   tracePruneDays: number;
   defaultModel: GoalModel;
   defaultPermissionMode: PermissionMode;
+  providers: ProviderConfig[];
 }
 
 // ── Stream JSON Events (CLI → server) ─────────────────────────────────────────

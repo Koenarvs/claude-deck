@@ -252,6 +252,19 @@ export const GoalDetailSchema = z.object({
 
 // ── App Config ────────────────────────────────────────────────────────────────
 
+/** Per-provider configuration. Billing mode is install config, not adapter. */
+export const ProviderConfigSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean(),
+  billingMode: z.enum(['metered', 'seat']).default('seat'),
+  seatPriceUsdMonthly: z.number().nonnegative().optional(), // seat mode → value multiplier
+  budget: z
+    .object({ dailyUsd: z.number(), monthlyUsd: z.number(), perGoalUsd: z.number() })
+    .partial()
+    .optional(), // metered mode → caps/alerts
+});
+export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
+
 export const AppConfigSchema = z.object({
   homeRoute: z.string(),
   dataDir: z.string(),
@@ -259,7 +272,18 @@ export const AppConfigSchema = z.object({
   tracePruneDays: z.number().int().min(1),
   defaultModel: GoalModelSchema,
   defaultPermissionMode: PermissionModeSchema,
+  providers: z.array(ProviderConfigSchema).default([{ id: 'claude', enabled: true, billingMode: 'seat' }]),
 });
+
+/** The subset of AppConfig that is persisted (dataDir/hooksInstalled are computed at runtime). */
+export const PersistedConfigSchema = AppConfigSchema.pick({
+  homeRoute: true,
+  tracePruneDays: true,
+  defaultModel: true,
+  defaultPermissionMode: true,
+  providers: true,
+});
+export type PersistedConfig = z.infer<typeof PersistedConfigSchema>;
 
 // ── Stream JSON Events ────────────────────────────────────────────────────────
 
