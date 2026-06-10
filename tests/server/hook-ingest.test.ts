@@ -176,6 +176,95 @@ describe('HookIngest', () => {
     });
   });
 
+  describe('onPreToolUse — enforcement', () => {
+    function insertSupervisedGoal(database: Database.Database, id: string) {
+      const now = Date.now();
+      database
+        .prepare(
+          `INSERT INTO goals (id, title, cwd, status, priority, tags, permission_mode, model, kanban_order, created_at, updated_at)
+           VALUES (?, ?, '/tmp', 'active', 0, '[]', 'supervised', 'opus', 1.0, ?, ?)`,
+        )
+        .run(id, 'g-' + id, now, now);
+      // session linked to the goal (session_id = goal_id convention)
+      database
+        .prepare(
+          `INSERT INTO sessions (id, goal_id, origin, started_at, stream_event_count, hook_event_count, stderr_bytes)
+           VALUES (?, ?, 'dashboard', ?, 0, 0, 0)`,
+        )
+        .run(id, id, now);
+    }
+
+    it('supervised goal: PreToolUse blocks until resolve(approved) => allow', async () => {
+      insertSupervisedGoal(db, 'goal-sup');
+
+      const decisionPromise = ingest.onPreToolUse({
+        session_id: 'goal-sup',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls' },
+      });
+
+      // an approval row appears as pending (request() inserts it synchronously)
+      const pending = db.prepare(`SELECT id FROM approvals WHERE status = 'pending'`).get() as {
+        id: string;
+      };
+      expect(pending).toBeDefined();
+
+      const ok = coordinator.resolve(pending.id, 'approved');
+      expect(ok).toBe(true);
+
+      await expect(decisionPromise).resolves.toEqual({ decision: 'allow' });
+    });
+
+    it('supervised goal: resolve(denied) => deny with reason', async () => {
+      insertSupervisedGoal(db, 'goal-deny');
+
+      const p = ingest.onPreToolUse({ session_id: 'goal-deny', tool_name: 'Bash', tool_input: {} });
+      const row = db.prepare(`SELECT id FROM approvals WHERE status='pending'`).get() as {
+        id: string;
+      };
+      coordinator.resolve(row.id, 'denied', 'nope');
+      await expect(p).resolves.toEqual({ decision: 'deny', reason: 'nope' });
+    });
+
+    it('autonomous goal: PreToolUse passes through immediately (no blocking)', async () => {
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO goals (id, title, cwd, status, priority, tags, permission_mode, model, kanban_order, created_at, updated_at)
+         VALUES ('goal-auto', 'a', '/tmp', 'active', 0, '[]', 'autonomous', 'opus', 1.0, ?, ?)`,
+      ).run(now, now);
+      db.prepare(
+        `INSERT INTO sessions (id, goal_id, origin, started_at, stream_event_count, hook_event_count, stderr_bytes)
+         VALUES ('goal-auto', 'goal-auto', 'dashboard', ?, 0, 0, 0)`,
+      ).run(now);
+
+      await expect(
+        ingest.onPreToolUse({ session_id: 'goal-auto', tool_name: 'Bash', tool_input: {} }),
+      ).resolves.toEqual({ decision: 'allow' });
+    });
+
+    it('unlinked session: PreToolUse passes through', async () => {
+      await expect(
+        ingest.onPreToolUse({ session_id: 'nope', tool_name: 'Bash', tool_input: {} }),
+      ).resolves.toEqual({ decision: 'allow' });
+    });
+
+    it('supervised goal: PermissionRequest also blocks until resolve(approved)', async () => {
+      insertSupervisedGoal(db, 'goal-perm');
+
+      const decisionPromise = ingest.onPermissionRequest({
+        session_id: 'goal-perm',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls' },
+      });
+      const pending = db.prepare(`SELECT id FROM approvals WHERE status = 'pending'`).get() as {
+        id: string;
+      };
+      expect(pending).toBeDefined();
+      coordinator.resolve(pending.id, 'approved');
+      await expect(decisionPromise).resolves.toEqual({ decision: 'allow' });
+    });
+  });
+
   describe('onPostToolUse', () => {
     it('persists to hook_events', () => {
       ingest.onPostToolUse({
