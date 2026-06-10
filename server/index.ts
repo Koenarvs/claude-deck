@@ -27,6 +27,7 @@ import { MessageService } from './services/message-service';
 import { createSessionsRouter } from './routes/sessions';
 import { createSystemRouter } from './routes/system';
 import { createTraceRouter } from './routes/trace';
+import { startTracePruneJob } from './trace-prune-job';
 import type { ServerEvent } from '../src/shared/events';
 import { broadcast, setTerminalHandler } from './ws';
 import { ConversationLogger } from './services/conversation-logger';
@@ -335,6 +336,9 @@ setupWss(server, { token: env.token, allowedOrigins: wsAllowedOrigins });
 // Start scheduler
 scheduler.start();
 
+// Schedule daily trace pruning (reads config.tracePruneDays fresh each run).
+const tracePruneTask = startTracePruneJob(db, env.dataDir, () => configService.getPersisted().tracePruneDays);
+
 // Start listening — bind to loopback by default; LAN exposure requires
 // CLAUDE_DECK_BIND. loadEnv() already fail-closes a non-loopback bind with
 // no token.
@@ -349,6 +353,7 @@ function shutdown(signal: string): void {
   // Stop the scheduler first — no more cron fires
   scheduler.stop();
   clearInterval(ingestionInterval);
+  tracePruneTask.stop();
   logger.info('Scheduler stopped');
 
   // Deny all pending approvals so blocked hooks unblock
