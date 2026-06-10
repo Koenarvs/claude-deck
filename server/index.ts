@@ -31,7 +31,6 @@ import { broadcast, setTerminalHandler } from './ws';
 import { ConversationLogger } from './services/conversation-logger';
 import { findJsonlFile } from './services/transcript-service';
 import { ingestAllSessions } from './services/ingestion-service';
-import { createCwdValidator } from './security/path-allow';
 import { createModelValidator } from './security/model-allow';
 import { createConfigService } from './services/config-service';
 import { adapterForModel } from './agents/registry';
@@ -230,9 +229,12 @@ setTerminalHandler({
 
 const scheduler = new Scheduler(scheduledTaskService, createGoal);
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
-const validateCwd = createCwdValidator({ allowedRoots: env.allowedRoots });
+// cwd containment reverted for open home/LAN use — goals can run in any directory
+// again (the validator restricted them to the repo dir). Re-add `validateCwd`
+// (see ./security/path-allow) to lock this down. validateModel stays — it blocks
+// arg-injection at near-zero cost and all real Claude models pass it.
 const validateModel = createModelValidator();
-const goalsRouter = createGoalsRouter(goalService, spawnTerminalSession, interGoalMessageService, { validateCwd, validateModel });
+const goalsRouter = createGoalsRouter(goalService, spawnTerminalSession, interGoalMessageService, { validateModel });
 /**
  * Restarts an ended session by spawning a new PTY with --resume.
  * Called by the sessions route POST /sessions/:id/restart.
@@ -322,17 +324,10 @@ const app = createApp({
 (app as unknown as Record<string, unknown>).locals = { ...(app as unknown as { locals: Record<string, unknown> }).locals, db };
 const server = http.createServer(app);
 
-// Attach WebSocket server. Origin allow-list mirrors the CORS list in app.ts;
-// the token is the primary gate on LAN (Origin is CSRF defense-in-depth).
-const wsAllowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:4100',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:4100',
-  // SSH-tunnel alt port (a remote client whose local 5173 is taken forwards 5273 → 5173).
-  'http://localhost:5273',
-  'http://127.0.0.1:5273',
-];
+// WebSocket server. Empty allow-list = accept any Origin (restores pre-hardening
+// behavior for open LAN access from personal devices on a trusted home network).
+// Re-populate this list (or set CLAUDE_DECK_TOKEN) to lock the WS down again.
+const wsAllowedOrigins: string[] = [];
 setupWss(server, { token: env.token, allowedOrigins: wsAllowedOrigins });
 
 // Start scheduler
