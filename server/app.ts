@@ -4,10 +4,13 @@ import path from 'node:path';
 import type { Router, Request, Response, NextFunction } from 'express';
 import healthRouter from './routes/health';
 import logger from './logger';
+import { createApiAuthMiddleware } from './middleware/auth';
 
 export interface AppRouters {
   /** Additional routers to mount under /api. */
   apiRouters?: Router[];
+  /** Shared-secret auth config; token null = no-op (loopback dev). */
+  auth?: { token: string | null };
 }
 
 /**
@@ -34,6 +37,10 @@ export function createApp(options?: AppRouters): express.Express {
 
   // JSON body parser with 10MB limit
   app.use(express.json({ limit: '10mb' }));
+
+  // Shared-secret gate on all /api routes (no-op when no token configured).
+  // Mounted before the routers; /api/health is exempt inside the middleware.
+  app.use('/api', createApiAuthMiddleware({ token: options?.auth?.token ?? null }));
 
   // Mount API routes
   app.use('/api', healthRouter);

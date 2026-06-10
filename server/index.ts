@@ -293,7 +293,10 @@ const systemRouterWithSkills = createSystemRouter(skillDirectoryService);
 const skillsRouter = createSkillsRouter(skillExecutionService, skillAnalysisService, skillFileService);
 
 // Create Express app and HTTP server
-const app = createApp({ apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter] });
+const app = createApp({
+  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter],
+  auth: { token: env.token },
+});
 // Make db available to routes that need it (analytics, hook-events)
 (app as unknown as Record<string, unknown>).locals = { ...(app as unknown as { locals: Record<string, unknown> }).locals, db };
 const server = http.createServer(app);
