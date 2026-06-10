@@ -66,7 +66,12 @@ async function getJson<T>(url: string, signal: AbortSignal, fallback: T): Promis
   try {
     const r = await fetch(url, { signal });
     if (!r.ok) return fallback;
-    return (await r.json()) as T;
+    const body: unknown = await r.json();
+    // Merge over the fallback so a malformed/wrong-shape body (e.g. a bare array
+    // or partial object) still yields the expected array fields — the UI relies
+    // on .length/.map/.some never hitting undefined.
+    if (body && typeof body === 'object') return { ...fallback, ...(body as object) } as T;
+    return fallback;
   } catch {
     return fallback;
   }

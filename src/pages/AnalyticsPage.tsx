@@ -12,6 +12,13 @@ import {
   Line,
 } from 'recharts';
 import { fmtCost, fmtTokens } from '../lib/format';
+import {
+  fetchModelBreakdown, fetchModelMix, fetchProviderValue,
+  fetchWindowUtilization, fetchCostPerGoal,
+  type ModelBreakdownResponse, type ModelMixResponse, type ProviderValueResponse,
+  type WindowUtilizationResponse, type CostPerGoalResponse,
+} from '../lib/analytics-api';
+import { resolveModel } from '../shared/agents/model-registry';
 
 // ── Tool Category Taxonomy (from cc-lens) ──────────────────────────────────
 
@@ -125,6 +132,12 @@ function AnalyticsPageContent() {
   const [prsMerged, setPrsMerged] = useState<WeeklyCount[]>([]);
   const [contextItems, setContextItems] = useState<ContextItem[]>([]);
   const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
+  // Phase 2 per-model analytics (loaded race-safe via AbortController below).
+  const [modelBreakdown, setModelBreakdown] = useState<ModelBreakdownResponse>({ label: 'equivalent_value', models: [] });
+  const [modelMix, setModelMix] = useState<ModelMixResponse>({ label: 'equivalent_value', series: [] });
+  const [providerValue, setProviderValue] = useState<ProviderValueResponse>({ providers: [] });
+  const [windowUtil, setWindowUtil] = useState<WindowUtilizationResponse>({ rows: [] });
+  const [costPerGoal, setCostPerGoal] = useState<CostPerGoalResponse>({ label: 'equivalent_value', series: [] });
 
   useEffect(() => {
     setLoading(true);
@@ -182,6 +195,21 @@ function AnalyticsPageContent() {
         .catch(() => {});
     }
   }, [activeTab, timeRange]);
+
+  // Per-model analytics, race-safe: a single AbortController aborted on cleanup so
+  // a stale time-range's responses are discarded.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const days = timeRangeToDays(timeRange);
+    Promise.all([
+      fetchModelBreakdown(days, ctrl.signal).then(setModelBreakdown),
+      fetchModelMix(days, ctrl.signal).then(setModelMix),
+      fetchProviderValue(days, ctrl.signal).then(setProviderValue),
+      fetchWindowUtilization(ctrl.signal).then(setWindowUtil),
+      fetchCostPerGoal(days, ctrl.signal).then(setCostPerGoal),
+    ]).catch(() => { /* helpers already fall back to defaults */ });
+    return () => ctrl.abort();
+  }, [timeRange]);
 
   // Categorize tools
   const categoryData = categorizeTools(toolUsage);
@@ -335,6 +363,195 @@ function AnalyticsPageContent() {
               )}
             </div>
           </div>
+
+          {/* Model Breakdown */}
+          <div className="rounded-md border border-line bg-card p-4">
+            <h2 className="mb-4 text-sm font-medium text-dim">Model Breakdown</h2>
+            {modelBreakdown.models.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-line text-left text-xs text-dim">
+                    <th className="px-3 py-2 font-medium">Model</th>
+                    <th className="px-3 py-2 font-medium">Tier</th>
+                    <th className="px-3 py-2 font-medium">Tokens In</th>
+                    <th className="px-3 py-2 font-medium">Tokens Out</th>
+                    <th className="px-3 py-2 font-medium">
+                      {modelBreakdown.label === 'cost' ? 'Cost' : 'Equivalent $'}
+                    </th>
+                    <th className="px-3 py-2 font-medium">Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modelBreakdown.models.map((m) => (
+                    <tr key={m.model} className={`border-b border-line last:border-0 ${m.unpriced ? 'opacity-70' : ''}`}>
+                      <td className="px-3 py-2 text-fg">
+                        {m.model}
+                        {m.unpriced && (
+                          <span className="ml-2 rounded-sm bg-inset px-1.5 py-0.5 text-[10px] text-faint" data-testid="unpriced-badge">
+                            unpriced
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-dim">{m.tier}</td>
+                      <td className="px-3 py-2 mono-tabular text-fg">{fmtTokens(m.tokensIn)}</td>
+                      <td className="px-3 py-2 mono-tabular text-fg">{fmtTokens(m.tokensOut)}</td>
+                      <td className="px-3 py-2 mono-tabular text-fg">{m.unpriced ? '—' : fmtCost(m.equivalentUsd)}</td>
+                      <td className="px-3 py-2 mono-tabular text-dim">{Math.round(m.share * 100)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <Empty text="No per-model usage yet" />
+            )}
+          </div>
+
+          {/* Model Mix + top-tier-share */}
+          <div className="rounded-md border border-line bg-card p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-medium text-dim">Model Mix</h2>
+              <span className="text-xs text-dim">
+                top-tier share (latest):{' '}
+                <span className="mono-tabular text-fg">
+                  {modelMix.series.length > 0
+                    ? `${Math.round(modelMix.series[modelMix.series.length - 1].topTierShare * 100)}%`
+                    : '—'}
+                </span>
+              </span>
+            </div>
+            {modelMix.series.length > 0 ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={modelMix.series.map((b) => ({ date: b.date, topTier: Math.round(b.topTierShare * 100) }))}>
+                  <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                  <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} tickFormatter={(v: number) => `${v}%`} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`${v}%`, 'Top-tier share']} />
+                  <Line type="monotone" dataKey="topTier" stroke="var(--cd-accent)" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <Empty text="No model mix data yet" />
+            )}
+          </div>
+
+          {/* Subscription Value (seat providers) */}
+          {providerValue.providers.some((p) => p.label === 'equivalent_value') && (
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-4 text-sm font-medium text-dim">Subscription Value</h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {providerValue.providers.filter((p) => p.label === 'equivalent_value').map((p) => (
+                  <div key={p.provider} className="rounded-md border border-line bg-inset p-4">
+                    <p className="text-xs text-dim capitalize">{p.provider}</p>
+                    <p className="mt-1 mono-tabular text-2xl font-bold text-fg">
+                      {p.valueMultiplier ? `${p.valueMultiplier}x` : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-dim">
+                      {fmtCost(p.equivalentUsd)} value{p.seatPriceUsdMonthly ? ` / ${fmtCost(p.seatPriceUsdMonthly)}/mo` : ''}
+                    </p>
+                    <p className="mt-2 text-[10px] text-faint" title="Replacement value: what the same tokens would cost at metered API rates. Overstates somewhat at zero marginal cost.">
+                      replacement value — overstates at zero marginal cost
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Window Utilization (seat only, estimate) */}
+          {windowUtil.rows.length > 0 && (
+            <div className="rounded-md border border-line bg-card p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-dim">Window Utilization</h2>
+                <span className="rounded-sm bg-inset px-1.5 py-0.5 text-[10px] text-faint">estimate</span>
+              </div>
+              <div className="space-y-3">
+                {windowUtil.rows.map((r) => (
+                  <div key={r.provider} className="flex items-center gap-3">
+                    <span className="w-24 text-xs text-dim capitalize">{r.provider}</span>
+                    <div className="flex-1 h-4 bg-inset rounded overflow-hidden">
+                      <div className="h-full rounded bg-accent transition-all" style={{ width: `${Math.min(100, r.utilizationPct)}%` }} />
+                    </div>
+                    <span className="w-12 text-right mono-tabular text-xs text-fg">{r.utilizationPct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Budget vs Spend (metered providers — work profile) */}
+          {providerValue.providers.some((p) => p.label === 'cost') && (
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-4 text-sm font-medium text-dim">Budget vs Spend</h2>
+              <div className="space-y-3">
+                {providerValue.providers.filter((p) => p.label === 'cost').map((p) => {
+                  const pct = p.budgetUsd && p.budgetUsd > 0 ? Math.min(100, (p.equivalentUsd / p.budgetUsd) * 100) : 0;
+                  const over = p.budgetUsd !== undefined && p.equivalentUsd > p.budgetUsd;
+                  return (
+                    <div key={p.provider} className="flex items-center gap-3">
+                      <span className="w-24 text-xs text-dim capitalize">{p.provider}</span>
+                      <div className="flex-1 h-4 bg-inset rounded overflow-hidden">
+                        <div className="h-full rounded transition-all" style={{ width: `${pct}%`, backgroundColor: over ? 'var(--cd-warn)' : 'var(--cd-ok)' }} />
+                      </div>
+                      <span className="w-28 text-right mono-tabular text-xs text-fg">
+                        {fmtCost(p.equivalentUsd)}{p.budgetUsd !== undefined ? ` / ${fmtCost(p.budgetUsd)}` : ''}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Model Scorecard */}
+          {modelBreakdown.models.length > 0 && (
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-1 text-sm font-medium text-dim">Model Scorecard</h2>
+              <p className="mb-3 text-[10px] text-faint">
+                Verification pass/fail lands with the Phase 5 verification gate; columns below are cost/speed/quota only.
+              </p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-line text-left text-xs text-dim">
+                    <th className="px-3 py-2 font-medium">Model</th>
+                    <th className="px-3 py-2 font-medium">Tier</th>
+                    <th className="px-3 py-2 font-medium">Eff. $/MTok</th>
+                    <th className="px-3 py-2 font-medium">Quota Weight</th>
+                    <th className="px-3 py-2 font-medium">Verification</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modelBreakdown.models.map((m) => {
+                    const entry = resolveModel(m.model);
+                    return (
+                      <tr key={m.model} className="border-b border-line last:border-0">
+                        <td className="px-3 py-2 text-fg">{m.model}</td>
+                        <td className="px-3 py-2 text-dim">{m.tier}</td>
+                        <td className="px-3 py-2 mono-tabular text-fg">{m.unpriced ? '—' : `$${m.effectiveRatePerMTok.toFixed(2)}`}</td>
+                        <td className="px-3 py-2 mono-tabular text-dim">{entry?.quotaWeight ?? '—'}</td>
+                        <td className="px-3 py-2 text-faint">—</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Cost per Completed Goal */}
+          {costPerGoal.series.length > 0 && (
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-4 text-sm font-medium text-dim">
+                {costPerGoal.label === 'cost' ? 'Cost' : 'Equivalent $'} per Completed Goal
+              </h2>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={costPerGoal.series.map((p) => ({ date: p.date, usd: p.equivalentUsdPerGoal }))}>
+                  <XAxis dataKey="date" tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} />
+                  <YAxis tick={{ fill: 'var(--cd-faint)', fontSize: 10 }} tickFormatter={(v: number) => `$${v}`} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [fmtCost(v), 'Per goal']} />
+                  <Line type="monotone" dataKey="usd" stroke="var(--cd-accent)" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Output Trends */}
           <div className="rounded-md border border-line bg-card p-4">
