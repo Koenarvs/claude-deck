@@ -291,7 +291,16 @@ function restartSession(sessionId: string, goalId: string): void {
 const sessionsRouter = createSessionsRouter(sessionService, messageService, restartSession);
 const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
-const systemRouterWithSkills = createSystemRouter(skillDirectoryService);
+const customSkillDirs = skillDirectoryService.list().map((d) => d.path);
+const systemRouterWithSkills = createSystemRouter(skillDirectoryService, {
+  skillRoots: [
+    ...customSkillDirs,
+    ...['skills', 'agents', 'hooks', 'commands'].flatMap((s) => [
+      join(process.cwd(), '.claude', s),
+      join(homedir(), '.claude', s),
+    ]),
+  ],
+});
 const skillsRouter = createSkillsRouter(skillExecutionService, skillAnalysisService, skillFileService);
 
 // Create Express app and HTTP server

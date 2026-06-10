@@ -55,3 +55,24 @@ export function createCwdValidator(config: CwdValidatorConfig) {
 }
 
 export type CwdValidator = ReturnType<typeof createCwdValidator>;
+
+/**
+ * Resolves `candidate` and returns true if it sits within any of `roots`.
+ * Roots and candidate are resolved (symlinks where they exist) before compare.
+ */
+export function pathWithinRoots(candidate: string, roots: string[]): boolean {
+  let resolvedCandidate: string;
+  try {
+    resolvedCandidate = fs.realpathSync(candidate);
+  } catch {
+    resolvedCandidate = path.resolve(candidate);
+  }
+  const resolvedRoots = roots.map((r) => {
+    try {
+      return fs.realpathSync(path.resolve(r));
+    } catch {
+      return path.resolve(r);
+    }
+  });
+  return resolvedRoots.some((root) => isWithin(root, resolvedCandidate));
+}

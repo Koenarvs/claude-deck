@@ -7,14 +7,32 @@ import type { SkillDirectoryService } from '../services/skill-directory-service'
 import { getAggregateTotals, getDailyCosts } from '../services/usage-service';
 import { scanSkills, type ScannedSkill } from '../skill-scanner';
 import { findJsonlFile, getFormattedConversation } from '../services/transcript-service';
+import { pathWithinRoots } from '../security/path-allow';
 import logger from '../logger';
+
+export interface SystemRouterConfig {
+  /** Directories under which skill/agent .md files may be read. */
+  skillRoots?: string[];
+}
+
+/** Default skill roots: project + user .claude surfaces (mirrors skill-scanner). */
+function defaultSkillRoots(): string[] {
+  const roots: string[] = [];
+  for (const surface of ['skills', 'agents', 'hooks', 'commands']) {
+    roots.push(path.join(process.cwd(), '.claude', surface));
+    roots.push(path.join(os.homedir(), '.claude', surface));
+  }
+  return roots;
+}
 
 /**
  * Creates the system router. Accepts an optional SkillDirectoryService
- * for the skill-directories CRUD endpoints.
+ * for the skill-directories CRUD endpoints, and optional skill roots that
+ * constrain which .md files /skill-content may read.
  */
-export function createSystemRouter(skillDirService?: SkillDirectoryService): Router {
+export function createSystemRouter(skillDirService?: SkillDirectoryService, config?: SystemRouterConfig): Router {
 const router = Router();
+const skillRoots = config?.skillRoots ?? defaultSkillRoots();
 
 /**
  * GET /api/skills
@@ -67,19 +85,17 @@ router.get('/skill-content', (req, res) => {
     res.status(400).json({ error: 'path query parameter is required' });
     return;
   }
-
-  // Security: only allow .md files
   if (!filePath.endsWith('.md')) {
     res.status(400).json({ error: 'Only .md files can be read' });
     return;
   }
-
-  // Security: reject path traversal
-  if (filePath.includes('..')) {
-    res.status(400).json({ error: 'Path traversal not allowed' });
+  // Containment: the resolved path must live within a known skill root. This
+  // replaces the old substring '..' check (which allowed any absolute .md path).
+  if (!pathWithinRoots(filePath, skillRoots)) {
+    logger.warn({ filePath }, 'skill-content rejected: outside skill roots');
+    res.status(403).json({ error: 'Path is outside the allowed skill directories' });
     return;
   }
-
   try {
     if (!fs.existsSync(filePath)) {
       res.status(404).json({ error: 'File not found' });
