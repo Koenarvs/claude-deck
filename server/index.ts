@@ -33,6 +33,7 @@ import { findJsonlFile } from './services/transcript-service';
 import { ingestAllSessions } from './services/ingestion-service';
 import { createCwdValidator } from './security/path-allow';
 import { createModelValidator } from './security/model-allow';
+import { createConfigService } from './services/config-service';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import logger from './logger';
@@ -110,6 +111,7 @@ const scheduledTaskService = new ScheduledTaskService(db);
 const goalService = createGoalService(db);
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
+const configService = createConfigService(db);
 const approvalCoordinator = new ApprovalCoordinator(db);
 const skillExecutionService = createSkillExecutionService(db);
 const skillAnalysisService = createSkillAnalysisService(db);
@@ -295,6 +297,7 @@ const hooksRouter = createHooksRouter(hookIngest);
 const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
 const customSkillDirs = skillDirectoryService.list().map((d) => d.path);
 const systemRouterWithSkills = createSystemRouter(skillDirectoryService, {
+  configService,
   skillRoots: [
     ...customSkillDirs,
     ...['skills', 'agents', 'hooks', 'commands'].flatMap((s) => [

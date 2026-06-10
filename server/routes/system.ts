@@ -8,11 +8,15 @@ import { getAggregateTotals, getDailyCosts } from '../services/usage-service';
 import { scanSkills, type ScannedSkill } from '../skill-scanner';
 import { findJsonlFile, getFormattedConversation } from '../services/transcript-service';
 import { pathWithinRoots } from '../security/path-allow';
+import { buildCatalog } from '../agents/registry';
+import type { ConfigService } from '../services/config-service';
 import logger from '../logger';
 
 export interface SystemRouterConfig {
   /** Directories under which skill/agent .md files may be read. */
   skillRoots?: string[];
+  /** When present, GET/PUT /config persist via this service instead of stubbing. */
+  configService?: ConfigService;
 }
 
 /** Default skill roots: project + user .claude surfaces (mirrors skill-scanner). */
@@ -33,6 +37,7 @@ function defaultSkillRoots(): string[] {
 export function createSystemRouter(skillDirService?: SkillDirectoryService, config?: SystemRouterConfig): Router {
 const router = Router();
 const skillRoots = config?.skillRoots ?? defaultSkillRoots();
+const configService = config?.configService;
 
 /**
  * GET /api/skills
@@ -142,25 +147,45 @@ router.get('/extensions', (_req, res) => {
 
 /**
  * GET /api/config
- * Returns the current app configuration.
+ * Returns the persisted app configuration, runtime fields (dataDir,
+ * hooksInstalled), and the provider catalog (with capabilities).
  */
-router.get('/config', (_req, res) => {
+router.get('/config', async (_req, res) => {
+  if (!configService) {
+    // Legacy stub for routers built without a config service (some tests).
+    res.json({ homeRoute: '/board', defaultModel: 'default', defaultPermissionMode: 'supervised', tracePruneDays: 90 });
+    return;
+  }
+  const persisted = configService.getPersisted();
+  const status = await hookInstallerService.status();
+  const enabledIds = persisted.providers.filter((p) => p.enabled).map((p) => p.id);
   res.json({
-    homeRoute: '/board',
-    defaultModel: 'default',
-    defaultPermissionMode: 'supervised',
-    traceRetentionDays: 90,
+    ...persisted,
+    dataDir: process.env['DATA_DIR'] ?? './data',
+    hooksInstalled: status.installed,
+    catalog: buildCatalog(enabledIds),
   });
 });
 
 /**
  * PUT /api/config
- * Updates app configuration.
+ * Persists a partial config update and returns the merged result + catalog.
+ * Invalid bodies (Zod failure) return 400 and write nothing.
  */
 router.put('/config', (req, res) => {
-  // For now, accept the update but don't persist (config persistence is a v1.1 feature)
-  logger.info({ config: req.body }, 'Config update received');
-  res.json({ ...req.body, updated: true });
+  if (!configService) {
+    logger.info({ config: req.body }, 'Config update received (no persistence configured)');
+    res.json({ ...req.body, updated: true });
+    return;
+  }
+  try {
+    const updated = configService.updatePersisted(req.body ?? {});
+    const enabledIds = updated.providers.filter((p) => p.enabled).map((p) => p.id);
+    res.json({ ...updated, catalog: buildCatalog(enabledIds) });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: message });
+  }
 });
 
 /**
