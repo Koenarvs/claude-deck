@@ -6,6 +6,7 @@ import { broadcast } from './ws';
 import logger from './logger';
 import type { SkillExecutionService } from './services/skill-execution-service';
 import { scanSkills } from './skill-scanner';
+import path from 'node:path';
 
 /** Shape of a hook payload received from the CLI hook script. */
 export interface HookPayload {
@@ -55,15 +56,18 @@ export class HookIngest {
   private approvalCoordinator: ApprovalCoordinator;
   private skillExecutionService: SkillExecutionService | null;
   private knownSkillNames: Set<string> | null = null;
+  private traceRootDir: string | null;
 
   constructor(
     db: Database.Database,
     approvalCoordinator: ApprovalCoordinator,
     skillExecutionService?: SkillExecutionService,
+    traceRootDir?: string,
   ) {
     this.db = db;
     this.approvalCoordinator = approvalCoordinator;
     this.skillExecutionService = skillExecutionService ?? null;
+    this.traceRootDir = traceRootDir ?? null;
   }
 
   private getKnownSkillNames(): Set<string> {
@@ -186,12 +190,13 @@ export class HookIngest {
       }
     }
 
+    const traceDir = this.traceRootDir ? path.join(this.traceRootDir, sessionId) : null;
     this.db
       .prepare(
         `INSERT INTO sessions (id, goal_id, origin, cwd, model, display_name, trace_dir, stream_event_count, hook_event_count, stderr_bytes, started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 1, 0, ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, NULL)`,
       )
-      .run(sessionId, linkedGoalId, origin, cwd, payload.model ?? null, displayName, now);
+      .run(sessionId, linkedGoalId, origin, cwd, payload.model ?? null, displayName, traceDir, now);
 
     // If we linked to a goal, update the goal's current_session_id
     if (linkedGoalId) {

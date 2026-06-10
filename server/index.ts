@@ -117,7 +117,7 @@ const approvalCoordinator = new ApprovalCoordinator(db);
 const skillExecutionService = createSkillExecutionService(db);
 const skillAnalysisService = createSkillAnalysisService(db);
 const skillFileService = createSkillFileService(db);
-const hookIngest = new HookIngest(db, approvalCoordinator, skillExecutionService);
+const hookIngest = new HookIngest(db, approvalCoordinator, skillExecutionService, join(env.dataDir, 'traces'));
 
 /**
  * Goal creator — delegates to the real goal service.
