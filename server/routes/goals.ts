@@ -9,6 +9,7 @@ import { GoalNotFoundError, InvalidTransitionError, DuplicateGoalTitleError } fr
 import type { InterGoalMessageService } from '../services/inter-goal-message-service';
 import { InterGoalMessageNotFoundError } from '../services/inter-goal-message-service';
 import logger from '../logger';
+import { processRegistry } from '../process-registry';
 
 // ── Query Schemas ────────────────────────────────────────────────────────────
 
@@ -375,17 +376,22 @@ export function createGoalsRouter(
    *
    * Note: Full subprocess kill is deferred to B1 integration.
    */
-  router.post('/goals/:id/interrupt', (req: Request, res: Response) => {
+  router.post('/goals/:id/interrupt', async (req: Request, res: Response) => {
     try {
-      const goal = goalService.get(String(String(req.params['id'])));
+      const goal = goalService.get(String(req.params['id']));
       if (!goal) {
         res.status(404).json({ error: 'Goal not found' });
         return;
       }
 
-      // B1 integration: processRegistry.get(id)?.interrupt()
-      // Then transition goal to 'waiting'.
-      res.json({ killed: true });
+      const runner = processRegistry.get(goal.id);
+      if (runner) {
+        await runner.interrupt();
+        goalService.update(goal.id, { status: 'waiting' });
+        res.json({ killed: true });
+        return;
+      }
+      res.json({ killed: false });
     } catch (err) {
       logger.error({ err }, 'Failed to interrupt goal');
       res.status(500).json({ error: 'Failed to interrupt goal' });
