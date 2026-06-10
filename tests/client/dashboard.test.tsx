@@ -64,12 +64,11 @@ vi.mock('recharts', async () => {
 // ── StatCards ─────────────────────────────────────────────────────────────────
 
 describe('StatCards', () => {
-  it('renders all four stat tiles with correct values', () => {
+  it('renders all three stat tiles with correct values', () => {
     render(
       <StatCards
         activeGoals={5}
         activeSessions={3}
-        pendingApprovals={2}
         totalCompleted={10}
       />,
     );
@@ -80,9 +79,6 @@ describe('StatCards', () => {
     expect(screen.getByText('Active Sessions')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
 
-    expect(screen.getByText('Pending Approvals')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
-
     expect(screen.getByText('Total Completed')).toBeInTheDocument();
     expect(screen.getByText('10')).toBeInTheDocument();
   });
@@ -92,13 +88,12 @@ describe('StatCards', () => {
       <StatCards
         activeGoals={0}
         activeSessions={0}
-        pendingApprovals={0}
         totalCompleted={0}
       />,
     );
 
     const zeros = screen.getAllByText('0');
-    expect(zeros).toHaveLength(4);
+    expect(zeros).toHaveLength(3);
   });
 });
 

@@ -6,7 +6,6 @@ import { useGoalsStore } from '../stores/useGoalsStore';
 import { useSessionsStore } from '../stores/useSessionsStore';
 import { useMessagesStore } from '../stores/useMessagesStore';
 import { usePlanStore } from '../stores/usePlanStore';
-import { useApprovalsStore } from '../stores/useApprovalsStore';
 import { useConnectionStore } from '../stores/useConnectionStore';
 import { useActiveToolStore } from '../stores/useActiveToolStore';
 import { emitTerminalData, emitTerminalStarted, emitTerminalExited } from './terminal-events';
@@ -58,14 +57,6 @@ function dispatch(event: ServerEvent): void {
 
     case 'message:added':
       useMessagesStore.getState().addMessage(event.goal_id, event.session_id, event.message);
-      break;
-
-    case 'approval:pending':
-      useApprovalsStore.getState().addPending(event.approval);
-      break;
-
-    case 'approval:resolved':
-      useApprovalsStore.getState().markResolved(event.id, event.decision);
       break;
 
     case 'session:observed':

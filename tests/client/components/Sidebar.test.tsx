@@ -1,26 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { useApprovalsStore } from '../../../src/stores/useApprovalsStore';
 import { useSessionsStore } from '../../../src/stores/useSessionsStore';
-import type { Approval } from '../../../src/shared/types';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function makeApproval(overrides: Partial<Approval> = {}): Approval {
-  return {
-    id: `approval-${Math.random().toString(36).slice(2)}`,
-    session_id: 'sess-1',
-    goal_id: 'goal-1',
-    tool_name: 'Bash',
-    tool_args: '{}',
-    status: 'pending',
-    decided_reason: null,
-    requested_at: Date.now(),
-    resolved_at: null,
-    ...overrides,
-  };
-}
 
 // ── Mock fetch ───────────────────────────────────────────────────────────────
 
@@ -33,7 +14,6 @@ beforeEach(() => {
     json: async () => [],
   });
   // Reset stores
-  useApprovalsStore.setState({ pending: [], resolved: [] });
   useSessionsStore.setState({ sessions: [] });
 });
 
@@ -106,22 +86,7 @@ describe('Sidebar', () => {
     expect(boardLink?.className).toContain('font-medium');
   });
 
-  it('shows pending approvals badge on Board link', async () => {
-    const { default: Sidebar } = await import('../../../src/components/Sidebar');
-
-    useApprovalsStore.getState().addPending(makeApproval());
-    useApprovalsStore.getState().addPending(makeApproval());
-
-    render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText('2')).toBeInTheDocument();
-  });
-
-  it('does not show badge when no pending approvals', async () => {
+  it('does not render a numeric badge on the Board link', async () => {
     const { default: Sidebar } = await import('../../../src/components/Sidebar');
 
     render(
@@ -130,7 +95,7 @@ describe('Sidebar', () => {
       </MemoryRouter>,
     );
 
-    // No numeric badges should render
+    // No numeric badges should render (approval badge removed)
     const boardLink = screen.getByText('Board').closest('a');
     const badge = boardLink?.querySelector('.rounded-full');
     expect(badge).toBeNull();

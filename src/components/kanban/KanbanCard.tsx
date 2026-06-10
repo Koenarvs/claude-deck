@@ -2,9 +2,8 @@ import { useState, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useNavigate } from 'react-router';
-import { Cpu, Archive, FolderOpen, AlertCircle, Pause } from 'lucide-react';
+import { Cpu, Archive, FolderOpen, Pause } from 'lucide-react';
 import { useGoalsStore } from '../../stores/useGoalsStore';
-import { useApprovalsStore } from '../../stores/useApprovalsStore';
 import { useActiveToolStore } from '../../stores/useActiveToolStore';
 import { fmtCost, fmtTokens } from '../../lib/format';
 import type { Goal, GoalModel } from '../../shared/types';
@@ -52,10 +51,6 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
   const navigate = useNavigate();
   const removeGoal = useGoalsStore((s) => s.removeGoal);
   const [stats, setStats] = useState<SessionStats | null>(null);
-
-  const pendingApproval = useApprovalsStore((s) =>
-    s.pending.find((a) => a.goal_id === goal.id),
-  );
 
   const sessionId = goal.current_session_id;
   const activeTool = useActiveToolStore((s) =>
@@ -197,16 +192,7 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
         </div>
       )}
 
-      {pendingApproval && (
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <AlertCircle size={11} className="text-warn" />
-          <span className="mono-tabular truncate text-[10px] text-warn">
-            {pendingApproval.tool_name}
-          </span>
-        </div>
-      )}
-
-      {goal.status === 'waiting' && !pendingApproval && (
+      {goal.status === 'waiting' && (
         <div className="mt-1.5 flex items-center gap-1.5">
           <Pause size={11} className="text-faint" />
           <span className="mono-tabular text-[10px] text-faint">

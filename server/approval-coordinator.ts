@@ -192,57 +192,6 @@ export class ApprovalCoordinator {
   }
 
   /**
-   * Broadcasts an approval event for UI indicators (sidebar badge, kanban card)
-   * without blocking the hook. The approval is recorded but immediately resolved
-   * so Claude Code handles permissions natively in the terminal.
-   */
-  notify(req: ApprovalRequest): void {
-    const id = uuidv4();
-    const now = Date.now();
-
-    const approval: Approval = {
-      id,
-      session_id: req.session_id,
-      goal_id: req.goal_id,
-      tool_name: req.tool_name,
-      tool_args: req.tool_args,
-      status: 'pending',
-      decided_reason: null,
-      requested_at: now,
-      resolved_at: null,
-    };
-
-    this.db
-      .prepare(
-        `INSERT INTO approvals (id, session_id, goal_id, tool_name, tool_args, status, decided_reason, requested_at, resolved_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(id, req.session_id, req.goal_id, req.tool_name, req.tool_args, 'pending', null, now, null);
-
-    broadcast({
-      type: 'approval:pending',
-      approval,
-      goal_id: req.goal_id,
-    });
-
-    logger.info({ approvalId: id, toolName: req.tool_name, goalId: req.goal_id }, 'Approval notification broadcast (pass-through)');
-
-    // Auto-resolve after a short delay so the badge clears
-    // The user handles the actual permission in the terminal
-    setTimeout(() => {
-      this.db
-        .prepare(`UPDATE approvals SET status = 'approved', resolved_at = ? WHERE id = ? AND status = 'pending'`)
-        .run(Date.now(), id);
-
-      broadcast({
-        type: 'approval:resolved',
-        id,
-        decision: 'approved',
-      });
-    }, 30_000);
-  }
-
-  /**
    * Returns the number of currently pending approvals.
    */
   get pendingCount(): number {

@@ -10,18 +10,17 @@ import {
   Search,
 } from 'lucide-react';
 import { useSessionsStore } from '../stores/useSessionsStore';
-import { useApprovalsStore } from '../stores/useApprovalsStore';
 
 interface NavItem {
   to: string;
   label: string;
   icon: React.ReactNode;
-  badgeKey?: 'approvals' | 'active';
+  badgeKey?: 'active';
   accent?: boolean;
 }
 
 const navItems: NavItem[] = [
-  { to: '/board', label: 'Board', icon: <LayoutGrid size={15} />, badgeKey: 'approvals', accent: true },
+  { to: '/board', label: 'Board', icon: <LayoutGrid size={15} /> },
   { to: '/sessions', label: 'Sessions', icon: <Layers size={15} /> },
   { to: '/analytics', label: 'Analytics', icon: <Gauge size={15} /> },
   { to: '/scheduled', label: 'Scheduled', icon: <Clock size={15} /> },
@@ -33,10 +32,7 @@ export default function Sidebar() {
   const activeSessions = useSessionsStore(
     (s) => s.sessions.filter((x) => x.ended_at === null).length,
   );
-  const pendingApprovals = useApprovalsStore((s) => s.pending.length);
-
-  const badgeFor = (k?: 'approvals' | 'active') => {
-    if (k === 'approvals') return pendingApprovals;
+  const badgeFor = (k?: 'active') => {
     if (k === 'active') return activeSessions;
     return 0;
   };

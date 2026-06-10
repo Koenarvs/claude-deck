@@ -1,25 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import type { Approval } from '../../src/shared/types';
-
-// ── Utility: mock approval factory ──────────────────────────────────────────
-
-function makeApproval(overrides: Partial<Approval> = {}): Approval {
-  return {
-    id: 'approval-1',
-    session_id: 'sess-1',
-    goal_id: 'goal-1',
-    tool_name: 'Bash',
-    tool_args: JSON.stringify({ command: 'ls -la', description: 'list files' }),
-    status: 'pending',
-    decided_reason: null,
-    requested_at: Date.now(),
-    resolved_at: null,
-    ...overrides,
-  };
-}
 
 // ── notifications.ts ────────────────────────────────────────────────────────
 
@@ -257,82 +239,6 @@ describe('ToastContainer', () => {
   });
 });
 
-// ── ApprovalCard ────────────────────────────────────────────────────────────
-
-describe('ApprovalCard', () => {
-  it('renders tool name and formatted args', async () => {
-    const ApprovalCard = (await import('../../src/components/global/ApprovalCard')).default;
-    const approval = makeApproval();
-
-    render(
-      <ApprovalCard approval={approval} onAllow={vi.fn()} onDeny={vi.fn()} />,
-    );
-
-    expect(screen.getByText('Bash')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveAttribute(
-      'aria-label',
-      'Approval request for Bash',
-    );
-  });
-
-  it('calls onAllow when Allow button clicked', async () => {
-    const ApprovalCard = (await import('../../src/components/global/ApprovalCard')).default;
-    const onAllow = vi.fn();
-    const approval = makeApproval();
-
-    render(
-      <ApprovalCard approval={approval} onAllow={onAllow} onDeny={vi.fn()} />,
-    );
-
-    fireEvent.click(screen.getByLabelText('Allow this tool use'));
-    expect(onAllow).toHaveBeenCalledWith('approval-1');
-  });
-
-  it('calls onDeny when Deny button clicked', async () => {
-    const ApprovalCard = (await import('../../src/components/global/ApprovalCard')).default;
-    const onDeny = vi.fn();
-    const approval = makeApproval();
-
-    render(
-      <ApprovalCard approval={approval} onAllow={vi.fn()} onDeny={onDeny} />,
-    );
-
-    fireEvent.click(screen.getByLabelText('Deny this tool use'));
-    expect(onDeny).toHaveBeenCalledWith('approval-1');
-  });
-
-  it('shows countdown timer', async () => {
-    const ApprovalCard = (await import('../../src/components/global/ApprovalCard')).default;
-    const approval = makeApproval({ requested_at: Date.now() });
-
-    render(
-      <ApprovalCard approval={approval} onAllow={vi.fn()} onDeny={vi.fn()} />,
-    );
-
-    // Should show approximately 30:00 for a just-created approval
-    expect(screen.getByText(/30:0/)).toBeInTheDocument();
-  });
-
-  it('disables buttons when expired', async () => {
-    vi.useFakeTimers();
-    const ApprovalCard = (await import('../../src/components/global/ApprovalCard')).default;
-    // requested 31 minutes ago — already expired
-    const approval = makeApproval({
-      requested_at: Date.now() - 31 * 60 * 1000,
-    });
-
-    render(
-      <ApprovalCard approval={approval} onAllow={vi.fn()} onDeny={vi.fn()} />,
-    );
-
-    const allowBtn = screen.getByLabelText('Allow this tool use');
-    const denyBtn = screen.getByLabelText('Deny this tool use');
-    expect(allowBtn).toBeDisabled();
-    expect(denyBtn).toBeDisabled();
-    vi.useRealTimers();
-  });
-});
-
 // ── ConnectionIndicator ─────────────────────────────────────────────────────
 
 describe('ConnectionIndicator', () => {
@@ -386,101 +292,6 @@ describe('ConnectionIndicator', () => {
 
     render(<ConnectionIndicator />);
     expect(screen.getByText('Connection error')).toBeInTheDocument();
-  });
-});
-
-// ── GlobalApprovalQueue ─────────────────────────────────────────────────────
-
-describe('GlobalApprovalQueue', () => {
-  beforeEach(async () => {
-    const { useApprovalsStore } = await import('../../src/stores/useApprovalsStore');
-    // Reset store
-    useApprovalsStore.setState({ pending: [], resolved: [] });
-  });
-
-  it('renders nothing when no pending approvals', async () => {
-    const GlobalApprovalQueue = (
-      await import('../../src/components/global/GlobalApprovalQueue')
-    ).default;
-
-    const { container } = render(
-      <MemoryRouter>
-        <GlobalApprovalQueue />
-      </MemoryRouter>,
-    );
-    expect(container.firstChild).toBeNull();
-  });
-
-  it('renders approval cards for pending approvals', async () => {
-    const { useApprovalsStore } = await import('../../src/stores/useApprovalsStore');
-    const approval = makeApproval();
-    useApprovalsStore.getState().addPending(approval);
-
-    const GlobalApprovalQueue = (
-      await import('../../src/components/global/GlobalApprovalQueue')
-    ).default;
-
-    render(
-      <MemoryRouter>
-        <GlobalApprovalQueue />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText('Bash')).toBeInTheDocument();
-  });
-
-  it('posts decision to API on Approve click', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ id: 'approval-1', decision: 'approved' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
-
-    const { useApprovalsStore } = await import('../../src/stores/useApprovalsStore');
-    useApprovalsStore.getState().addPending(makeApproval());
-
-    const GlobalApprovalQueue = (
-      await import('../../src/components/global/GlobalApprovalQueue')
-    ).default;
-
-    render(
-      <MemoryRouter>
-        <GlobalApprovalQueue />
-      </MemoryRouter>,
-    );
-
-    fireEvent.click(screen.getByText('Approve'));
-
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(
-        '/api/approvals/approval-1/decide',
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ decision: 'approved' }),
-        }),
-      );
-    });
-
-    fetchSpy.mockRestore();
-  });
-
-  it('shows pending count in header', async () => {
-    const { useApprovalsStore } = await import('../../src/stores/useApprovalsStore');
-    useApprovalsStore.getState().addPending(makeApproval());
-
-    const GlobalApprovalQueue = (
-      await import('../../src/components/global/GlobalApprovalQueue')
-    ).default;
-
-    render(
-      <MemoryRouter>
-        <GlobalApprovalQueue />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText('1 approval pending')).toBeInTheDocument();
   });
 });
 

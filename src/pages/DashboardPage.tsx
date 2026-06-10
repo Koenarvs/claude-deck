@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useGoalsStore } from '../stores/useGoalsStore';
-import { useApprovalsStore } from '../stores/useApprovalsStore';
 import { useSessionsStore } from '../stores/useSessionsStore';
 import StatCards from '../components/dashboard/StatCards';
 import ActiveGoalsStrip from '../components/dashboard/ActiveGoalsStrip';
@@ -33,7 +32,6 @@ async function fetchInitialData(): Promise<{
 export default function DashboardPage() {
   const goals = useGoalsStore((s) => s.goals);
   const setGoals = useGoalsStore((s) => s.setGoals);
-  const pendingApprovals = useApprovalsStore((s) => s.pending);
   const sessions = useSessionsStore((s) => s.sessions);
   const setSessions = useSessionsStore((s) => s.setSessions);
 
@@ -94,7 +92,6 @@ export default function DashboardPage() {
       <StatCards
         activeGoals={activeGoals.length}
         activeSessions={activeSessions.length}
-        pendingApprovals={pendingApprovals.length}
         totalCompleted={completedGoals.length}
       />
 

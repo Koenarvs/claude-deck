@@ -2,7 +2,6 @@ import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 import type { HookEventType, PlanJson, PlanTodo } from '../src/shared/types';
 import { ApprovalCoordinator, type Decision } from './approval-coordinator';
-import { resolveApprovalPosture } from './approval-policy';
 import { broadcast } from './ws';
 import logger from './logger';
 import type { SkillExecutionService } from './services/skill-execution-service';
@@ -54,19 +53,20 @@ function todoItemToPlanTodo(item: TodoItem): PlanTodo {
  */
 export class HookIngest {
   private db: Database.Database;
-  private approvalCoordinator: ApprovalCoordinator;
   private skillExecutionService: SkillExecutionService | null;
   private knownSkillNames: Set<string> | null = null;
   private traceRootDir: string | null;
 
   constructor(
     db: Database.Database,
-    approvalCoordinator: ApprovalCoordinator,
+    // Reserved: tool-call interception was removed (hooks pass through). The
+    // coordinator is kept in the construction contract for a future Phase 6
+    // orchestrator that may route blocking approvals through here again.
+    _approvalCoordinator: ApprovalCoordinator,
     skillExecutionService?: SkillExecutionService,
     traceRootDir?: string,
   ) {
     this.db = db;
-    this.approvalCoordinator = approvalCoordinator;
     this.skillExecutionService = skillExecutionService ?? null;
     this.traceRootDir = traceRootDir ?? null;
   }
@@ -294,41 +294,16 @@ export class HookIngest {
 
     const sessionId = payload.session_id ?? null;
     const goalId = this.getGoalIdForSession(sessionId);
-    const posture = resolveApprovalPosture(this.db, goalId);
-
-    if (posture === 'block') {
-      logger.info({ event: 'PreToolUse', toolName, sessionId, goalId }, 'Hook: PreToolUse — blocking for supervised approval');
-      // Supervised + provider can approve: hold the hook open until the UI decides.
-      // request() inserts the pending row, broadcasts approval:pending, and resolves
-      // when POST /approvals/:id/decide → coordinator.resolve(), or denies on timeout.
-      return this.approvalCoordinator.request(
-        {
-          session_id: sessionId,
-          goal_id: goalId,
-          tool_name: toolName,
-          tool_args: JSON.stringify(payload.tool_input ?? {}),
-        },
-        false, // isAutonomous=false => blocking deferred
-      );
-    }
 
     logger.debug({
       event: 'PreToolUse',
       toolName,
       sessionId,
       goalId,
-    }, 'Hook: PreToolUse — notifying UI (pass-through)');
+    }, 'Hook: PreToolUse — pass-through');
 
-    // Pass-through: autonomous, unlinked, or non-approving provider. Broadcast a
-    // transient badge (auto-clears) but don't block.
-    this.approvalCoordinator.notify({
-      session_id: sessionId,
-      goal_id: goalId,
-      tool_name: toolName,
-      tool_args: JSON.stringify(payload.tool_input ?? {}),
-    });
-
-    // Pass through — let Claude Code handle permissions natively in the terminal
+    // Pass through silently — Claude Code handles permissions natively in the
+    // terminal. No dashboard interception/notification (removed by request).
     return { decision: 'allow' };
   }
 
@@ -358,21 +333,6 @@ export class HookIngest {
 
     const sessionId = payload.session_id ?? null;
     const goalId = this.getGoalIdForSession(sessionId);
-    const posture = resolveApprovalPosture(this.db, goalId);
-
-    if (posture === 'block') {
-      logger.info({ event: 'PermissionRequest', toolName, sessionId, goalId }, 'Hook: PermissionRequest — blocking for supervised approval');
-      // Supervised + provider can approve: hold the hook open until the UI decides.
-      return this.approvalCoordinator.request(
-        {
-          session_id: sessionId,
-          goal_id: goalId,
-          tool_name: toolName,
-          tool_args: JSON.stringify(payload.tool_input ?? {}),
-        },
-        false, // isAutonomous=false => blocking deferred
-      );
-    }
 
     logger.info({
       event: 'PermissionRequest',
@@ -380,17 +340,10 @@ export class HookIngest {
       sessionId,
       goalId,
       payloadKeys: Object.keys(payload).join(', '),
-    }, 'Hook: PermissionRequest — notifying UI (pass-through)');
+    }, 'Hook: PermissionRequest — pass-through');
 
-    // Pass-through: autonomous, unlinked, or non-approving provider.
-    this.approvalCoordinator.notify({
-      session_id: sessionId,
-      goal_id: goalId,
-      tool_name: toolName,
-      tool_args: JSON.stringify(payload.tool_input ?? {}),
-    });
-
-    // Pass through — let Claude Code handle permissions natively in the terminal
+    // Pass through silently — Claude Code handles permissions natively in the
+    // terminal. No dashboard interception/notification (removed by request).
     return { decision: 'allow' };
   }
 

@@ -1,7 +1,6 @@
 import {
   Target,
   Monitor,
-  ShieldAlert,
   CheckCircle2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -32,19 +31,17 @@ function StatCard({ label, value, icon, color }: StatCardProps) {
 
 export interface StatCardsProps {
   activeGoals: number;
-  pendingApprovals: number;
   activeSessions: number;
   totalCompleted: number;
 }
 
 export default function StatCards({
   activeGoals,
-  pendingApprovals,
   activeSessions,
   totalCompleted,
 }: StatCardsProps) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <StatCard
         label="Active Goals"
         value={activeGoals}
@@ -56,12 +53,6 @@ export default function StatCards({
         value={activeSessions}
         icon={<Monitor size={24} />}
         color="#22c55e"
-      />
-      <StatCard
-        label="Pending Approvals"
-        value={pendingApprovals}
-        icon={<ShieldAlert size={24} />}
-        color="#f59e0b"
       />
       <StatCard
         label="Total Completed"

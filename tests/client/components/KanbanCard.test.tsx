@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { useApprovalsStore } from '../../../src/stores/useApprovalsStore';
 import { useActiveToolStore } from '../../../src/stores/useActiveToolStore';
-import type { Goal, GoalStatus, Approval } from '../../../src/shared/types';
+import type { Goal, GoalStatus } from '../../../src/shared/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -26,21 +25,6 @@ function makeGoal(overrides: Partial<Goal> & { id: string; title: string }): Goa
   };
 }
 
-function makeApproval(overrides: Partial<Approval> = {}): Approval {
-  return {
-    id: 'approval-1',
-    session_id: 'sess-1',
-    goal_id: 'goal-1',
-    tool_name: 'Bash',
-    tool_args: '{}',
-    status: 'pending',
-    decided_reason: null,
-    requested_at: Date.now(),
-    resolved_at: null,
-    ...overrides,
-  };
-}
-
 // ── Mock fetch ───────────────────────────────────────────────────────────────
 
 const fetchMock = vi.fn();
@@ -52,7 +36,6 @@ beforeEach(() => {
     json: async () => ({}),
   });
   // Reset stores
-  useApprovalsStore.setState({ pending: [], resolved: [] });
   useActiveToolStore.setState({ bySessionId: {} });
 });
 
@@ -169,39 +152,6 @@ describe('KanbanCard', () => {
     expect(screen.queryByText('Haiku')).not.toBeInTheDocument();
   });
 
-  it('renders approval indicator when pending approval exists for the goal', async () => {
-    const { default: KanbanCard } = await import('../../../src/components/kanban/KanbanCard');
-    const goal = makeGoal({ id: 'goal-with-approval', title: 'Needs approval' });
-
-    useApprovalsStore.getState().addPending(makeApproval({
-      goal_id: 'goal-with-approval',
-      tool_name: 'Write',
-    }));
-
-    render(
-      <MemoryRouter>
-        <KanbanCard goal={goal} />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText('Write')).toBeInTheDocument();
-  });
-
-  it('does not show approval indicator when no pending approval', async () => {
-    const { default: KanbanCard } = await import('../../../src/components/kanban/KanbanCard');
-    const goal = makeGoal({ id: 'goal-clean', title: 'Clean goal' });
-
-    render(
-      <MemoryRouter>
-        <KanbanCard goal={goal} />
-      </MemoryRouter>,
-    );
-
-    // No approval tool name should appear
-    expect(screen.queryByText('Write')).not.toBeInTheDocument();
-    expect(screen.queryByText('Bash')).not.toBeInTheDocument();
-  });
-
   it('shows "Running" for active goal without active tool', async () => {
     const { default: KanbanCard } = await import('../../../src/components/kanban/KanbanCard');
     const goal = makeGoal({
@@ -240,7 +190,7 @@ describe('KanbanCard', () => {
     expect(screen.getByText('Read')).toBeInTheDocument();
   });
 
-  it('shows "Idle" for waiting goal without pending approval', async () => {
+  it('shows "Idle" for waiting goal', async () => {
     const { default: KanbanCard } = await import('../../../src/components/kanban/KanbanCard');
     const goal = makeGoal({ id: 'g-idle', title: 'Idle goal', status: 'waiting' });
 
