@@ -32,6 +32,7 @@ import { ConversationLogger } from './services/conversation-logger';
 import { findJsonlFile } from './services/transcript-service';
 import { ingestAllSessions } from './services/ingestion-service';
 import { createCwdValidator } from './security/path-allow';
+import { createModelValidator } from './security/model-allow';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import logger from './logger';
@@ -225,7 +226,8 @@ setTerminalHandler({
 const scheduler = new Scheduler(scheduledTaskService, createGoal);
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
 const validateCwd = createCwdValidator({ allowedRoots: env.allowedRoots });
-const goalsRouter = createGoalsRouter(goalService, spawnTerminalSession, interGoalMessageService, { validateCwd });
+const validateModel = createModelValidator();
+const goalsRouter = createGoalsRouter(goalService, spawnTerminalSession, interGoalMessageService, { validateCwd, validateModel });
 /**
  * Restarts an ended session by spawning a new PTY with --resume.
  * Called by the sessions route POST /sessions/:id/restart.

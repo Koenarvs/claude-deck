@@ -76,6 +76,14 @@ export function createGoalsRouter(
           }
         }
 
+        if (security?.validateModel) {
+          const m = security.validateModel(req.body.model);
+          if (!m.ok) {
+            res.status(400).json({ error: `Invalid model: ${m.reason}` });
+            return;
+          }
+        }
+
         const goal = goalService.create(req.body);
 
         let sessionId: string | undefined;
@@ -120,6 +128,14 @@ export function createGoalsRouter(
           const v = security.validateCwd(req.body.cwd);
           if (!v.ok) {
             res.status(400).json({ error: `Invalid cwd: ${v.reason}` });
+            return;
+          }
+        }
+
+        if (security?.validateModel) {
+          const m = security.validateModel(req.body.model);
+          if (!m.ok) {
+            res.status(400).json({ error: `Invalid model: ${m.reason}` });
             return;
           }
         }
