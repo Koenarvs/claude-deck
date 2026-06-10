@@ -43,6 +43,147 @@ unchanged; these deltas apply:
 
 ---
 
+## ⚠️ Plan Revisions (2026-06-09) — read first; these OVERRIDE task text below
+
+These deltas come from `docs/superpowers/plans/2026-06-09-master-roadmap.md` (§2 decisions + "Phase 1 — deltas A/B/C") and the sibling-branch reconciliation in `docs/superpowers/specs/2026-06-08-settings-persistence-design.md`. They **override** the corresponding task text below. Apply them as written; the original task bodies are kept for context only.
+
+**Branch reality verified on `feat/multi-agent-foundation` (2026-06-09):** migrations stop at **`014_hook_events_session_index.sql`**; there is **no** `015_app_config.sql`, **no** `PersistedConfigSchema`/`enabledProviders` in `src/shared/schemas.ts`, and **no** `src/shared/agents/model-registry.ts`. Therefore:
+- The 2026-06-08 revision's "migration is **`015_app_config.sql`** (version 15)" still holds for Task 3 (next free number is 015 on this branch).
+- Delta B's reconciliation path **(a)** is the active one here (define the record shape directly). Path **(b)** + migration `016_provider_config.sql` only applies **if** the sibling `feat/multi-agent-impl` branch (which shipped 015 with `enabledProviders: string[]`) is merged onto this branch first. Both paths are specified below; pick by checking `git log` / `server/db/migrations/` for `015_app_config.sql` at execution time.
+
+**Dependency added:** Phase 0A's `src/shared/agents/model-registry.ts` (single source of truth for pricing/tier/contextWindow via `resolveModel(raw)`) **must exist before Task 5/6** — Delta D makes those tasks delegate to it. If it is not present, stop and build it (Phase 0A plan) first.
+
+### Delta A — `RawUsage` carries a per-model breakdown (amends Task 1 types + Task 5 `parseUsage`)
+Decision 4 (per-model attribution) needs `RawUsage` to break tokens down per model **before** Task 1 is committed and consumed by Task 5/6. This is a 1-shaped change now and a 3-adapter breaking change later — **land it before committing Task 1.** Replace the `RawUsage` interface in `src/shared/agents/types.ts` with:
+```ts
+/** Per-model token totals within a session. */
+export interface RawModelUsage {
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  messageCount: number;
+}
+
+/** Session usage: top-level fields are the rolled-up session totals (back-compat);
+ *  `byModel` carries the per-model rows (single-model sessions → 1-element array). */
+export interface RawUsage extends RawModelUsage {
+  byModel: RawModelUsage[];
+}
+```
+- **Task 1 test (`tests/shared/agents/types.test.ts`)** must construct the new shape, e.g.:
+  ```ts
+  const u: RawUsage = {
+    inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0, messageCount: 1, model: 'claude-opus-4-8',
+    byModel: [{ inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0, messageCount: 1, model: 'claude-opus-4-8' }],
+  };
+  ```
+- **Task 5 `parseClaudeUsage` is amended** (see the "Delta A — amended Task 5 Step 4.3" block under Task 5 below) to aggregate per-`message.model` into `byModel` AND return the rolled-up totals at the top level.
+- **`MockAdapter` (Task 7)** and any other `RawUsage` literal must add `byModel: []` (or a 1-element array) to stay compilable.
+
+### Delta B — `AppConfig` providers are records, not a string list (amends Task 2 schema + Task 3 config-service)
+Decisions 1–3 & 6: billing mode is per-provider config, not adapter, so `enabledProviders: string[]` becomes a `providers` record array. Add to `src/shared/schemas.ts` (Task 2):
+```ts
+export const ProviderConfigSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean(),
+  billingMode: z.enum(['metered', 'seat']).default('seat'),
+  seatPriceUsdMonthly: z.number().nonnegative().optional(),       // seat mode → value multiplier
+  budget: z.object({ dailyUsd: z.number(), monthlyUsd: z.number(), perGoalUsd: z.number() })
+            .partial().optional(),                                // metered mode → caps/alerts
+});
+export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
+```
+…and replace `enabledProviders: z.array(z.string()).default(['claude'])` in `AppConfigSchema`/`PersistedConfigSchema` with:
+```ts
+  providers: z.array(ProviderConfigSchema).default([{ id: 'claude', enabled: true, billingMode: 'seat' }]),
+```
+**Config-service (Task 3) changes:**
+- `normalizeProviders(list: ProviderConfig[])` enforces the invariant: a `'claude'` record is **always present & enabled** (`billingMode: 'seat'` if absent). It dedupes by `id` (last write wins) and forces `claude.enabled = true`.
+- `DEFAULTS.providers = [{ id: 'claude', enabled: true, billingMode: 'seat' }]`.
+- The registry's `adapterForModel(model, enabledIds)` **still takes string ids** — derive them at the call site:
+  ```ts
+  const enabledIds = persisted.providers.filter((p) => p.enabled).map((p) => p.id);
+  ```
+- `buildCatalog(...)` (Task 7) and Task 8's `/api/config` response take `enabledIds` (derived as above), not the raw provider records.
+
+**RECONCILIATION (sibling `feat/multi-agent-impl` shipped 015 with `enabledProviders: string[]`):**
+- **(a) 015 NOT yet merged onto this branch (current reality):** define the `providers` record shape directly in Task 2's `PersistedConfigSchema` and Task 3's config-service/migration. There is no `enabledProviders` to migrate from. Use migration **`015_app_config.sql`** as written in Task 3 (the table stores a JSON blob; the `providers` shape lives entirely in the Zod schema, so no column change is needed).
+- **(b) 015 ALREADY merged (its `config_json` holds `{enabledProviders:[...]}`):** add migration **`016_provider_config.sql`** to rewrite existing rows in-place from `{enabledProviders:[...]}` → `{providers:[...]}`, defaulting `billingMode:'seat'`, no budget, no seat price. Because the rewrite needs JSON transformation SQLite can't easily express, run it as a JS data-migration step inside the migration runner (or a one-shot guarded by the `schema_migrations` version). SQL + JS:
+  ```sql
+  -- server/db/migrations/016_provider_config.sql
+  -- Schema is unchanged (config_json is an opaque TEXT blob); this migration only
+  -- records the version. The blob rewrite runs in the JS companion below, because
+  -- {enabledProviders:[...]} → {providers:[...]} is a JSON transform, not DDL.
+  INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (16, strftime('%s', 'now'));
+  ```
+  ```ts
+  // Runs once, after 016's SQL, in the migration runner (or config-service bootstrap
+  // guarded by `SELECT 1 FROM schema_migrations WHERE version = 16`):
+  function migrate016(db: Database.Database): void {
+    const row = db.prepare('SELECT config_json FROM app_config WHERE id = 1').get() as
+      | { config_json: string } | undefined;
+    if (!row) return;
+    let cfg: Record<string, unknown>;
+    try { cfg = JSON.parse(row.config_json); } catch { return; } // corrupt → leave for getPersisted() fallback
+    if (Array.isArray(cfg['providers'])) return;                  // already migrated, idempotent
+    const ids = Array.isArray(cfg['enabledProviders']) ? (cfg['enabledProviders'] as string[]) : ['claude'];
+    const idSet = new Set(['claude', ...ids]);                    // claude-always-present invariant
+    cfg['providers'] = [...idSet].map((id) => ({ id, enabled: true, billingMode: 'seat' as const }));
+    delete cfg['enabledProviders'];
+    db.prepare('UPDATE app_config SET config_json = ?, updated_at = ? WHERE id = 1')
+      .run(JSON.stringify(cfg), Date.now());
+  }
+  ```
+  Tests for path (b): seed a row with `{enabledProviders:['claude','antigravity']}`, run `migrate016`, assert `getPersisted().providers` has two enabled records both `billingMode:'seat'`, and that re-running `migrate016` is a no-op (idempotent).
+
+### Delta C — capability matrix on the interface (amends Task 1 `AgentCatalogEntry` + Task 4 interface + Task 6 `ClaudeAdapter`)
+Decision 8: adapters declare what they can do so the UI degrades honestly. Add to `src/shared/agents/types.ts` (Task 1):
+```ts
+/** What an adapter's CLI can actually do; the UI greys out unsupported affordances. */
+export interface AgentCapabilities {
+  canObserveHooks: boolean;
+  canResume: boolean;
+  canMcp: boolean;
+  canApprove: boolean;
+  canStream: boolean;
+}
+```
+- Add `capabilities: AgentCapabilities;` to `AgentCatalogEntry` (Task 1).
+- Add `readonly capabilities: AgentCapabilities;` to the `AgentAdapter` interface (Task 4).
+- **Also add to the `AgentAdapter` interface (Task 4)** a Phase-3 context-file mapping hook:
+  ```ts
+  /** Phase 3: point the CLI's native context file (CLAUDE.md / AGENTS.md / GEMINI.md)
+   *  at the shared goal docs. Claude's impl writes/links CLAUDE.md, or no-ops if present. */
+  prepareContext(ctx: SpawnContext): void;
+  ```
+- `ClaudeAdapter` (Task 6) sets **all five capabilities `true`** and provides a minimal `prepareContext` (see the "Delta C — amended Task 6" block under Task 6). `MockAdapter` (Task 7) and the registry's `buildCatalog` must also carry `capabilities` — see those tasks' delta notes.
+
+### Delta D — pricing/contextWindow delegate to the Phase 0A registry (amends Task 5 + Task 6)
+Decision (Phase 0A): there is exactly one pricing/tier/window table — `src/shared/agents/model-registry.ts` (`resolveModel(raw) → ModelEntry | null`). Task 5/6 must **delegate** pricing + contextWindow to it, not keep a local Claude-only table. `parseUsage`/transcript parsing **stays in the adapter** (it is provider-specific); only pricing/window lookup moves:
+```ts
+import { resolveModel } from '../../src/shared/agents/model-registry';
+
+// in usage-service.ts (Task 5), replacing the local MODEL_PRICING table:
+export function claudePricingFor(model: string | null): ModelPricing {
+  const entry = resolveModel(model);
+  // null pricing (seat-only / unknown) → zeros; cost is computed as 0 and the model is flagged unpriced upstream.
+  return entry?.pricing ?? { input: 0, cache_read: 0, cache_creation: 0, output: 0 };
+}
+export function claudeContextWindow(model: string | null, currentContextTokens: number): number {
+  return resolveModel(model)?.contextWindow ?? 200_000;
+}
+```
+The `ClaudeAdapter.pricingFor(model)` (Task 6) is then just `return resolveModel(model)?.pricing ?? { input: 0, cache_read: 0, cache_creation: 0, output: 0 };` (or keep delegating through `claudePricingFor`). **Delete** the local `MODEL_PRICING`/`getPricing`/`getContextWindow` tables from `usage-service.ts` once the registry exists (Phase 0A already does this; re-confirm in Task 5).
+
+### Settings-persistence convergence (amends Task 8 + Task 10)
+Foundation **Task 8's real `/api/config` wiring SUPERSEDES the standalone `2026-06-08-settings-persistence-design.md` plan** — do not run that plan separately. Fold its two extras in here:
+- **Settings scrollbar fix** → wrap `SettingsPage` content in `flex-1 overflow-y-auto px-6 py-4` (matching `AnalyticsPage`/`SkillsPage`) → **Task 10**.
+- **`/api/config` round-trip + field-name (`tracePruneDays`) + provider-invariant tests** → add to **Task 8** (GET-on-empty returns defaults; PUT→GET round-trips; invalid PUT → 400 writes nothing; PUT clearing providers still returns a `claude` record; `tracePruneDays` read back identically). These replace the standalone plan's test list.
+
+---
+
 ## Task 0: Prerequisite — green baseline via Vitest env split + Node 24
 
 Two independent issues, fixed together because the refactor's safety net needs a green baseline:
@@ -131,6 +272,10 @@ git commit -m "build: target Node 24 + split Vitest server/client test environme
 - Test: `tests/shared/agents/types.test.ts`
 
 These are framework-free types shared by client and server. No runtime logic, so the "test" is a compile-time usage assertion.
+
+> **⚠️ 2026-06-09 OVERRIDES (apply before committing this task):**
+> - **Delta A:** replace the `RawUsage` interface below with the `RawModelUsage` + `RawUsage extends RawModelUsage { byModel }` pair (see Delta A above). Update the Step-2 test literal to include `byModel`.
+> - **Delta C:** add the `AgentCapabilities` interface and add `capabilities: AgentCapabilities` to `AgentCatalogEntry` (see Delta C above). The Step-2 `AgentCatalogEntry` literal must add `capabilities: { canObserveHooks: true, canResume: true, canMcp: true, canApprove: true, canStream: true }`.
 
 - [ ] **Step 1: Write the file.**
 ```ts
@@ -227,6 +372,8 @@ git commit -m "feat: shared agent adapter types"
 - Modify: `src/shared/types.ts:252-259` (`AppConfig` interface)
 - Test: `tests/shared/schemas.test.ts` (append)
 
+> **⚠️ 2026-06-09 OVERRIDE — Delta B:** `enabledProviders: string[]` becomes a `providers: ProviderConfig[]` record array. Add `ProviderConfigSchema`/`ProviderConfig` (see Delta B above) and replace every `enabledProviders` reference in this task — schema field, `PersistedConfigSchema.pick`, the `AppConfig` interface (`src/shared/types.ts`), and the Step-1/Step-3 tests — with `providers`. The default is `[{ id: 'claude', enabled: true, billingMode: 'seat' }]`. The Step-3 test should assert `providers[0]` is the enabled claude record; the `PersistedConfigSchema.pick` keys become `['defaultModel','defaultPermissionMode','homeRoute','providers','tracePruneDays']`. (Reconciliation: on this branch 015 is not merged, so define the record shape directly — path (a).)
+
 - [ ] **Step 1: Write failing test** (append to `tests/shared/schemas.test.ts`):
 ```ts
 import { AppConfigSchema, PersistedConfigSchema } from '../../src/shared/schemas';
@@ -305,6 +452,11 @@ git commit -m "feat: add enabledProviders to app config schema + persisted-confi
 - Create: `server/db/migrations/014_app_config.sql`
 - Create: `server/services/config-service.ts`
 - Test: `tests/server/services/config-service.test.ts`
+
+> **⚠️ 2026-06-09 OVERRIDES:**
+> - **Migration number** (per the 2026-06-08 revision, re-verified): this is **`015_app_config.sql`** (version `15`). On this branch (`feat/multi-agent-foundation`) the next free number is 015 — migrations stop at `014_hook_events_session_index.sql`. The SQL body below is otherwise unchanged except the version literal `14` → `15` and the filename.
+> - **Delta B (record providers + reconciliation):** `normalizeProviders` now takes `ProviderConfig[]` and enforces a present-&-enabled `claude` record (dedupe by `id`, force `claude.enabled = true`). `DEFAULTS.providers = [{ id: 'claude', enabled: true, billingMode: 'seat' }]`. The config-service tests' `enabledProviders` assertions become `providers` assertions (e.g. `getPersisted().providers.find(p => p.id === 'claude')?.enabled === true`).
+> - **Reconciliation path (b):** if a sibling merge brought 015 with `{enabledProviders:[...]}` rows, ALSO add `016_provider_config.sql` + the `migrate016` JS data-migration (full SQL/JS in Delta B above) and a sub-task: write its idempotency test, run it, commit. On the current branch this sub-task is a **no-op** (no 015 to migrate from).
 
 - [ ] **Step 1: Write the migration.**
 ```sql
@@ -439,6 +591,16 @@ git commit -m "feat: persist app config as json blob (migration 014 + config-ser
 
 Interface-only; verified by the adapters that implement it (Tasks 6–7). One approved refinement: hook methods are async (the underlying installer is async).
 
+> **⚠️ 2026-06-09 OVERRIDE — Delta C:** add two members to the `AgentAdapter` interface below:
+> ```ts
+> import type { /* …existing… */ AgentCapabilities } from '../../src/shared/agents/types';
+> // …inside AgentAdapter, in the Identity & catalog block:
+>   readonly capabilities: AgentCapabilities;
+> // …new section, Context (Phase 3 context-file mapping):
+>   prepareContext(ctx: SpawnContext): void;
+> ```
+> `AgentCapabilities` is defined in Task 1 (Delta C). `prepareContext` maps the CLI's native context file (CLAUDE.md / AGENTS.md / GEMINI.md) onto the shared goal docs; the Foundation only needs Claude's minimal impl (Task 6).
+
 - [ ] **Step 1: Write the interface.**
 ```ts
 // server/agents/agent-adapter.ts
@@ -491,6 +653,10 @@ git commit -m "feat: AgentAdapter interface"
 ## Task 5: Extract Claude usage primitives from usage-service
 
 Expose the per-file primitives the ClaudeAdapter needs, returning the shared `RawUsage` shape, **without changing the numbers** the existing exported functions produce.
+
+> **⚠️ 2026-06-09 OVERRIDES (depends on Phase 0A's `model-registry.ts` existing):**
+> - **Delta D (pricing/window delegation):** `claudePricingFor`/`claudeContextWindow` no longer carry a local Claude-only table — they delegate to `resolveModel()` from `src/shared/agents/model-registry.ts` (full bodies in Delta D above). Phase 0A already deletes the local `MODEL_PRICING`/`getPricing`/`getContextWindow`; re-confirm they are gone. The Step-2 test `claudePricingFor('claude-opus-4-8').output` still equals `75 / 1_000_000` because the registry's opus rate is byte-identical, and `claudeContextWindow('claude-opus-4-8', 250_000)` still returns `1_000_000` for the `[1m]`/over-200k case (registry contextWindow). Parsing stays local; only the lookup moves.
+> - **Delta A (`byModel`):** `parseClaudeUsage` must aggregate per-`message.model` into `byModel` AND return the rolled-up session totals at the top level. Replace Step 4.3's parser body with the amended version below; add a Step-2 assertion that single-model fixtures yield a 1-element `byModel` whose totals equal the top-level totals.
 
 **Files:**
 - Modify: `server/services/usage-service.ts`
@@ -574,6 +740,61 @@ export function parseClaudeUsage(filePath: string): RawUsage {
   return out;
 }
 ```
+
+  **⚠️ Delta A — amended Task 5 Step 4.3 (REPLACES the parser above):** aggregate per-message `model` into `byModel`, then roll up to the top-level totals. A message's model is `parsed.message.model` when present, else the session `init` model, else `null`. Use this body instead:
+```ts
+export function parseClaudeUsage(filePath: string): RawUsage {
+  const out: RawUsage = {
+    inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    messageCount: 0, model: null, byModel: [],
+  };
+  let content: string;
+  try { content = readFileSync(filePath, 'utf-8'); } catch { return out; }
+
+  let sessionModel: string | null = null;             // from the system/init line
+  const byModel = new Map<string, RawModelUsage>();    // keyed by model string ('' = unknown)
+  const bump = (key: string | null): RawModelUsage => {
+    const k = key ?? '';
+    let row = byModel.get(k);
+    if (!row) {
+      row = { model: key, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, messageCount: 0 };
+      byModel.set(k, row);
+    }
+    return row;
+  };
+
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (!sessionModel) {
+        if (parsed?.type === 'system' && parsed?.subtype === 'init' && parsed?.model) sessionModel = parsed.model;
+        else if (parsed?.model && !parsed?.message) sessionModel = parsed.model;
+      }
+      const usage = parsed?.message?.usage;
+      if (!usage) continue;
+      const msgModel: string | null = parsed?.message?.model ?? sessionModel ?? null;
+      const row = bump(msgModel);
+      const inp = (usage.input_tokens as number) ?? 0;
+      const cc = (usage.cache_creation_input_tokens as number) ?? 0;
+      const cr = (usage.cache_read_input_tokens as number) ?? 0;
+      const outp = (usage.output_tokens as number) ?? 0;
+      row.inputTokens += inp;       out.inputTokens += inp;
+      row.cacheCreationTokens += cc; out.cacheCreationTokens += cc;
+      row.cacheReadTokens += cr;     out.cacheReadTokens += cr;
+      row.outputTokens += outp;      out.outputTokens += outp;
+      row.messageCount++;            out.messageCount++;
+    } catch { /* skip malformed */ }
+  }
+
+  // top-level `model` = back-compat session model (init line, else the first model seen).
+  out.model = sessionModel ?? [...byModel.values()].find((r) => r.model)?.model ?? null;
+  out.byModel = [...byModel.values()];   // single-model session → 1-element array
+  return out;
+}
+```
+  (Add `import type { RawModelUsage } from '../../src/shared/agents/types';` alongside the `RawUsage` import. Existing top-level totals are unchanged — only `byModel` is new — so the Step-2 token-sum assertions stay green.)
+
   4. Add an enumerator returning JSONL paths modified within the window (extract directory scan from `getAllSessionUsageSummaries`):
 ```ts
 export function listClaudeJsonl(sinceMs = 0): string[] {
@@ -612,6 +833,20 @@ git commit -m "refactor: export claude usage primitives returning shared RawUsag
 - Test: `tests/server/agents/claude-adapter.test.ts`
 
 The arg-building tests are the **characterization** of current `pty-manager` behavior — they must encode exactly today's argv.
+
+> **⚠️ 2026-06-09 OVERRIDES:**
+> - **Delta C:** `ClaudeAdapter` declares `readonly capabilities` all-`true` and implements `prepareContext`. Add a Step-1 test asserting `a.capabilities.canApprove === true` (and that all five flags are true). Code (add to the class body):
+>   ```ts
+>   readonly capabilities: AgentCapabilities = {
+>     canObserveHooks: true, canResume: true, canMcp: true, canApprove: true, canStream: true,
+>   };
+>
+>   /** Phase 3 context-file mapping. Claude already reads CLAUDE.md from cwd; if the
+>    *  shared goal docs live elsewhere this would link/copy them. Minimal/no-op for now. */
+>   prepareContext(_ctx: SpawnContext): void { /* CLAUDE.md is read from cwd; nothing to do yet */ }
+>   ```
+>   (Add `AgentCapabilities` to the `import type … from '../../src/shared/agents/types'` line.)
+> - **Delta D:** `pricingFor`/`contextWindowFor` delegate to the Phase 0A registry. Keep delegating through the now-registry-backed `claudePricingFor`/`claudeContextWindow` (Task 5), e.g. `pricingFor(model) { return resolveModel(model)?.pricing ?? { input: 0, cache_read: 0, cache_creation: 0, output: 0 }; }` — do **not** reintroduce a local pricing table.
 
 - [ ] **Step 1: Write failing test.**
 ```ts
@@ -732,6 +967,11 @@ git commit -m "feat: ClaudeAdapter reference implementation"
 - Create: `server/agents/registry.ts`
 - Create: `tests/fixtures/mock-adapter.ts`
 - Test: `tests/server/agents/registry.test.ts`
+
+> **⚠️ 2026-06-09 OVERRIDES (Deltas A + C):**
+> - **MockAdapter** must satisfy the amended interface: add `readonly capabilities: AgentCapabilities = { canObserveHooks: false, canResume: false, canMcp: false, canApprove: false, canStream: true };` (a deliberately-degraded provider so capability-gating is testable), add `prepareContext(_ctx: SpawnContext): void {}`, and make its `parseUsage()` return `{ …, byModel: [] }`. Import `AgentCapabilities` in the fixture.
+> - **`buildCatalog`** must include `capabilities: a.capabilities` in each entry it returns (the UI reads it). Add a registry-test assertion that `buildCatalog([...])`'s mock entry has `capabilities.canApprove === false` and the claude entry `=== true`.
+> - **`adapterForModel(model, enabled)` still takes string ids** (Delta B): callers derive `enabled = providers.filter(p=>p.enabled).map(p=>p.id)` — the registry signature is unchanged.
 
 - [ ] **Step 1: Write the MockAdapter fixture** (a fake second provider for tests — keeps the real catalog Claude-only):
 ```ts
@@ -871,6 +1111,11 @@ git commit -m "feat: agent registry with model resolution + catalog"
 - Modify: `server/index.ts` (construct ConfigService; pass into system router)
 - Test: `tests/server/services/analytics-service.test.ts`
 
+> **⚠️ 2026-06-09 OVERRIDES:**
+> - **Delta B (records → ids):** the `/api/config` handlers operate on `persisted.providers` (records). Derive `const enabledIds = persisted.providers.filter(p => p.enabled).map(p => p.id);` and pass `enabledIds` to `buildCatalog(...)`. The GET/PUT response shape returns `providers: buildCatalog(enabledIds)` (catalog entries, with `capabilities`) — the persisted *records* round-trip under the same `providers` key inside the spread `...persisted`. If that key collision is confusing, name the catalog field distinctly (e.g. `catalog: buildCatalog(enabledIds)`) and keep `providers` as the persisted records; pick one and make the Task 10 client read the same key.
+> - **Settings-persistence convergence (supersedes the standalone plan):** add these route tests to `tests/server/services/analytics-service.test.ts` or a sibling `tests/server/routes/system-config.test.ts`: (1) GET on an empty table returns documented defaults incl. a single enabled `claude` provider record; (2) PUT→GET round-trips updated `defaultModel`/`tracePruneDays`/`providers`; (3) invalid PUT (`tracePruneDays: 0`, bad permission enum) → `400`, nothing written; (4) PUT clearing/omitting providers still returns a `claude` record (normalizeProviders invariant); (5) `tracePruneDays` field-name guard (read back identically). These REPLACE running `2026-06-08-settings-persistence-design.md` separately.
+> - **Delta A/D (analytics math):** `analytics-service` costs via the registry-backed `adapter.pricingFor(model)`. Prefer attributing cost per `u.byModel[]` row (each row's model → its registry pricing), summing into the totals — this is the per-model-correct path Decision 4 wants and avoids mispricing mixed-model sessions. Rolled-up totals must still match the prior Claude-only numbers for single-model fixtures.
+
 - [ ] **Step 1: Write `server/services/analytics-service.ts`** (iterates adapters; for Claude-only this matches current numbers):
 ```ts
 import { allAdapters } from '../agents/registry';
@@ -989,6 +1234,13 @@ git commit -m "feat: provider-aware analytics + persisted /api/config with provi
 - Modify: `server/index.ts` (both `new PtyManager` call sites: ~132 and ~222)
 - Test: `tests/server/pty-manager-adapter.test.ts`
 
+> **⚠️ 2026-06-09 OVERRIDE — Delta B:** at the `adapterForModel(...)` call sites (Step 4), derive enabled ids from the provider records, not a bare `enabledProviders` array:
+> ```ts
+> const persisted = configService.getPersisted();
+> const enabledIds = persisted.providers.filter((p) => p.enabled).map((p) => p.id);
+> const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
+> ```
+
 - [ ] **Step 1: Write failing test** (verifies PtyManager asks the adapter for args; no real spawn):
 ```ts
 // tests/server/pty-manager-adapter.test.ts
@@ -1082,6 +1334,11 @@ git commit -m "refactor: PtyManager spawns via AgentAdapter (claude behavior pre
 - Test: `tests/client/components/AgentsSection.test.tsx`
 
 The `/api/config` response now includes `providers: AgentCatalogEntry[]`. The client derives model options from enabled providers.
+
+> **⚠️ 2026-06-09 OVERRIDES:**
+> - **Settings-persistence convergence (scrollbar fix folds in here):** wrap `SettingsPage` content in `flex-1 overflow-y-auto px-6 py-4` (matching `AnalyticsPage`/`SkillsPage`) — this is the standalone settings plan's scrollbar fix, now part of Task 10. Verify each control round-trips against the persisted value (the round-trip *server* tests live in Task 8).
+> - **Delta B:** `onToggle` produces the new enabled **id list**, but the PUT body must carry provider **records**. Map ids → records before PUT: keep each existing provider's `billingMode`/`budget`/`seatPrice` and flip `enabled`, e.g. `updateConfig({ providers: catalog.map(p => ({ id: p.id, enabled: ids.includes(p.id), billingMode: existing(p.id)?.billingMode ?? 'seat' })) })`. The AgentsSection test's `onToggle(['claude','antigravity'])` contract is unchanged at the component boundary; the records mapping happens in `SettingsPage`.
+> - **Delta C (capability-gated UI):** `AgentCatalogEntry` now carries `capabilities`. In `AgentsSection` (and any per-provider affordance), grey out / disable controls a provider can't support (e.g. don't offer an approval/resume toggle when `capabilities.canApprove`/`canResume` is false). For the Foundation, Claude is all-true so nothing greys out, but wire the read so Phase 3/4 providers degrade honestly. The test fixtures must include `capabilities` on each `AgentCatalogEntry`.
 
 - [ ] **Step 1: Write the client helper.**
 ```ts
@@ -1198,6 +1455,13 @@ git commit -m "feat: Settings agents toggle + provider-driven model pickers"
 - [ ] Run `npm test` → failure count equals the Task 0 baseline (i.e., 0 new failures).
 - [ ] Run `npm run dev`, create a goal with model **Opus**, confirm it spawns Claude exactly as before (identical argv in logs), plan/approvals/analytics all still work.
 - [ ] Confirm `GET /api/config` returns `enabledProviders` + `providers` catalog; toggling in Settings persists across a server restart.
+
+**⚠️ 2026-06-09 additions:**
+- [ ] `GET /api/config` returns `providers` as **records** (`{id,enabled,billingMode}`) and a catalog with per-provider `capabilities`; toggling persists across restart (round-trip server tests in Task 8 green).
+- [ ] `parseUsage` returns `byModel` (single-model Claude session → 1-element array; totals match top-level).
+- [ ] Pricing/contextWindow come from `src/shared/agents/model-registry.ts` (`resolveModel`) — no local `MODEL_PRICING` left in `usage-service.ts`.
+- [ ] `ClaudeAdapter.capabilities` all true; `prepareContext` present; Settings shows the Agents section with Claude locked-on (no greyed affordances on this Claude-only build).
+- [ ] If migration 015 was merged from the sibling branch: `016_provider_config.sql` + `migrate016` ran (idempotent test green); otherwise this is a confirmed no-op.
 
 ---
 
