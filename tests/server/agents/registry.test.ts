@@ -36,8 +36,30 @@ describe('registry', () => {
   });
 });
 
-it('default registry exports module-level helpers (claude only)', () => {
-  expect(adapterForModel('opus', ['claude']).id).toBe('claude');
-  expect(enabledModelOptions(['claude']).length).toBe(4);
-  expect(buildCatalog(['claude']).length).toBe(1);
+describe('default production registry (claude + codex + antigravity)', () => {
+  it('catalog lists all three providers; only enabled ones are flagged', () => {
+    const cat = buildCatalog(['claude']);
+    expect(cat.map((c) => c.id).sort()).toEqual(['antigravity', 'claude', 'codex']);
+    expect(cat.find((c) => c.id === 'claude')?.enabled).toBe(true);
+    expect(cat.find((c) => c.id === 'codex')?.enabled).toBe(false);
+    expect(cat.find((c) => c.id === 'antigravity')?.enabled).toBe(false);
+    // Non-Claude providers carry their models so the picker can surface them once enabled.
+    expect(cat.find((c) => c.id === 'codex')?.models.some((m) => m.value === 'gpt-5.4')).toBe(true);
+    expect(
+      cat.find((c) => c.id === 'antigravity')?.models.some((m) => m.value === 'gemini-3-pro'),
+    ).toBe(true);
+  });
+
+  it('adapterForModel selects the provider that owns the model when enabled', () => {
+    expect(adapterForModel('opus', ['claude']).id).toBe('claude');
+    expect(adapterForModel('gpt-5.4', ['claude', 'codex']).id).toBe('codex');
+    expect(adapterForModel('gemini-3-pro', ['claude', 'antigravity']).id).toBe('antigravity');
+    // Disabled provider → falls back to claude (won't spawn the wrong CLI silently-enabled).
+    expect(adapterForModel('gpt-5.4', ['claude']).id).toBe('claude');
+  });
+
+  it('enabledModelOptions unions only enabled providers', () => {
+    expect(enabledModelOptions(['claude']).length).toBe(4);
+    expect(enabledModelOptions(['claude', 'codex']).some((m) => m.value === 'gpt-5.4')).toBe(true);
+  });
 });

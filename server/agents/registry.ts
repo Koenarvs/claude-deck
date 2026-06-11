@@ -7,6 +7,8 @@
 import type { AgentAdapter } from './agent-adapter';
 import type { AgentCatalogEntry, ModelOption } from '../../src/shared/agents/types';
 import { ClaudeAdapter } from './claude-adapter';
+import { CodexAdapter } from './codex-adapter';
+import { AntigravityAdapter } from './antigravity-adapter';
 import logger from '../logger';
 
 export function makeRegistry(adapters: AgentAdapter[]) {
@@ -57,8 +59,14 @@ export function makeRegistry(adapters: AgentAdapter[]) {
 
 export type Registry = ReturnType<typeof makeRegistry>;
 
-// Default production registry — Claude-only catalog for the Foundation.
-const defaultRegistry = makeRegistry([new ClaudeAdapter()]);
+// Default production registry. Claude is always enabled; Codex and Antigravity
+// are registered so their models surface in the catalog (toggle-on in Settings →
+// Agents). adapterForModel selects them only when the provider is enabled.
+const defaultRegistry = makeRegistry([
+  new ClaudeAdapter(),
+  new CodexAdapter(),
+  new AntigravityAdapter(),
+]);
 export const allAdapters = defaultRegistry.allAdapters;
 export const getAdapter = defaultRegistry.getAdapter;
 export const adapterForModel = defaultRegistry.adapterForModel;
