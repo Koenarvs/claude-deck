@@ -117,6 +117,39 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     quotaWeight: 5,
     contextWindow: 400_000,
   },
+  // Codex ChatGPT-seat lineup (ids from ~/.codex/models_cache.json). pricing=null
+  // (seat, no metered rate). The '-mini' matcher MUST precede the broad 'gpt-5.4'
+  // matcher — resolveModel returns the first match in array order.
+  {
+    id: 'gpt-5.4-mini',
+    match: (raw) => raw.includes('gpt-5.4-mini'),
+    label: 'GPT-5.4 Mini',
+    provider: 'codex',
+    tier: 'fast',
+    pricing: null,
+    quotaWeight: 1,
+    contextWindow: 400_000,
+  },
+  {
+    id: 'gpt-5.4',
+    match: (raw) => raw.includes('gpt-5.4'),
+    label: 'GPT-5.4',
+    provider: 'codex',
+    tier: 'balanced',
+    pricing: null,
+    quotaWeight: 4,
+    contextWindow: 400_000,
+  },
+  {
+    id: 'gpt-5.3-codex',
+    match: (raw) => raw.includes('gpt-5.3-codex') || raw.includes('gpt-5.3'),
+    label: 'GPT-5.3 Codex',
+    provider: 'codex',
+    tier: 'balanced',
+    pricing: null,
+    quotaWeight: 3,
+    contextWindow: 400_000,
+  },
   {
     id: 'gemini-3-pro',
     match: (raw) => raw.includes('gemini-3-pro') || raw.includes('gemini-3.0-pro'),
