@@ -33,6 +33,9 @@ import { createProjectsRouter } from './routes/projects';
 import { createWorkspaceService } from './services/workspace-service';
 import { createVerificationService } from './services/verification-service';
 import { createVerificationRouter } from './routes/verification';
+import { createBudgetService } from './services/budget-service';
+import { createBudgetRouter } from './routes/budget';
+import { resolveModel } from '../src/shared/agents/model-registry';
 import { createReconciliationService } from './services/reconciliation-service';
 import { resumeOrphans } from './resume-driver';
 import { drainSessions } from './drain';
@@ -133,6 +136,29 @@ const verificationService = createVerificationService(db, {
   // run in the isolated worktree (5B) when present, else the goal cwd.
   resolveWorkspace: (goal) => workspaceService.get(goal.id)?.worktree_path ?? goal.cwd,
 });
+
+// 5E: budget/quota guardrails. Reads live persisted config each call.
+const readBudgetCfg = (): unknown => configService.getPersisted();
+const budgetService = createBudgetService(db, readBudgetCfg);
+
+/** Goal ids with a live runner in the process registry. */
+function listRunningGoalIds(): string[] {
+  return goalService
+    .list({ status: 'active' })
+    .filter((g) => processRegistry.has(g.id))
+    .map((g) => g.id);
+}
+
+/** Live active-session counts per provider, attributed by each running goal's model. */
+function activeSessionsByProvider(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const goalId of listRunningGoalIds()) {
+    const g = goalService.get(goalId);
+    const provider = resolveModel(g?.model ?? 'claude')?.provider ?? 'claude';
+    counts[provider] = (counts[provider] ?? 0) + 1;
+  }
+  return counts;
+}
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
@@ -173,6 +199,18 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
       logger.info({ goalId, promptLength: initialPrompt.length }, 'Delivered prompt to running PTY session');
     }
     return 'already_running';
+  }
+
+  // 5E: budget guardrail — block a new spawn that would breach a cap or the kill switch.
+  const budgetDecision = budgetService.evaluateSpawn({
+    goalId,
+    model: goal.model ?? 'claude',
+    activeForProvider:
+      activeSessionsByProvider()[resolveModel(goal.model ?? 'claude')?.provider ?? 'claude'] ?? 0,
+  });
+  if (!budgetDecision.allowed) {
+    logger.warn({ goalId, reason: budgetDecision.reason }, 'Spawn blocked by budget guardrail');
+    throw new Error(`Spawn blocked: ${budgetDecision.reason}`);
   }
 
   if (existing) {
@@ -386,10 +424,27 @@ const traceRouter = createTraceRouter(db, env.dataDir);
 const fileRouter = createFileRouter();
 const projectsRouter = createProjectsRouter(projectService);
 const verificationRouter = createVerificationRouter(verificationService);
+const budgetRouter = createBudgetRouter(budgetService, {
+  activeSessionsByProvider,
+  fetchWindowUtilization: async () => {
+    try {
+      const r = await fetch(`http://127.0.0.1:${env.port}/api/analytics/window-utilization`);
+      if (!r.ok) return [];
+      const body = (await r.json()) as { rows?: Array<{ provider: string; utilizationPct: number }> };
+      return body.rows ?? [];
+    } catch {
+      return [];
+    }
+  },
+  enabledProviders: () =>
+    configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id),
+  routingConfig: () => ({ hotThresholdPct: 85, autoRoute: false }),
+  readConfig: readBudgetCfg,
+});
 
 // Create Express app and HTTP server
 const app = createApp({
-  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter],
+  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter],
   auth: { token: env.token },
 });
 // Make db available to routes that need it (analytics, hook-events)
@@ -407,6 +462,24 @@ scheduler.start();
 
 // Schedule daily trace pruning (reads config.tracePruneDays fresh each run).
 const tracePruneTask = startTracePruneJob(db, env.dataDir, () => configService.getPersisted().tracePruneDays);
+
+// 5E: every 30s, pause any running goal the budget guardrails flag (metered over-cap
+// or the global kill switch). Inert unless a provider is metered with caps configured.
+const budgetMonitor = setInterval(() => {
+  try {
+    for (const goalId of budgetService.evaluateRunningGoals(listRunningGoalIds())) {
+      const runner = processRegistry.get(goalId);
+      if (runner) {
+        logger.warn({ goalId }, 'Budget guardrail: pausing running goal (over cap / kill switch)');
+        void runner.interrupt();
+        goalService.update(goalId, { status: 'waiting' });
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, 'Budget monitor failed');
+  }
+}, 30_000);
+budgetMonitor.unref();
 
 // Start listening — bind to loopback by default; LAN exposure requires
 // CLAUDE_DECK_BIND. loadEnv() already fail-closes a non-loopback bind with
@@ -440,6 +513,7 @@ function shutdown(signal: string): void {
   // Stop the scheduler first — no more cron fires
   scheduler.stop();
   clearInterval(ingestionInterval);
+  clearInterval(budgetMonitor);
   tracePruneTask.stop();
   logger.info('Scheduler stopped');
 
