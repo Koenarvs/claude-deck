@@ -35,6 +35,7 @@ interface GoalRow {
   completed_at: number | null;
   project_id: string | null;
   workspace_branch?: string | null;
+  verification_status?: string | null;
 }
 
 interface MessageRow {
@@ -73,6 +74,7 @@ function rowToGoal(row: GoalRow): Goal {
     completed_at: row.completed_at,
     project_id: row.project_id ?? null,
     workspace_branch: row.workspace_branch ?? null,
+    verification_status: (row.verification_status as Goal['verification_status']) ?? null,
   };
 }
 
@@ -321,8 +323,11 @@ export function createGoalService(db: Database.Database, projectService?: Projec
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    // LEFT JOIN the isolated-workspace branch (5B) so cards can show it cheaply (no per-card git).
-    const sql = `SELECT goals.*, gw.branch AS workspace_branch
+    // LEFT JOIN the isolated-workspace branch (5B) + correlate the latest verification
+    // status (5C) so cards can show both cheaply (indexed; no per-card work).
+    const sql = `SELECT goals.*, gw.branch AS workspace_branch,
+                   (SELECT vr.status FROM verification_results vr
+                      WHERE vr.goal_id = goals.id ORDER BY vr.created_at DESC LIMIT 1) AS verification_status
                  FROM goals LEFT JOIN goal_workspace gw ON gw.goal_id = goals.id
                  ${where} ORDER BY status, kanban_order ASC`;
 

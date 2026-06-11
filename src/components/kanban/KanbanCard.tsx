@@ -221,6 +221,25 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
           </span>
         )}
 
+        {goal.verification_status &&
+          goal.verification_status !== 'skipped' &&
+          goal.verification_status !== 'running' && (
+            <span
+              className={`mono-tabular inline-flex items-center gap-0.5 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold ${
+                goal.verification_status === 'pass'
+                  ? 'bg-[#22c55e]/15 text-[#22c55e]'
+                  : 'bg-[#ef4444]/15 text-[#ef4444]'
+              }`}
+              title={`Verification: ${goal.verification_status}`}
+            >
+              {goal.verification_status === 'pass'
+                ? '✓ verified'
+                : goal.verification_status === 'fail'
+                  ? '✗ failed'
+                  : '! error'}
+            </span>
+          )}
+
         <div className="ml-auto flex items-center gap-2 mono-tabular text-[10px] text-faint">
           {turns > 0 && <span>{turns}t</span>}
           {cost > 0 && <span>{fmtCost(cost)}</span>}

@@ -96,4 +96,17 @@ describe('goal ↔ project linking (5A)', () => {
     const g2 = goals.create({ title: 'NoWS', cwd: 'C:/y' });
     expect(goals.list().find((x) => x.id === g2.id)?.workspace_branch ?? null).toBeNull();
   });
+
+  it('list() surfaces the latest verification status (5C) via the correlated subquery', () => {
+    const goals = createGoalService(db, createProjectService(db));
+    const g = goals.create({ title: 'V', cwd: 'C:/x' });
+    db.prepare(
+      `INSERT INTO verification_results (id, goal_id, status, created_at) VALUES ('v1', ?, 'fail', 1)`,
+    ).run(g.id);
+    db.prepare(
+      `INSERT INTO verification_results (id, goal_id, status, created_at) VALUES ('v2', ?, 'pass', 2)`,
+    ).run(g.id);
+    // Latest (created_at=2) wins.
+    expect(goals.list().find((x) => x.id === g.id)?.verification_status).toBe('pass');
+  });
 });

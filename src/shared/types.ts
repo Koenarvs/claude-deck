@@ -27,6 +27,8 @@ export interface Goal {
   project_id?: string | null;
   /** Isolated-workspace branch (5B) when the goal runs in a git worktree; else null/absent. */
   workspace_branch?: string | null;
+  /** Latest verification-gate outcome (5C); null/absent when never verified. */
+  verification_status?: VerificationStatus | null;
 }
 
 export interface CreateGoalInput {
