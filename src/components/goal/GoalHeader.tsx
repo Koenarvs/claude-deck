@@ -8,6 +8,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import type { Goal, GoalModel, GoalStatus } from '@shared/types';
+import { useModelOptions } from '../../lib/useModelOptions';
 
 interface GoalHeaderProps {
   goal: Goal;
@@ -25,13 +26,6 @@ const statusColors: Record<GoalStatus, string> = {
   archived: 'bg-deck-muted/20 text-deck-muted/60',
 };
 
-const modelOptions: { value: GoalModel; label: string }[] = [
-  { value: 'default', label: 'Default' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'haiku', label: 'Haiku' },
-];
-
 export default function GoalHeader({
   goal,
   onTitleUpdate,
@@ -42,6 +36,7 @@ export default function GoalHeader({
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(goal.title);
   const inputRef = useRef<HTMLInputElement>(null);
+  const modelOptions = useModelOptions();
 
   const canInterrupt = goal.status === 'active' && goal.current_session_id !== null;
   const isTerminal = goal.status === 'complete' || goal.status === 'archived';

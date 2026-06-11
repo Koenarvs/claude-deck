@@ -6,6 +6,7 @@ import type { Goal, GoalModel, PermissionMode, CreateGoalInput } from '../../sha
 import { GoalSchema } from '../../shared/schemas';
 import { apiPost, ApiError } from '../../lib/api';
 import { useGoalsStore } from '../../stores/useGoalsStore';
+import { useModelOptions } from '../../lib/useModelOptions';
 
 interface DuplicateInfo {
   existing_goal_id: string;
@@ -17,13 +18,6 @@ interface NewGoalModalProps {
   onClose: () => void;
 }
 
-const MODEL_OPTIONS: { value: GoalModel; label: string }[] = [
-  { value: 'default', label: 'Default' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'haiku', label: 'Haiku' },
-];
-
 const PERMISSION_OPTIONS: { value: PermissionMode; label: string }[] = [
   { value: 'supervised', label: 'Supervised' },
   { value: 'autonomous', label: 'Autonomous' },
@@ -32,6 +26,7 @@ const PERMISSION_OPTIONS: { value: PermissionMode; label: string }[] = [
 export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
   const navigate = useNavigate();
   const upsertGoal = useGoalsStore((s) => s.upsertGoal);
+  const modelOptions = useModelOptions();
   const backdropRef = useRef<HTMLDivElement>(null);
 
   const [title, setTitle] = useState('');
@@ -285,7 +280,7 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
                 className="w-full rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text
                   focus:border-deck-accent focus:outline-none focus:ring-1 focus:ring-deck-accent"
               >
-                {MODEL_OPTIONS.map((opt) => (
+                {modelOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>

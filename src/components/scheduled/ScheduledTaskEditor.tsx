@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import CronPicker, { parseNextFireTimes } from './CronPicker';
+import { useModelOptions } from '../../lib/useModelOptions';
 import type {
   ScheduledTask,
   GoalTemplate,
@@ -15,14 +16,8 @@ interface ScheduledTaskEditorProps {
   onCancel: () => void;
 }
 
-const MODEL_OPTIONS: Array<{ value: GoalModel; label: string }> = [
-  { value: 'default', label: 'Default' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'haiku', label: 'Haiku' },
-];
-
 export default function ScheduledTaskEditor({ task, onSave, onCancel }: ScheduledTaskEditorProps) {
+  const MODEL_OPTIONS = useModelOptions();
   const [name, setName] = useState('');
   const [cronExpr, setCronExpr] = useState('');
   const [title, setTitle] = useState('');
