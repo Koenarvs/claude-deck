@@ -156,7 +156,57 @@ export function createWorkspaceService(db: Database.Database, projectService: Pr
     db.prepare('DELETE FROM goal_workspace WHERE goal_id = ?').run(goalId);
   }
 
-  return { get, provision, teardown };
+  /** Branch + dirty flag for card display. Null when no workspace. */
+  function summary(goalId: string): { branch: string; dirty: boolean } | null {
+    const ws = get(goalId);
+    if (!ws) return null;
+    let dirty = false;
+    try {
+      dirty = git(ws.worktree_path, ['status', '--porcelain']).trim().length > 0;
+    } catch (err) {
+      logger.warn({ err, goalId }, 'workspace: status failed');
+    }
+    return { branch: ws.branch, dirty };
+  }
+
+  /**
+   * Unified diff of the workspace vs base_ref: committed delta (base...HEAD) plus
+   * uncommitted working-tree changes plus untracked files. Empty string when no
+   * workspace or no changes.
+   */
+  function diff(goalId: string): string {
+    const ws = get(goalId);
+    if (!ws) return '';
+    try {
+      const committed = git(ws.worktree_path, ['diff', `${ws.base_ref}...HEAD`]);
+      const working = git(ws.worktree_path, ['diff', 'HEAD']);
+      let untracked = '';
+      const untrackedNames = git(ws.worktree_path, [
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+      ]).trim();
+      if (untrackedNames) {
+        const nullDev = process.platform === 'win32' ? 'NUL' : '/dev/null';
+        for (const f of untrackedNames.split(/\r?\n/).filter(Boolean)) {
+          // `git diff --no-index` exits 1 when it finds a diff → execFileSync throws;
+          // the diff is on the error's stdout.
+          try {
+            untracked += git(ws.worktree_path, ['diff', '--no-index', '--', nullDev, f]);
+          } catch (e) {
+            const out = (e as { stdout?: string | Buffer }).stdout;
+            if (out) untracked += out.toString();
+          }
+        }
+      }
+      return [committed, working, untracked].filter((s) => s.trim().length > 0).join('\n');
+    } catch (err) {
+      logger.warn({ err, goalId }, 'workspace: diff failed');
+      return '';
+    }
+  }
+
+  return { get, provision, teardown, summary, diff };
 }
 
 export type WorkspaceService = ReturnType<typeof createWorkspaceService>;
