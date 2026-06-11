@@ -175,9 +175,22 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
 
   const enabledIds = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
   const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
+
+  // 5B: if the goal is in a registered project, provision/reuse an isolated git
+  // worktree and run the PTY there (registration is the opt-in; idempotent so
+  // resume lands in the same worktree). Unregistered cwds run in-place.
+  let workspaceCwd: string | undefined;
+  try {
+    const ws = workspaceService.provision(goalId);
+    if (ws) workspaceCwd = ws.worktree_path;
+  } catch (err) {
+    logger.warn({ err, goalId }, 'workspace provision failed — running in-place');
+  }
+
   const ptyMgr = new PtyManager(goal, adapter, {
     broadcast,
     traceDir: join(env.dataDir, 'traces', goalId),
+    ...(workspaceCwd ? { cwdOverride: workspaceCwd } : {}),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
       goalService.update(gId, { status: 'waiting' });
@@ -273,9 +286,22 @@ function restartSession(sessionId: string, goalId: string): void {
 
   const enabledIds = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
   const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
+
+  // 5B: if the goal is in a registered project, provision/reuse an isolated git
+  // worktree and run the PTY there (registration is the opt-in; idempotent so
+  // resume lands in the same worktree). Unregistered cwds run in-place.
+  let workspaceCwd: string | undefined;
+  try {
+    const ws = workspaceService.provision(goalId);
+    if (ws) workspaceCwd = ws.worktree_path;
+  } catch (err) {
+    logger.warn({ err, goalId }, 'workspace provision failed — running in-place');
+  }
+
   const ptyMgr = new PtyManager(goal, adapter, {
     broadcast,
     traceDir: join(env.dataDir, 'traces', goalId),
+    ...(workspaceCwd ? { cwdOverride: workspaceCwd } : {}),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Restarted session ended');
       goalService.update(gId, { status: 'waiting' });

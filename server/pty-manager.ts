@@ -46,6 +46,8 @@ interface PtyManagerOptions {
   onReady?: () => void;
   /** When set, the session's raw PTY stream + exit meta are written here. */
   traceDir?: string;
+  /** 5B: run the PTY here (an isolated worktree) instead of goal.cwd. */
+  cwdOverride?: string;
 }
 
 export class PtyManager implements Killable {
@@ -57,6 +59,8 @@ export class PtyManager implements Killable {
   private readonly onExitCallback: ((goalId: string, exitCode: number) => void) | undefined;
   private readonly onReadyCallback: (() => void) | undefined;
   private readonly traceDir: string | undefined;
+  /** The directory the PTY runs in — an isolated worktree (5B) or the goal's cwd. */
+  private readonly cwd: string;
   private traceWriter: TraceWriter | null = null;
   private exited = false;
 
@@ -68,6 +72,7 @@ export class PtyManager implements Killable {
     this.onExitCallback = options.onExit;
     this.onReadyCallback = options.onReady;
     this.traceDir = options.traceDir;
+    this.cwd = options.cwdOverride ?? goal.cwd;
   }
 
   /** Lazily create the per-session trace writer (no-op when no trace dir is set). */
@@ -96,7 +101,7 @@ export class PtyManager implements Killable {
     return {
       goalId: this.goalId,
       model: this.goal.model ?? 'default',
-      cwd: this.goal.cwd,
+      cwd: this.cwd,
       permissionMode: this.goal.permission_mode,
       mcpServer: this.buildMcpDescriptor(),
     };
@@ -119,7 +124,7 @@ export class PtyManager implements Killable {
     env['TERM'] = 'xterm-256color';
 
     logger.info(
-      { goalId: this.goalId, claudePath, args, cwd: this.goal.cwd },
+      { goalId: this.goalId, claudePath, args, cwd: this.cwd },
       'PTY: Spawning claude',
     );
 
@@ -135,7 +140,7 @@ export class PtyManager implements Killable {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
-        cwd: this.goal.cwd,
+        cwd: this.cwd,
         env,
       });
 
@@ -258,7 +263,7 @@ export class PtyManager implements Killable {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
-      cwd: this.goal.cwd,
+      cwd: this.cwd,
       env,
     });
 
