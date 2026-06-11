@@ -42,6 +42,11 @@ class ProcessRegistry {
     return this.runners.has(goalId);
   }
 
+  /** Goal ids with a live runner (5D drain). */
+  liveGoalIds(): string[] {
+    return Array.from(this.runners.keys());
+  }
+
   /** Returns the number of registered runners. */
   get size(): number {
     return this.runners.size;

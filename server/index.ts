@@ -31,6 +31,9 @@ import { createFileRouter } from './routes/file';
 import { createProjectService } from './services/project-service';
 import { createProjectsRouter } from './routes/projects';
 import { createWorkspaceService } from './services/workspace-service';
+import { createReconciliationService } from './services/reconciliation-service';
+import { resumeOrphans } from './resume-driver';
+import { drainSessions } from './drain';
 import { startTracePruneJob } from './trace-prune-job';
 import type { ServerEvent } from '../src/shared/events';
 import { broadcast, setTerminalHandler } from './ws';
@@ -378,8 +381,26 @@ const tracePruneTask = startTracePruneJob(db, env.dataDir, () => configService.g
 // Start listening — bind to loopback by default; LAN exposure requires
 // CLAUDE_DECK_BIND. loadEnv() already fail-closes a non-loopback bind with
 // no token.
+const reconciliationService = createReconciliationService(db);
+
 server.listen(env.port, env.bindHost, () => {
   logger.info({ port: env.port, host: env.bindHost, lan: !env.isLoopback }, 'claude-deck server listening');
+
+  // 5D: resume sessions orphaned by a previous shutdown/crash. A goal the DB still
+  // believes is active/waiting, with an open session and no live process, is resumed
+  // in its workspace (capability-gated; failures are isolated per orphan).
+  try {
+    const orphans = reconciliationService.findOrphans((goalId) => processRegistry.has(goalId));
+    if (orphans.length > 0) {
+      const enabledIds = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
+      resumeOrphans(orphans, {
+        canResume: (model) => adapterForModel(model ?? 'default', enabledIds).capabilities.canResume,
+        resume: (o) => restartSession(o.sessionId, o.goalId),
+      });
+    }
+  } catch (err) {
+    logger.error({ err }, '5D: resume-on-boot reconciliation failed');
+  }
 });
 
 // Graceful shutdown
@@ -399,6 +420,22 @@ function shutdown(signal: string): void {
   // Stop all conversation loggers
   for (const [, cl] of conversationLoggers) cl.stop();
   conversationLoggers.clear();
+
+  // 5D: graceful drain — persist resume state for every live goal and mark it
+  // 'waiting' BEFORE killing the PTYs, so the next boot resumes them.
+  try {
+    drainSessions(processRegistry.liveGoalIds(), (goalId) => {
+      const ws = workspaceService.get(goalId);
+      const goal = goalService.get(goalId);
+      sessionService.recordResumeState(goalId, {
+        providerSessionId: goalId, // Claude: provider session id == goal id
+        workspacePath: ws?.worktree_path ?? goal?.cwd ?? null,
+      });
+      goalService.update(goalId, { status: 'waiting' });
+    });
+  } catch (err) {
+    logger.error({ err }, '5D: drain failed');
+  }
 
   // Kill all CLI subprocesses managed by the process registry
   processRegistry
