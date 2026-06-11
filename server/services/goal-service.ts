@@ -12,6 +12,7 @@ import type {
 import { canTransition } from '../state-machine/goal-status';
 import { broadcast } from '../ws';
 import logger from '../logger';
+import type { ProjectService } from './project-service';
 
 // ── Row ↔ Domain Conversion ──────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ interface GoalRow {
   created_at: number;
   updated_at: number;
   completed_at: number | null;
+  project_id: string | null;
 }
 
 interface MessageRow {
@@ -68,6 +70,7 @@ function rowToGoal(row: GoalRow): Goal {
     created_at: row.created_at,
     updated_at: row.updated_at,
     completed_at: row.completed_at,
+    project_id: row.project_id ?? null,
   };
 }
 
@@ -103,13 +106,13 @@ export interface GoalListFilters {
  *
  * @param db - better-sqlite3 database instance (production or :memory: for tests)
  */
-export function createGoalService(db: Database.Database) {
+export function createGoalService(db: Database.Database, projectService?: ProjectService) {
   // ── Prepared Statements ──────────────────────────────────────────────────
 
   const insertStmt = db.prepare<
-    [string, string, string | null, string, string, number, string | null, string | null, string, string | null, string | null, number, number, number, number | null]
-  >(`INSERT INTO goals (id, title, description, cwd, status, priority, tags, current_session_id, permission_mode, model, initial_prompt, kanban_order, created_at, updated_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    [string, string, string | null, string, string, number, string | null, string | null, string, string | null, string | null, number, number, number, number | null, string | null]
+  >(`INSERT INTO goals (id, title, description, cwd, status, priority, tags, current_session_id, permission_mode, model, initial_prompt, kanban_order, created_at, updated_at, completed_at, project_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   const getByIdStmt = db.prepare<[string], GoalRow>(
     'SELECT * FROM goals WHERE id = ?',
@@ -182,6 +185,21 @@ export function createGoalService(db: Database.Database) {
 
     const tagsJson = input.tags ? JSON.stringify(input.tags) : null;
 
+    // Resolve project link (5A): explicit projectId wins; else infer from cwd.
+    // Inherit the project's default permission mode only when the caller didn't set one.
+    let projectId: string | null = input.projectId ?? null;
+    let permissionMode = input.permission_mode;
+    if (projectService) {
+      const project = projectId ? projectService.get(projectId) : projectService.findByCwd(input.cwd);
+      if (project) {
+        projectId = project.id;
+        if (permissionMode === undefined) permissionMode = project.default_permission_mode;
+      } else if (input.projectId) {
+        logger.warn({ projectId: input.projectId }, 'Goal references unknown project; storing null link');
+        projectId = null;
+      }
+    }
+
     insertStmt.run(
       id,
       input.title,
@@ -191,13 +209,14 @@ export function createGoalService(db: Database.Database) {
       0,
       tagsJson,
       null,
-      input.permission_mode ?? 'supervised',
+      permissionMode ?? 'supervised',
       input.model ?? null,
       input.initialPrompt ?? null,
       kanbanOrder,
       now,
       now,
       null,
+      projectId,
     );
 
     const goal = get(id);

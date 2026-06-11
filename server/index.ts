@@ -113,7 +113,8 @@ hookInstallerService.status().then(async (hookStatus) => {
 
 // Initialize services
 const scheduledTaskService = new ScheduledTaskService(db);
-const goalService = createGoalService(db);
+const projectService = createProjectService(db);
+const goalService = createGoalService(db, projectService);
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
@@ -323,7 +324,6 @@ const systemRouterWithSkills = createSystemRouter(skillDirectoryService, {
 const skillsRouter = createSkillsRouter(skillExecutionService, skillAnalysisService, skillFileService);
 const traceRouter = createTraceRouter(db, env.dataDir);
 const fileRouter = createFileRouter();
-const projectService = createProjectService(db);
 const projectsRouter = createProjectsRouter(projectService);
 
 // Create Express app and HTTP server
