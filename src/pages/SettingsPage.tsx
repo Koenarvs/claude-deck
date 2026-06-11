@@ -4,6 +4,7 @@ import HookInstallerSection from '../components/settings/HookInstallerSection';
 import DataDirSection from '../components/settings/DataDirSection';
 import HomeRouteToggle from '../components/settings/HomeRouteToggle';
 import AgentsSection from '../components/settings/AgentsSection';
+import ProjectsSection from '../components/settings/ProjectsSection';
 import { useConfigStore } from '../stores/useConfigStore';
 import { modelOptionsFromCatalog } from '../shared/agents/catalog-client';
 import type { AgentCatalogEntry } from '../shared/agents/types';
@@ -218,6 +219,9 @@ export default function SettingsPage() {
           })
         }
       />
+
+      {/* Projects */}
+      <ProjectsSection />
 
       {/* Trace Retention */}
       <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
