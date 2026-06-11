@@ -14,12 +14,18 @@ const PutFileBodySchema = z.object({
 });
 
 /**
- * The write allowlist (minimum, per enable-stubs §4D): every persisted skill
- * directory + every goal's cwd. "You can edit what the app is configured to read."
- * Replace with the Persistent-Settings "Document roots" list when that lands.
+ * The write allowlist: every registered project root (5A — the formal "document
+ * roots") + every persisted skill directory + every goal's cwd. "You can edit
+ * what the app is configured to read."
  */
 export function editableRoots(db: Database.Database): string[] {
   const roots = new Set<string>();
+  try {
+    const rows = db.prepare('SELECT root_path FROM projects').all() as { root_path: string }[];
+    for (const r of rows) if (r.root_path) roots.add(r.root_path);
+  } catch {
+    /* projects table absent (pre-5A DBs) */
+  }
   try {
     const rows = db.prepare('SELECT path FROM skill_directories').all() as { path: string }[];
     for (const r of rows) if (r.path) roots.add(r.path);

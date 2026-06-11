@@ -74,6 +74,21 @@ describe('PUT /api/file', () => {
     expect(fs.readFileSync(docPath, 'utf-8')).toBe('v2 updated');
   });
 
+  it('allows editing a file under a registered project root (no goal needed)', async () => {
+    const projDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'file-proj-')));
+    const projDoc = path.join(projDir, 'NOTES.md');
+    fs.writeFileSync(projDoc, 'p1', 'utf-8');
+    db.prepare(
+      `INSERT INTO projects (id, name, root_path, allowed_models, default_permission_mode, done_command, worktree_root, created_at, updated_at)
+       VALUES ('pr1', 'P', ?, '[]', 'supervised', NULL, NULL, 0, 0)`,
+    ).run(projDir);
+
+    const res = await putFile({ path: projDoc, content: 'p2' });
+    expect(res.status).toBe(200);
+    expect(fs.readFileSync(projDoc, 'utf-8')).toBe('p2');
+    fs.rmSync(projDir, { recursive: true, force: true });
+  });
+
   it('rejects a path outside every editable root (403)', async () => {
     const outside = path.join(outsideDir, 'evil.md');
     fs.writeFileSync(outside, 'x', 'utf-8');
