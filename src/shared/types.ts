@@ -23,6 +23,8 @@ export interface Goal {
   created_at: number;
   updated_at: number;
   completed_at: number | null;
+  /** Registered project this goal belongs to (5A); null/absent for ad-hoc cwds. */
+  project_id?: string | null;
 }
 
 export interface CreateGoalInput {
@@ -33,6 +35,39 @@ export interface CreateGoalInput {
   permission_mode?: PermissionMode | undefined;
   tags?: string[] | undefined;
   initialPrompt?: string | undefined;
+  /** Optionally link to a registered project (5A); else inferred from cwd. */
+  projectId?: string | undefined;
+}
+
+// ── Project Registry (5A) ─────────────────────────────────────────────────────
+
+export interface Project {
+  id: string;
+  name: string;
+  root_path: string;
+  allowed_models: string[];
+  default_permission_mode: PermissionMode;
+  done_command: string | null;
+  worktree_root: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CreateProjectInput {
+  name: string;
+  root_path: string;
+  allowed_models?: string[] | undefined;
+  default_permission_mode?: PermissionMode | undefined;
+  done_command?: string | null | undefined;
+  worktree_root?: string | null | undefined;
+}
+
+export interface UpdateProjectInput {
+  name?: string | undefined;
+  allowed_models?: string[] | undefined;
+  default_permission_mode?: PermissionMode | undefined;
+  done_command?: string | null | undefined;
+  worktree_root?: string | null | undefined;
 }
 
 export interface UpdateGoalInput {

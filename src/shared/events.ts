@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   GoalSchema,
+  ProjectSchema,
   GoalStatusSchema,
   PlanJsonSchema,
   MessageSchema,
@@ -165,8 +166,20 @@ export const SessionStartedEventSchema = z.object({
   }),
 });
 
+export const ProjectUpdatedEventSchema = z.object({
+  type: z.literal('project:updated'),
+  project: ProjectSchema,
+});
+
+export const ProjectRemovedEventSchema = z.object({
+  type: z.literal('project:removed'),
+  id: z.string(),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   GoalCreatedEventSchema,
+  ProjectUpdatedEventSchema,
+  ProjectRemovedEventSchema,
   GoalUpdatedEventSchema,
   GoalStatusEventSchema,
   GoalPlanUpdatedEventSchema,

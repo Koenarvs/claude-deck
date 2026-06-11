@@ -95,6 +95,38 @@ export const CreateGoalInputSchema = z.object({
   permission_mode: PermissionModeSchema.optional(),
   tags: z.array(z.string()).optional(),
   initialPrompt: z.string().optional(),
+  projectId: z.string().optional(),
+});
+
+// ── Project Registry (5A) ─────────────────────────────────────────────────────
+
+export const CreateProjectInputSchema = z.object({
+  name: z.string().min(1),
+  root_path: z.string().min(1),
+  allowed_models: z.array(z.string()).optional(),
+  default_permission_mode: PermissionModeSchema.optional(),
+  done_command: z.string().nullable().optional(),
+  worktree_root: z.string().nullable().optional(),
+});
+
+export const UpdateProjectInputSchema = z.object({
+  name: z.string().min(1).optional(),
+  allowed_models: z.array(z.string()).optional(),
+  default_permission_mode: PermissionModeSchema.optional(),
+  done_command: z.string().nullable().optional(),
+  worktree_root: z.string().nullable().optional(),
+});
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  root_path: z.string(),
+  allowed_models: z.array(z.string()),
+  default_permission_mode: PermissionModeSchema,
+  done_command: z.string().nullable(),
+  worktree_root: z.string().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
 });
 
 export const UpdateGoalInputSchema = z.object({
