@@ -16,6 +16,11 @@ const RateExecutionSchema = z.object({
   notes: z.string().optional(),
 });
 
+const SaveSkillContentSchema = z.object({
+  content: z.string().max(1_000_000, 'content exceeds 1 MB limit'),
+  expectedHash: z.string().optional(),
+});
+
 // ── Route Factory ───────────────────────────────────────────────────────────
 
 export function createSkillsRouter(
@@ -171,6 +176,44 @@ export function createSkillsRouter(
       res.status(500).json({ error: 'Failed to get version history' });
     }
   });
+
+  // PUT /skills/:name/content — save full edited content (markdown editor).
+  // Resolves the skill's path server-side by name (no client-trusted path);
+  // snapshots a version then writes. 409 on stale-hash.
+  router.put(
+    '/skills/:name/content',
+    validateBody(SaveSkillContentSchema),
+    (req: Request, res: Response) => {
+      try {
+        const name = req.params.name as string;
+        const skill = scanSkills().find((s) => s.name === name);
+        if (!skill || !skill.path) {
+          res.status(404).json({ error: 'Skill not found' });
+          return;
+        }
+        const { content, expectedHash } = req.body as z.infer<typeof SaveSkillContentSchema>;
+        const { version } = fileService.saveSkillContent(
+          skill.path,
+          name,
+          content,
+          'Edited in markdown editor',
+          expectedHash ?? null,
+        );
+        res.json({
+          message: 'Saved',
+          version_id: version.id,
+          version_number: version.version_number,
+        });
+      } catch (err) {
+        if (err instanceof StaleContentError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
+        logger.error({ err, skill: req.params.name }, 'Failed to save skill content');
+        res.status(500).json({ error: 'Failed to save skill content' });
+      }
+    },
+  );
 
   // POST /skills/versions/:id/revert — revert to a version
   router.post('/skills/versions/:id/revert', (req: Request, res: Response) => {

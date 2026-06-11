@@ -181,6 +181,67 @@ export function createSkillFileService(db: Database.Database) {
     };
   }
 
+  /**
+   * Saves the FULL new content of a skill file (the markdown-editor save path),
+   * snapshotting the current content as a new version first — so an in-UI edit
+   * preserves the same version-history / revert feature as a suggestion-apply.
+   */
+  function saveSkillContent(
+    skillPath: string,
+    skillName: string,
+    newContent: string,
+    changeReason: string,
+    expectedHash?: string | null,
+  ): { newContent: string; version: SkillVersion } {
+    let currentContent: string;
+    try {
+      currentContent = readFileSync(skillPath, 'utf-8');
+    } catch (err) {
+      logger.error({ err, skillPath }, 'Failed to read SKILL.md for save');
+      throw new Error(`Cannot read skill file: ${skillPath}`);
+    }
+
+    // Stale content detection (optimistic concurrency, hash-based).
+    if (expectedHash) {
+      const currentHash = computeContentHash(currentContent);
+      if (currentHash !== expectedHash) {
+        throw new StaleContentError(skillName);
+      }
+    }
+
+    // Snapshot current content before overwrite.
+    const latestVersion = getLatestVersionStmt.get(skillName);
+    const nextVersionNumber = (latestVersion?.version_number ?? 0) + 1;
+    const versionId = uuidv4();
+    const now = Date.now();
+
+    insertVersionStmt.run(
+      versionId,
+      skillName,
+      skillPath,
+      nextVersionNumber,
+      currentContent,
+      changeReason,
+      now,
+    );
+
+    writeFileSync(skillPath, newContent, 'utf-8');
+    logger.info({ skillName, skillPath, versionNumber: nextVersionNumber }, 'Skill file saved (full content)');
+
+    return {
+      newContent,
+      version: {
+        id: versionId,
+        skill_name: skillName,
+        skill_path: skillPath,
+        version_number: nextVersionNumber,
+        content_snapshot: currentContent,
+        change_reason: changeReason,
+        created_at: now,
+      },
+    };
+  }
+
   function revertToVersion(versionId: string): { newContent: string; version: SkillVersion } {
     const version = getVersionByIdStmt.get(versionId);
     if (!version) throw new Error(`Version not found: ${versionId}`);
@@ -237,6 +298,7 @@ export function createSkillFileService(db: Database.Database) {
 
   return {
     applySuggestion,
+    saveSkillContent,
     revertToVersion,
     getVersionHistory,
     getVersion,
