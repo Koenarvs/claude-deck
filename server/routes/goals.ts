@@ -8,6 +8,7 @@ import type { GoalService } from '../services/goal-service';
 import { GoalNotFoundError, InvalidTransitionError, DuplicateGoalTitleError } from '../services/goal-service';
 import type { InterGoalMessageService } from '../services/inter-goal-message-service';
 import { InterGoalMessageNotFoundError } from '../services/inter-goal-message-service';
+import type { WorkspaceService } from '../services/workspace-service';
 import logger from '../logger';
 import { processRegistry } from '../process-registry';
 
@@ -56,8 +57,32 @@ export function createGoalsRouter(
   spawnTerminal?: (goalId: string, initialPrompt?: string) => string,
   interGoalMessageService?: InterGoalMessageService,
   security?: GoalsRouterSecurity,
+  workspaceService?: WorkspaceService,
 ): Router {
   const router = Router();
+
+  /**
+   * GET /goals/:id/diff — unified git diff of the goal's isolated workspace (5B)
+   * vs its base_ref, plus branch + dirty flag. 404 if the goal is unknown; 200
+   * with empty diff if the goal has no provisioned workspace.
+   */
+  router.get('/goals/:id/diff', (req: Request, res: Response) => {
+    const goalId = String(req.params['id']);
+    if (!goalService.get(goalId)) {
+      res.status(404).json({ error: 'Goal not found' });
+      return;
+    }
+    if (!workspaceService) {
+      res.json({ branch: null, dirty: false, diff: '' });
+      return;
+    }
+    const summary = workspaceService.summary(goalId);
+    res.json({
+      branch: summary?.branch ?? null,
+      dirty: summary?.dirty ?? false,
+      diff: workspaceService.diff(goalId),
+    });
+  });
 
   /**
    * POST /goals — Create a new goal.

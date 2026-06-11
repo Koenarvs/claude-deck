@@ -30,6 +30,7 @@ import { createTraceRouter } from './routes/trace';
 import { createFileRouter } from './routes/file';
 import { createProjectService } from './services/project-service';
 import { createProjectsRouter } from './routes/projects';
+import { createWorkspaceService } from './services/workspace-service';
 import { startTracePruneJob } from './trace-prune-job';
 import type { ServerEvent } from '../src/shared/events';
 import { broadcast, setTerminalHandler } from './ws';
@@ -115,6 +116,7 @@ hookInstallerService.status().then(async (hookStatus) => {
 const scheduledTaskService = new ScheduledTaskService(db);
 const projectService = createProjectService(db);
 const goalService = createGoalService(db, projectService);
+const workspaceService = createWorkspaceService(db, projectService);
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
@@ -241,7 +243,7 @@ const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
 // (see ./security/path-allow) to lock this down. validateModel stays — it blocks
 // arg-injection at near-zero cost and all real Claude models pass it.
 const validateModel = createModelValidator();
-const goalsRouter = createGoalsRouter(goalService, spawnTerminalSession, interGoalMessageService, { validateModel });
+const goalsRouter = createGoalsRouter(goalService, spawnTerminalSession, interGoalMessageService, { validateModel }, workspaceService);
 /**
  * Restarts an ended session by spawning a new PTY with --resume.
  * Called by the sessions route POST /sessions/:id/restart.
