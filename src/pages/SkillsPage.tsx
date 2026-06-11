@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { RefreshCw, Sparkles, Puzzle, Bot, Clock, X } from 'lucide-react';
 import SkillDetailPanel from '../components/SkillDetailPanel';
+import MarkdownView from '../components/shared/MarkdownView';
 
 interface Skill {
   name: string;
@@ -331,6 +330,26 @@ export default function SkillsPage() {
           loading={viewerLoading}
           onClose={() => { setViewerContent(null); setViewerLoading(false); }}
           showDetailPanel={viewerContent?.isSkill ?? false}
+          {...(viewerContent?.isSkill
+            ? {
+                onSave: async (next: string) => {
+                  const res = await fetch(
+                    `/api/skills/${encodeURIComponent(viewerContent.name)}/content`,
+                    {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ content: next }),
+                    },
+                  );
+                  if (!res.ok) {
+                    const body = (await res.json().catch(() => ({}))) as { error?: string };
+                    throw new Error(body.error ?? `Save failed (${res.status})`);
+                  }
+                  // Optimistic: reflect the saved content in the open viewer.
+                  setViewerContent((v) => (v ? { ...v, content: next } : v));
+                },
+              }
+            : {})}
         />
       )}
     </div>
@@ -559,12 +578,14 @@ function SkillViewerModal({
   loading,
   onClose,
   showDetailPanel,
+  onSave,
 }: {
   name: string;
   content: string;
   loading: boolean;
   onClose: () => void;
   showDetailPanel?: boolean;
+  onSave?: (next: string) => Promise<void>;
 }) {
   // Close on Escape key
   useEffect(() => {
@@ -596,26 +617,15 @@ function SkillViewerModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex flex-1 flex-col overflow-y-auto px-6 py-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <RefreshCw size={20} className="animate-spin text-deck-muted" />
               <span className="ml-2 text-sm text-deck-muted">Loading...</span>
             </div>
           ) : (
-            <div className="prose prose-invert prose-sm max-w-none
-              prose-headings:text-deck-text prose-p:text-deck-text/80
-              prose-a:text-deck-accent prose-strong:text-deck-text
-              prose-code:text-deck-accent prose-code:bg-deck-bg prose-code:px-1 prose-code:rounded
-              prose-pre:bg-deck-bg prose-pre:border prose-pre:border-deck-border
-              prose-table:border-collapse
-              prose-th:border prose-th:border-deck-border prose-th:bg-deck-bg prose-th:px-3 prose-th:py-1.5 prose-th:text-left prose-th:text-xs prose-th:text-deck-muted
-              prose-td:border prose-td:border-deck-border prose-td:px-3 prose-td:py-1.5 prose-td:text-sm
-              prose-li:text-deck-text/80
-              prose-hr:border-deck-border
-              prose-blockquote:border-deck-accent/40 prose-blockquote:text-deck-muted
-            ">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <div className="h-[50vh] min-h-[260px] shrink-0">
+              <MarkdownView content={content} fileName={name} {...(onSave ? { onSave } : {})} />
             </div>
           )}
           {showDetailPanel && name && !loading && (
