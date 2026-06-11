@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { makeMigratedDb } from '../helpers/db-fixture';
 import {
   createProjectService,
@@ -80,5 +83,29 @@ describe('isPathAllowed (allow-list)', () => {
     const p = svc.create({ name: 'Deck', root_path: 'C:/github/claude-deck' });
     expect(svc.findByCwd('C:/github/claude-deck/src')?.id).toBe(p.id);
     expect(svc.findByCwd('C:/nope')).toBeNull();
+  });
+
+  it('resolves symlinks before containment (a symlink escaping the root is rejected)', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'proj-root-')));
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'proj-out-')));
+    const linkPath = path.join(root, 'escape');
+    let symlinkSupported = true;
+    try {
+      fs.symlinkSync(outside, linkPath, 'dir');
+    } catch {
+      symlinkSupported = false; // Windows w/o dev mode, or restricted env
+    }
+    try {
+      const svc = createProjectService(db);
+      svc.create({ name: 'R', root_path: root });
+      expect(svc.isPathAllowed(root)).toBe(true);
+      if (symlinkSupported) {
+        // The link lexically lives under root, but its realpath is OUTSIDE → rejected.
+        expect(svc.isPathAllowed(linkPath)).toBe(false);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

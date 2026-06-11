@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'node:path';
+import fs from 'node:fs';
 import type {
   Project,
   CreateProjectInput,
@@ -37,12 +38,26 @@ function rowToProject(r: ProjectRow): Project {
 }
 
 /**
- * Normalizes a filesystem path for containment checks: resolves `.`/`..`,
+ * Resolves a path through the filesystem (expanding ALL symlink components via
+ * the kernel) so a symlink inside an allowed root that points outside it cannot
+ * bypass the containment check. Falls back to lexical `path.resolve` for paths
+ * that don't exist yet (e.g. a cwd about to be created, or fixture paths).
+ */
+function realpathOrResolve(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Normalizes a filesystem path for containment checks: resolves symlinks + `.`/`..`,
  * unifies separators to `/`, lowercases the Windows drive letter, strips a
  * trailing slash.
  */
 function normalizePath(p: string): string {
-  const resolved = path.resolve(p).replace(/\\/g, '/');
+  const resolved = realpathOrResolve(p).replace(/\\/g, '/');
   const lower = resolved.replace(/^([a-zA-Z]):/, (_m, d: string) => `${d.toLowerCase()}:`);
   return lower.replace(/\/+$/, '');
 }
