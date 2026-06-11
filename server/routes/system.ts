@@ -532,7 +532,10 @@ router.get('/goals/:id/document', (req, res) => {
       const sliced = lines.slice(start, end).join('\n');
       res.json({ exists: true, content: sliced, name: fileName, totalLines, hasMore: start > 0 });
     } else {
-      res.json({ exists: true, content, name: fileName });
+      // Expose the resolved path + mtime so the markdown editor can save via
+      // PUT /api/file (goal cwds are editable roots) with conflict detection.
+      const modifiedMs = fs.statSync(filePath).mtimeMs;
+      res.json({ exists: true, content, name: fileName, path: filePath, modifiedMs });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

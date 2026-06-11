@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import MarkdownView from '../shared/MarkdownView';
 import {
   ChevronLeft,
   ChevronRight,
@@ -67,6 +68,10 @@ interface DocumentState {
   content: string | null;
   hasMore: boolean;
   totalLines: number;
+  /** Resolved fs path of a real (editable) doc; null for virtual docs (conversation.md). */
+  path?: string | null;
+  /** mtime at load, for save conflict detection. */
+  modifiedMs?: number | null;
 }
 
 export default function GoalPlanPane({ goalId, sessionHealth, collapsed: controlledCollapsed, onCollapseChange }: GoalPlanPaneProps) {
@@ -127,7 +132,7 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
 
     fetch(`/api/goals/${goalId}/document?name=${encodeURIComponent(selectedFile)}${tailParam}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { exists: boolean; content: string | null; hasMore?: boolean; totalLines?: number } | null) => {
+      .then((data: { exists: boolean; content: string | null; hasMore?: boolean; totalLines?: number; path?: string; modifiedMs?: number } | null) => {
         if (!cancelled) {
           setDoc({
             loading: false,
@@ -135,6 +140,8 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
             content: data?.content ?? null,
             hasMore: data?.hasMore ?? false,
             totalLines: data?.totalLines ?? 0,
+            path: data?.path ?? null,
+            modifiedMs: data?.modifiedMs ?? null,
           });
           if (isConversation) {
             requestAnimationFrame(() => {
@@ -284,6 +291,31 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
             doc={doc}
             hasMore={doc.hasMore ?? false}
             onLoadMore={loadMore}
+            {...(doc.path
+              ? {
+                  onSaveDoc: async (next: string) => {
+                    const res = await fetch('/api/file', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        path: doc.path,
+                        content: next,
+                        ...(doc.modifiedMs != null ? { baseModifiedMs: doc.modifiedMs } : {}),
+                      }),
+                    });
+                    if (!res.ok) {
+                      const body = (await res.json().catch(() => ({}))) as { error?: string };
+                      throw new Error(body.error ?? `Save failed (${res.status})`);
+                    }
+                    const saved = (await res.json().catch(() => ({}))) as { modifiedMs?: number };
+                    setDoc((prev) => ({
+                      ...prev,
+                      content: next,
+                      modifiedMs: saved.modifiedMs ?? prev.modifiedMs ?? null,
+                    }));
+                  },
+                }
+              : {})}
           />
         ) : null}
       </div>
@@ -300,9 +332,11 @@ interface DocumentsViewProps {
   doc: DocumentState;
   hasMore: boolean;
   onLoadMore: () => void;
+  /** Save handler for the editable (real-file) doc; omit ⇒ read-only viewer. */
+  onSaveDoc?: (next: string) => Promise<void>;
 }
 
-function DocumentsView({ mdFiles, selectedFile, onSelectFile, doc, hasMore, onLoadMore }: DocumentsViewProps) {
+function DocumentsView({ mdFiles, selectedFile, onSelectFile, doc, hasMore, onLoadMore, onSaveDoc }: DocumentsViewProps) {
   if (mdFiles.length === 0) {
     return <EmptyState icon={FileText} message="No documents found" detail="Place .md files in the goal's working directory" />;
   }
@@ -338,7 +372,17 @@ function DocumentsView({ mdFiles, selectedFile, onSelectFile, doc, hasMore, onLo
         <div className="flex items-center justify-center py-8">
           <Loader2 size={20} className="animate-spin text-deck-muted" />
         </div>
+      ) : doc.exists && doc.content && doc.path ? (
+        // Real file → editable via the shared MarkdownView (saves through PUT /api/file).
+        <div className="h-full min-h-[260px]">
+          <MarkdownView
+            content={doc.content}
+            {...(selectedFile ? { fileName: selectedFile } : {})}
+            {...(onSaveDoc ? { onSave: onSaveDoc } : {})}
+          />
+        </div>
       ) : doc.exists && doc.content ? (
+        // Virtual doc (conversation.md) → read-only prose with the pane's own scroll.
         <div className="prose prose-invert prose-sm max-w-none
           prose-headings:text-deck-text prose-p:text-deck-text/80
           prose-a:text-deck-accent prose-strong:text-deck-text
