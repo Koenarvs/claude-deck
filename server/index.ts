@@ -31,6 +31,8 @@ import { createFileRouter } from './routes/file';
 import { createProjectService } from './services/project-service';
 import { createProjectsRouter } from './routes/projects';
 import { createWorkspaceService } from './services/workspace-service';
+import { createVerificationService } from './services/verification-service';
+import { createVerificationRouter } from './routes/verification';
 import { createReconciliationService } from './services/reconciliation-service';
 import { resumeOrphans } from './resume-driver';
 import { drainSessions } from './drain';
@@ -120,6 +122,17 @@ const scheduledTaskService = new ScheduledTaskService(db);
 const projectService = createProjectService(db);
 const goalService = createGoalService(db, projectService);
 const workspaceService = createWorkspaceService(db, projectService);
+const verificationService = createVerificationService(db, {
+  // doneCommand comes from the goal's registered project (5A); none → 'skipped'.
+  resolveDoneCommand: (goal) => {
+    const proj = goal.project_id
+      ? projectService.get(goal.project_id)
+      : projectService.findByCwd(goal.cwd);
+    return proj?.done_command ?? null;
+  },
+  // run in the isolated worktree (5B) when present, else the goal cwd.
+  resolveWorkspace: (goal) => workspaceService.get(goal.id)?.worktree_path ?? goal.cwd,
+});
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
@@ -203,6 +216,14 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
       broadcast({ type: 'conversation:updated', goal_id: gId } as ServerEvent);
       const cl = conversationLoggers.get(gId);
       if (cl) { cl.stop(); conversationLoggers.delete(gId); }
+      // 5C: run the verification gate (project doneCommand) on completion. Records
+      // pass/fail/error/skipped + broadcasts; 'skipped' when no doneCommand is set.
+      const exitedGoal = goalService.get(gId);
+      if (exitedGoal) {
+        void verificationService
+          .runForGoal(exitedGoal, gId)
+          .catch((err) => logger.error({ err, goalId: gId }, 'verification: run failed'));
+      }
     },
     onReady() {
       const pending = interGoalMessageService.getInstructions(goalId);
@@ -314,6 +335,14 @@ function restartSession(sessionId: string, goalId: string): void {
       broadcast({ type: 'conversation:updated', goal_id: gId } as ServerEvent);
       const cl = conversationLoggers.get(gId);
       if (cl) { cl.stop(); conversationLoggers.delete(gId); }
+      // 5C: run the verification gate (project doneCommand) on completion. Records
+      // pass/fail/error/skipped + broadcasts; 'skipped' when no doneCommand is set.
+      const exitedGoal = goalService.get(gId);
+      if (exitedGoal) {
+        void verificationService
+          .runForGoal(exitedGoal, gId)
+          .catch((err) => logger.error({ err, goalId: gId }, 'verification: run failed'));
+      }
     },
     onReady() {
       const pending = interGoalMessageService.getInstructions(goalId);
@@ -356,10 +385,11 @@ const skillsRouter = createSkillsRouter(skillExecutionService, skillAnalysisServ
 const traceRouter = createTraceRouter(db, env.dataDir);
 const fileRouter = createFileRouter();
 const projectsRouter = createProjectsRouter(projectService);
+const verificationRouter = createVerificationRouter(verificationService);
 
 // Create Express app and HTTP server
 const app = createApp({
-  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter],
+  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter],
   auth: { token: env.token },
 });
 // Make db available to routes that need it (analytics, hook-events)
