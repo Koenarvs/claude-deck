@@ -129,6 +129,24 @@ export const ProjectSchema = z.object({
   updated_at: z.number(),
 });
 
+// ── 5C Verification gate ─────────────────────────────────────────────────────
+
+export const VerificationStatusSchema = z.enum(['pass', 'fail', 'error', 'skipped', 'running']);
+
+export const VerificationResultSchema = z.object({
+  id: z.string(),
+  goal_id: z.string(),
+  session_id: z.string().nullable(),
+  status: VerificationStatusSchema,
+  command: z.string().nullable(),
+  workspace: z.string().nullable(),
+  exit_code: z.number().nullable(),
+  output: z.string().nullable(),
+  duration_ms: z.number().nullable(),
+  model: z.string().nullable(),
+  created_at: z.number(),
+});
+
 export const UpdateGoalInputSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),

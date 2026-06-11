@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   GoalSchema,
   ProjectSchema,
+  VerificationResultSchema,
   GoalStatusSchema,
   PlanJsonSchema,
   MessageSchema,
@@ -176,10 +177,17 @@ export const ProjectRemovedEventSchema = z.object({
   id: z.string(),
 });
 
+export const VerificationUpdatedEventSchema = z.object({
+  type: z.literal('verification:updated'),
+  goal_id: z.string(),
+  result: VerificationResultSchema,
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   GoalCreatedEventSchema,
   ProjectUpdatedEventSchema,
   ProjectRemovedEventSchema,
+  VerificationUpdatedEventSchema,
   GoalUpdatedEventSchema,
   GoalStatusEventSchema,
   GoalPlanUpdatedEventSchema,

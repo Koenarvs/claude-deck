@@ -72,6 +72,34 @@ export interface UpdateProjectInput {
   worktree_root?: string | null | undefined;
 }
 
+// ── 5C Verification gate ─────────────────────────────────────────────────────
+
+export type VerificationStatus = 'pass' | 'fail' | 'error' | 'skipped' | 'running';
+
+export interface VerificationResult {
+  id: string;
+  goal_id: string;
+  session_id: string | null;
+  status: VerificationStatus;
+  command: string | null;
+  workspace: string | null;
+  exit_code: number | null;
+  output: string | null;
+  duration_ms: number | null;
+  model: string | null;
+  created_at: number;
+}
+
+export interface ModelScorecardRow {
+  model: string;
+  total: number;
+  pass: number;
+  fail: number;
+  error: number;
+  /** pass / (pass + fail + error); 0 when no completed runs. */
+  passRate: number;
+}
+
 export interface UpdateGoalInput {
   title?: string | undefined;
   description?: string | null | undefined;
