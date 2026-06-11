@@ -27,6 +27,7 @@ import { MessageService } from './services/message-service';
 import { createSessionsRouter } from './routes/sessions';
 import { createSystemRouter } from './routes/system';
 import { createTraceRouter } from './routes/trace';
+import { createFileRouter } from './routes/file';
 import { startTracePruneJob } from './trace-prune-job';
 import type { ServerEvent } from '../src/shared/events';
 import { broadcast, setTerminalHandler } from './ws';
@@ -319,10 +320,11 @@ const systemRouterWithSkills = createSystemRouter(skillDirectoryService, {
 });
 const skillsRouter = createSkillsRouter(skillExecutionService, skillAnalysisService, skillFileService);
 const traceRouter = createTraceRouter(db, env.dataDir);
+const fileRouter = createFileRouter();
 
 // Create Express app and HTTP server
 const app = createApp({
-  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter],
+  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter],
   auth: { token: env.token },
 });
 // Make db available to routes that need it (analytics, hook-events)
