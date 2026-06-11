@@ -34,6 +34,7 @@ interface GoalRow {
   updated_at: number;
   completed_at: number | null;
   project_id: string | null;
+  workspace_branch?: string | null;
 }
 
 interface MessageRow {
@@ -71,6 +72,7 @@ function rowToGoal(row: GoalRow): Goal {
     updated_at: row.updated_at,
     completed_at: row.completed_at,
     project_id: row.project_id ?? null,
+    workspace_branch: row.workspace_branch ?? null,
   };
 }
 
@@ -319,7 +321,10 @@ export function createGoalService(db: Database.Database, projectService?: Projec
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const sql = `SELECT * FROM goals ${where} ORDER BY status, kanban_order ASC`;
+    // LEFT JOIN the isolated-workspace branch (5B) so cards can show it cheaply (no per-card git).
+    const sql = `SELECT goals.*, gw.branch AS workspace_branch
+                 FROM goals LEFT JOIN goal_workspace gw ON gw.goal_id = goals.id
+                 ${where} ORDER BY status, kanban_order ASC`;
 
     const rows = db.prepare(sql).all(...params) as GoalRow[];
     return rows.map(rowToGoal);

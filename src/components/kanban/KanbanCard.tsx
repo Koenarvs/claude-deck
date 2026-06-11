@@ -212,6 +212,15 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
           </span>
         )}
 
+        {goal.workspace_branch && (
+          <span
+            className="mono-tabular inline-flex items-center gap-0.5 rounded-sm bg-inset px-1.5 py-0.5 text-[10px] text-dim"
+            title={`Isolated workspace: ${goal.workspace_branch}`}
+          >
+            ⎇ {goal.workspace_branch.replace(/^goal\//, '').slice(0, 16)}
+          </span>
+        )}
+
         <div className="ml-auto flex items-center gap-2 mono-tabular text-[10px] text-faint">
           {turns > 0 && <span>{turns}t</span>}
           {cost > 0 && <span>{fmtCost(cost)}</span>}

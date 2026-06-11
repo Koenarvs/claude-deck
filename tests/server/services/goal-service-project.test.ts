@@ -82,4 +82,18 @@ describe('goal ↔ project linking (5A)', () => {
     const g = goals.create({ title: 'No svc', cwd: 'C:/x' });
     expect(g.project_id ?? null).toBeNull();
   });
+
+  it('list() surfaces the isolated workspace branch (5B) via the join', () => {
+    const goals = createGoalService(db, createProjectService(db));
+    const g = goals.create({ title: 'WS', cwd: 'C:/x' });
+    db.prepare(
+      `INSERT INTO goal_workspace (goal_id, branch, worktree_path, base_ref, mode, created_at)
+       VALUES (?, 'goal/abc-feature', '/wt', 'main', 'worktree', 0)`,
+    ).run(g.id);
+    const listed = goals.list().find((x) => x.id === g.id);
+    expect(listed?.workspace_branch).toBe('goal/abc-feature');
+    // Goals without a workspace report null.
+    const g2 = goals.create({ title: 'NoWS', cwd: 'C:/y' });
+    expect(goals.list().find((x) => x.id === g2.id)?.workspace_branch ?? null).toBeNull();
+  });
 });

@@ -25,6 +25,8 @@ export interface Goal {
   completed_at: number | null;
   /** Registered project this goal belongs to (5A); null/absent for ad-hoc cwds. */
   project_id?: string | null;
+  /** Isolated-workspace branch (5B) when the goal runs in a git worktree; else null/absent. */
+  workspace_branch?: string | null;
 }
 
 export interface CreateGoalInput {
