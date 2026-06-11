@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, FileText, FolderOpen } from 'lucide-react';
+import MarkdownView from '../components/shared/MarkdownView';
 
 interface ClaudeMdContent {
   path: string;
@@ -147,13 +148,36 @@ export default function ClaudeMdPage() {
           {/* Content viewer */}
           <div className="min-w-0 flex-1 rounded-lg border border-deck-border bg-deck-surface">
             {selectedFile ? (
-              <div>
-                <div className="border-b border-deck-border px-4 py-2">
-                  <span className="font-mono text-xs text-deck-muted">{selectedFile.path}</span>
-                </div>
-                <pre className="overflow-auto whitespace-pre-wrap p-4 font-mono text-sm text-deck-text">
-                  {selectedFile.content}
-                </pre>
+              <div className="h-[70vh] min-h-[320px]">
+                <MarkdownView
+                  content={selectedFile.content}
+                  fileName={selectedFile.path}
+                  onSave={async (next: string) => {
+                    const res = await fetch('/api/file', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        path: selectedFile.path,
+                        content: next,
+                        ...(selectedFile.lastModified != null
+                          ? { baseModifiedMs: selectedFile.lastModified }
+                          : {}),
+                      }),
+                    });
+                    if (!res.ok) {
+                      const body = (await res.json().catch(() => ({}))) as { error?: string };
+                      throw new Error(body.error ?? `Save failed (${res.status})`);
+                    }
+                    const saved = (await res.json().catch(() => ({}))) as { modifiedMs?: number };
+                    setClaudeMdFiles((prev) =>
+                      prev.map((f) =>
+                        f.path === selectedFile.path
+                          ? { ...f, content: next, lastModified: saved.modifiedMs ?? f.lastModified }
+                          : f,
+                      ),
+                    );
+                  }}
+                />
               </div>
             ) : (
               <div className="flex items-center justify-center py-12">
