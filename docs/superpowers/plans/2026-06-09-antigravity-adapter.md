@@ -2,11 +2,50 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:executing-plans` (review checkpoints) or `superpowers:subagent-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax. **Task 1 is a DISCOVERY/SPIKE — do it first and record its findings into this file before any other task depends on them.** This document is the foundation spec's deferred **"Spec B."**
 
-**Status:** DRAFT — spike findings (Task 1) below are PRELIMINARY, captured against the closest available proxy CLI (`gemini`), because `agy` is not installed on the dev machine. Mark and re-verify every `agy`-specific assumption when the real binary is available.
+**Status:** ~~DRAFT — PRELIMINARY (gemini proxy)~~ → **RE-SPIKED against REAL `agy` v1.0.7 on 2026-06-11.** The proxy assumptions in §2 below are **superseded by the "REAL agy v1.0.7 spike" section immediately following.** Where the two conflict, the real-spike section wins.
 
-**Date:** 2026-06-09
+**Date:** 2026-06-09 (re-spiked 2026-06-11)
 **Phase:** Master roadmap Phase 3 (Antigravity half of "Spec B + Spec C").
-**Branch:** `feat/antigravity-adapter` (branch from the Phase 1 foundation branch once Tasks 2–10 of `2026-06-06-agent-adapter-foundation.md` and Phase 0A registry are merged).
+**Branch:** `feat/phase-3-and-4d` (combined Phase 3 + 4D effort, off `feat/phase-4-enable-stubs` = `ccaa570` + handoff).
+
+---
+
+## REAL agy v1.0.7 spike (2026-06-11) — OVERRIDES the proxy §2 below
+
+`agy` IS installed at `C:\Users\Koena\AppData\Local\agy\bin\agy.exe` (not on PATH). Findings from the real binary + its on-disk conversation store:
+
+### Binary & flags (from `agy --help`)
+- **Binary:** `agy.exe` v1.0.7 at `%LOCALAPPDATA%\agy\bin\agy.exe`. `resolveBinary()` must check that path in addition to `which agy`.
+- **Model:** `--model <id>`.
+- **Prompt:** `-i` / `--prompt-interactive <text>` (run prompt then stay interactive) — this is the streaming-friendly choice ⇒ `promptStrategy {kind:'flag'}`. Also `-p`/`--print`/`--prompt` for one-shot.
+- **Autonomy:** `--dangerously-skip-permissions` (autonomous). Supervised ⇒ **no flag** (interactive approval prompts in-terminal). There is **no** `--yolo`/`--approval-mode`.
+- **Resume:** `--conversation <ID>` (by id) or `-c`/`--continue` (most recent). There is **no** `--resume`/`--session-id`.
+- **Workspace:** `--add-dir <path>` (repeatable). No `--include-directories`.
+- **Sandbox:** `--sandbox` (boolean flag, terminal restrictions). `--log-file`, `--print-timeout` also exist.
+- **Subcommands:** `models`, `install`, `plugin`/`plugins`, `update`, `changelog`, `help`.
+
+### Storage & usage — NOT JSONL. Protobuf-in-SQLite.
+- Conversations live at **`~/.gemini/antigravity-cli/conversations/<cascadeId>.db`** (SQLite). Auth/creds at `~/.gemini/oauth_creds.json` + `google_accounts.json` (OAuth seat — confirms `billingMode:'seat'`, no API key). `~/.gemini/tmp/*/chats` belongs to the *standalone* `gemini` CLI, **not** agy — do not read it.
+- Each `.db` has tables `trajectory_meta, steps, gen_metadata, executor_metadata, parent_references, trajectory_metadata_blob, battle_mode_infos`. Payloads are **protobuf blobs** (no .proto shipped).
+- **Token usage IS extractable** (decoded via generic protobuf wire-walk). Per **bot-response step**, `steps.metadata` (blob) field **9** is a `usageMetadata` sub-message; the same sub-message also appears at `gen_metadata.data` path `.1.4` (and dup `.1.17.2`). **Canonical source = `steps.metadata` field 9** (most complete — one record per model call; `gen_metadata` omits some calls).
+  - **Field map (verified, consistent across all turns):**
+    | proto field | meaning | → RawModelUsage |
+    |---|---|---|
+    | f2 | prompt tokens (non-cached input) | `inputTokens` |
+    | f5 | cached content tokens (cache read; absent until caching activates) | `cacheReadTokens` |
+    | f3 | candidates (output) | `outputTokens` (+ f9) |
+    | f9 | thoughts (thinking) tokens | folded into `outputTokens` |
+    | f10 | tool-use prompt tokens (small) | ignored |
+    | f1, f6 | constants (1020/1050, 24) — **not tokens** | ignored |
+  - **Aggregation = SUM per turn** (NOT max). The real proto separates non-cached (f2) from cached (f5) exactly like Claude's `input_tokens` vs `cache_read_input_tokens`, so `parseClaudeUsage`'s sum-per-message convention applies directly. **The proxy §2.4 "cumulative → take MAX" rule is WRONG for real agy — discard it.** `cacheCreationTokens = 0` (no separate count). `messageCount` = number of steps carrying a field-9 usage sub-message.
+- **Model id:** `gen_metadata.data` path `.1.19` = e.g. `"gemini-3-flash-a"`, `.1.21` = `"Gemini 3.5 Flash (Medium)"`. agy can also route to Claude (a `used_claude` flag is present). Register **`gemini-3-flash`/`gemini-3-pro`** class entries (the proxy's `gemini-2.5-*` ids are stale). Per-model split: detect model(s) from `gen_metadata`; single model ⇒ one `byModel` row.
+
+### Net effect on the plan below
+- **Task 1 (spike): DONE** (this section). Fixture is a synthetic SQLite `.db` built with known field-9 usage blobs (deterministic expected math) — replaces the `.jsonl` fixture in §Task-1/Task-2.
+- **Task 2 (`antigravity-transcript.ts` JSONL reader): REPLACED** by a SQLite+protobuf usage reader (`antigravity-usage.ts`): minimal varint/field-path protobuf decoder + `parseAntigravityDb(dbPath)`.
+- **Task 4 parseUsage math:** sum f2/f5/(f3+f9) per step; not the cumulative-max rule.
+- **Task 5 launch args:** use the REAL flags above (`--model`, `-i`, `--dangerously-skip-permissions`, `--conversation`/`-c`, `--add-dir`), not `--session-id`/`--yolo`/`--approval-mode`.
+- Everything else (capabilities honest defaults, GEMINI.md prepareContext, registry/ingestion/settings wiring, seat=unpriced) stands.
 
 ---
 
