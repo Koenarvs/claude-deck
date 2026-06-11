@@ -302,8 +302,13 @@ export class HookIngest {
       goalId,
     }, 'Hook: PreToolUse — pass-through');
 
-    // Pass through silently — Claude Code handles permissions natively in the
-    // terminal. No dashboard interception/notification (removed by request).
+    // Pass through. This is NOT an auto-approval: hooks/client.js maps a non-deny
+    // response to exit 0 (no permissionDecision emitted), which defers to Claude
+    // Code's native permission flow rather than bypassing it. Supervised goals
+    // spawn in default permission mode, so risky tools still prompt natively in
+    // the terminal; only autonomous goals run with --permission-mode
+    // bypassPermissions (claude-adapter.ts), by design. The removed dashboard
+    // layer was only ever an optional *extra* gate, never the primary one.
     return { decision: 'allow' };
   }
 
@@ -342,8 +347,13 @@ export class HookIngest {
       payloadKeys: Object.keys(payload).join(', '),
     }, 'Hook: PermissionRequest — pass-through');
 
-    // Pass through silently — Claude Code handles permissions natively in the
-    // terminal. No dashboard interception/notification (removed by request).
+    // Pass through. This is NOT an auto-approval: hooks/client.js maps a non-deny
+    // response to exit 0 (no permissionDecision emitted), which defers to Claude
+    // Code's native permission flow rather than bypassing it. Supervised goals
+    // spawn in default permission mode, so risky tools still prompt natively in
+    // the terminal; only autonomous goals run with --permission-mode
+    // bypassPermissions (claude-adapter.ts), by design. The removed dashboard
+    // layer was only ever an optional *extra* gate, never the primary one.
     return { decision: 'allow' };
   }
 
