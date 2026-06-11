@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import MarkdownView from '../shared/MarkdownView';
+import WorkspaceDiff from './WorkspaceDiff';
 import {
   ChevronLeft,
   ChevronRight,
@@ -31,7 +32,7 @@ interface GoalPlanPaneProps {
   };
 }
 
-type TabId = 'health' | 'documents' | 'todo' | 'agents';
+type TabId = 'health' | 'documents' | 'todo' | 'agents' | 'diff';
 
 interface TabDef {
   id: TabId;
@@ -44,6 +45,7 @@ const TABS: TabDef[] = [
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'todo', label: 'To Do', icon: CheckSquare },
   { id: 'agents', label: 'Agents', icon: GitBranch },
+  { id: 'diff', label: 'Diff', icon: GitBranch },
 ];
 
 const COLLAPSE_KEY = 'claude-deck:plan-pane-collapsed';
@@ -317,6 +319,8 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
                 }
               : {})}
           />
+        ) : activeTab === 'diff' ? (
+          <WorkspaceDiff goalId={goalId} />
         ) : null}
       </div>
     </div>
