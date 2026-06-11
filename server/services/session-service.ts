@@ -78,6 +78,16 @@ export class SessionService {
    *
    * @returns The session (either newly created or existing).
    */
+  /** Persists durable resume state (provider session id + workspace cwd) for restart recovery (5D). */
+  recordResumeState(
+    sessionId: string,
+    state: { providerSessionId: string | null; workspacePath: string | null },
+  ): void {
+    this.db
+      .prepare('UPDATE sessions SET provider_session_id = ?, workspace_path = ? WHERE id = ?')
+      .run(state.providerSessionId, state.workspacePath, sessionId);
+  }
+
   create(input: CreateSessionInput): Session {
     const row = {
       id: input.id,
