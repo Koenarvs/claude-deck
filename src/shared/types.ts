@@ -102,6 +102,34 @@ export interface ModelScorecardRow {
   passRate: number;
 }
 
+// ── 5E Budget/quota guardrails ───────────────────────────────────────────────
+
+export interface BudgetStatus {
+  killSwitchActive: boolean;
+  /** Per-provider spend today (USD) vs configured caps. */
+  providers: Array<{
+    id: string;
+    billingMode: 'metered' | 'seat';
+    spentTodayUsd: number;
+    dailyCapUsd: number | null;
+    overCap: boolean;
+    activeSessions: number;
+    maxConcurrent: number | null;
+  }>;
+}
+
+export interface RoutingRecommendation {
+  requestedModel: string;
+  /** The provider the requested model belongs to. */
+  requestedProvider: string;
+  /** null = stay on the requested provider; otherwise the suggested provider id. */
+  recommendedProvider: string | null;
+  recommendedModel: string | null;
+  reason: string;
+  /** Whether auto-route applied the recommendation (true) or it is advisory (false). */
+  applied: boolean;
+}
+
 export interface UpdateGoalInput {
   title?: string | undefined;
   description?: string | null | undefined;
