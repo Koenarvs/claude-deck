@@ -8,6 +8,7 @@ import { getAggregateTotals, getDailyCosts } from '../services/usage-service';
 import { scanSkills, type ScannedSkill } from '../skill-scanner';
 import { findJsonlFile, getFormattedConversation } from '../services/transcript-service';
 import { pathWithinRoots } from '../security/path-allow';
+import { createDocWriter } from '../services/doc-writer';
 import { buildCatalog } from '../agents/registry';
 import type { ConfigService } from '../services/config-service';
 import { getModelBreakdown, getModelMix, getCostPerGoal } from '../services/analytics-model-service';
@@ -42,6 +43,7 @@ function defaultSkillRoots(): string[] {
 export function createSystemRouter(skillDirService?: SkillDirectoryService, config?: SystemRouterConfig): Router {
 const router = Router();
 const skillRoots = config?.skillRoots ?? defaultSkillRoots();
+const docWriter = createDocWriter();
 const configService = config?.configService;
 
 // Provider list for billing-aware analytics: explicit override (tests) →
@@ -537,6 +539,58 @@ router.get('/goals/:id/document', (req, res) => {
       const modifiedMs = fs.statSync(filePath).mtimeMs;
       res.json({ exists: true, content, name: fileName, path: filePath, modifiedMs });
     }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/goals/:id/document — attributed write of a .md doc into the goal's cwd (5F).
+ * Body: { name, content, baseHash, author? }. 409 on a stale baseHash (last-write-wins),
+ * stamping an attribution trailer on success.
+ */
+router.post('/goals/:id/document', (req, res) => {
+  try {
+    const db = (req.app as unknown as { locals: { db: import('better-sqlite3').Database } }).locals?.db;
+    if (!db) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const goalId = String(req.params['id']);
+    const { name, content, baseHash, author } = (req.body ?? {}) as {
+      name?: string;
+      content?: string;
+      baseHash?: string;
+      author?: string;
+    };
+    if (typeof name !== 'string' || !name || typeof content !== 'string') {
+      res.status(400).json({ error: 'name and content are required' });
+      return;
+    }
+    if (!name.endsWith('.md') || name.includes('..') || name.includes('/') || name.includes('\\')) {
+      res.status(400).json({ error: 'Invalid filename (.md only, no path separators)' });
+      return;
+    }
+    const goal = db.prepare('SELECT cwd FROM goals WHERE id = ?').get(goalId) as
+      | { cwd: string }
+      | undefined;
+    if (!goal) {
+      res.status(404).json({ error: 'Goal not found' });
+      return;
+    }
+    const filePath = path.join(goal.cwd, name);
+    const result = docWriter.writeWithAttribution({
+      path: filePath,
+      content,
+      baseHash: baseHash ?? '',
+      author: author ?? `goal-${goalId.slice(0, 8)}/claude`,
+    });
+    if (result.conflict) {
+      res.status(409).json(result);
+      return;
+    }
+    res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
