@@ -10,6 +10,7 @@ import { useConnectionStore } from '../stores/useConnectionStore';
 import { useActiveToolStore } from '../stores/useActiveToolStore';
 import { emitTerminalData, emitTerminalStarted, emitTerminalExited } from './terminal-events';
 import { emitConversationUpdated } from './conversation-events';
+import { useOrchestratorStore } from '../stores/useOrchestratorStore';
 
 let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
@@ -91,6 +92,18 @@ function dispatch(event: ServerEvent): void {
 
     case 'goal:instruction':
       useGoalsStore.getState().addInstruction(event.message);
+      break;
+
+    case 'orchestrator:message':
+      useOrchestratorStore.getState().addMessage(event.message);
+      break;
+
+    case 'orchestrator:status':
+      useOrchestratorStore.getState().setStatus(event.status);
+      break;
+
+    case 'orchestrator:tool':
+      useOrchestratorStore.getState().addTool({ tool: event.tool, summary: event.summary });
       break;
 
     case 'subprocess:error':
