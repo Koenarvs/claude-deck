@@ -11,6 +11,7 @@ import { pathWithinRoots } from '../security/path-allow';
 import { createDocWriter } from '../services/doc-writer';
 import { buildCatalog } from '../agents/registry';
 import { claudeModelsService, type ClaudeModelsService } from '../services/claude-models-service';
+import { codexModelsService, type CodexModelsService } from '../services/codex-models-service';
 import type { AgentCatalogEntry } from '../../src/shared/agents/types';
 import type { ConfigService } from '../services/config-service';
 import { getModelBreakdown, getModelMix, getCostPerGoal } from '../services/analytics-model-service';
@@ -27,6 +28,8 @@ export interface SystemRouterConfig {
   getProviders?: () => ProviderConfig[];
   /** Live Anthropic model-list service for the catalog overlay (tests inject a stub). */
   claudeModels?: ClaudeModelsService;
+  /** Live Codex model-list service (reads ~/.codex/models_cache.json; tests stub). */
+  codexModels?: CodexModelsService;
 }
 
 /** Default skill roots: project + user .claude surfaces (mirrors skill-scanner). */
@@ -50,6 +53,7 @@ const skillRoots = config?.skillRoots ?? defaultSkillRoots();
 const docWriter = createDocWriter();
 const configService = config?.configService;
 const claudeModels = config?.claudeModels ?? claudeModelsService;
+const codexModels = config?.codexModels ?? codexModelsService;
 
 // Provider list for billing-aware analytics: explicit override (tests) →
 // persisted config → single-claude-seat default.
@@ -236,17 +240,23 @@ router.get('/extensions', (_req, res) => {
 });
 
 /**
- * Builds the provider catalog and overlays the live Anthropic model list onto the
- * Claude entry (the concrete versions shown by `/model`). Falls back to the static
- * registry-derived models when the live list is unavailable.
+ * Builds the provider catalog and overlays each provider's live model list onto its
+ * entry: Claude from the Anthropic API, Codex from ~/.codex/models_cache.json. Each
+ * provider independently falls back to its static registry-derived models when its
+ * live list is unavailable. (Antigravity has no server-readable live source — its
+ * models are baked into the agy binary — so it keeps the static list.)
  */
-async function buildCatalogWithLiveClaudeModels(enabledIds: string[]): Promise<AgentCatalogEntry[]> {
+async function buildCatalogWithLiveModels(enabledIds: string[]): Promise<AgentCatalogEntry[]> {
   const catalog = buildCatalog(enabledIds);
-  const liveClaudeModels = await claudeModels.getModelOptions();
-  if (!liveClaudeModels) return catalog;
-  return catalog.map((entry) =>
-    entry.id === 'claude' ? { ...entry, models: liveClaudeModels } : entry,
-  );
+  const [liveClaude, liveCodex] = await Promise.all([
+    claudeModels.getModelOptions(),
+    codexModels.getModelOptions(),
+  ]);
+  return catalog.map((entry) => {
+    if (entry.id === 'claude' && liveClaude) return { ...entry, models: liveClaude };
+    if (entry.id === 'codex' && liveCodex) return { ...entry, models: liveCodex };
+    return entry;
+  });
 }
 
 /**
@@ -267,7 +277,7 @@ router.get('/config', async (_req, res) => {
     ...persisted,
     dataDir: process.env['DATA_DIR'] ?? './data',
     hooksInstalled: status.installed,
-    catalog: await buildCatalogWithLiveClaudeModels(enabledIds),
+    catalog: await buildCatalogWithLiveModels(enabledIds),
   });
 });
 
@@ -285,7 +295,7 @@ router.put('/config', async (req, res) => {
   try {
     const updated = configService.updatePersisted(req.body ?? {});
     const enabledIds = updated.providers.filter((p) => p.enabled).map((p) => p.id);
-    res.json({ ...updated, catalog: await buildCatalogWithLiveClaudeModels(enabledIds) });
+    res.json({ ...updated, catalog: await buildCatalogWithLiveModels(enabledIds) });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: message });

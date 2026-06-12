@@ -9,17 +9,19 @@ import { createConfigService } from '../../../server/services/config-service';
 let server: http.Server | null = null;
 afterEach(() => { if (server) { server.close(); server = null; } });
 
-// Stub the live Anthropic model-list service so route tests never hit the network.
-// Default returns null → the catalog falls back to the static registry-derived models.
+// Stub the live model-list services so route tests are hermetic (no network / no
+// reading the dev machine's ~/.codex cache). Default returns null → the catalog
+// falls back to the static registry-derived models.
+type ModelsStub = { getModelOptions: () => Promise<Array<{ value: string; label: string }> | null> };
+const nullModels: ModelsStub = { getModelOptions: async () => null };
 function start(
-  claudeModels: { getModelOptions: () => Promise<Array<{ value: string; label: string }> | null> } = {
-    getModelOptions: async () => null,
-  },
+  claudeModels: ModelsStub = nullModels,
+  codexModels: ModelsStub = nullModels,
 ): Promise<{ port: number; base: string }> {
   const db = new Database(':memory:');
   runMigrations(db);
   const configService = createConfigService(db);
-  const router = createSystemRouter(undefined, { configService, claudeModels });
+  const router = createSystemRouter(undefined, { configService, claudeModels, codexModels });
   const app = express();
   app.use(express.json());
   app.use('/api', router);
@@ -64,6 +66,20 @@ describe('GET/PUT /api/config (persisted)', () => {
     expect(claude?.models.map((m) => m.value)).toEqual(['default', 'claude-opus-4-8', 'claude-opus-4-7']);
     // Other providers keep their static registry-derived models.
     expect(body.catalog.find((c) => c.id === 'codex')).toBeTruthy();
+  });
+
+  it('overlays the live Codex model list onto the codex catalog entry', async () => {
+    const { base } = await start(nullModels, {
+      getModelOptions: async () => [
+        { value: 'gpt-5.5', label: 'GPT-5.5' },
+        { value: 'gpt-5.2', label: 'gpt-5.2' },
+      ],
+    });
+    const body = (await (await fetch(`${base}/api/config`)).json()) as {
+      catalog: Array<{ id: string; models: Array<{ value: string }> }>;
+    };
+    const codex = body.catalog.find((c) => c.id === 'codex');
+    expect(codex?.models.map((m) => m.value)).toEqual(['gpt-5.5', 'gpt-5.2']);
   });
 
   it('PUT then GET round-trips the updated values (proves persistence)', async () => {
