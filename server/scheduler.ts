@@ -28,11 +28,17 @@ interface RegisteredJob {
 export class Scheduler {
   private readonly taskService: ScheduledTaskService;
   private readonly createGoal: GoalCreator;
+  private readonly onFire: ((info: { taskId: string; goalId: string }) => void) | undefined;
   private readonly jobs: Map<string, RegisteredJob> = new Map();
 
-  constructor(taskService: ScheduledTaskService, createGoal: GoalCreator) {
+  constructor(
+    taskService: ScheduledTaskService,
+    createGoal: GoalCreator,
+    onFire?: (info: { taskId: string; goalId: string }) => void,
+  ) {
     this.taskService = taskService;
     this.createGoal = createGoal;
+    this.onFire = onFire;
   }
 
   /**
@@ -159,6 +165,14 @@ export class Scheduler {
       { taskId: task.id, goalId: goal.id, title: goalInput.title },
       'Scheduled task fired — goal created',
     );
+
+    if (this.onFire) {
+      try {
+        this.onFire({ taskId: task.id, goalId: goal.id });
+      } catch (err) {
+        logger.warn({ taskId: task.id, err }, 'Scheduler onFire callback threw');
+      }
+    }
 
     return goal.id;
   }

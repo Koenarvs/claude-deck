@@ -49,7 +49,17 @@ import { createModelValidator } from './security/model-allow';
 import { createConfigService } from './services/config-service';
 import { adapterForModel } from './agents/registry';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import cron from 'node-cron';
+import { OrchestratorStateService } from './services/orchestrator-state-service';
+import { OrchestratorMessageService } from './services/orchestrator-message-service';
+import { MemoryStore } from './orchestrator/memory-store';
+import { buildSnapshot } from './orchestrator/snapshot';
+import { BrainRunner } from './orchestrator/brain-runner';
+import { ClaudeBrainProvider } from './orchestrator/brain-provider';
+import { OrchestratorService } from './orchestrator/orchestrator-service';
+import { createOrchestratorRouter } from './routes/orchestrator';
 import logger from './logger';
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
@@ -162,7 +172,16 @@ function activeSessionsByProvider(): Record<string, number> {
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
-const approvalCoordinator = new ApprovalCoordinator(db);
+// Phase 6: declared early so the approval/scheduler observers can reference it; the
+// instance is assigned below once its deps (brain runner etc.) are constructed.
+let orchestrator: OrchestratorService | undefined;
+const approvalCoordinator = new ApprovalCoordinator(db, undefined, (approval) => {
+  void orchestrator?.trigger({
+    kind: 'approval',
+    approvalId: approval.id,
+    ...(approval.goal_id ? { goalId: approval.goal_id } : {}),
+  });
+});
 const skillExecutionService = createSkillExecutionService(db);
 const skillAnalysisService = createSkillAnalysisService(db);
 const skillFileService = createSkillFileService(db);
@@ -262,6 +281,8 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
           .runForGoal(exitedGoal, gId)
           .catch((err) => logger.error({ err, goalId: gId }, 'verification: run failed'));
       }
+      // Phase 6: wake the orchestrator on a session ending (it may react/recommend).
+      void orchestrator?.trigger({ kind: 'session_ended', sessionId: gId, goalId: gId });
     },
     onReady() {
       const pending = interGoalMessageService.getInstructions(goalId);
@@ -311,7 +332,9 @@ setTerminalHandler({
   },
 });
 
-const scheduler = new Scheduler(scheduledTaskService, createGoal);
+const scheduler = new Scheduler(scheduledTaskService, createGoal, (info) => {
+  void orchestrator?.trigger({ kind: 'scheduled', taskId: info.taskId, goalId: info.goalId });
+});
 const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
 // cwd containment reverted for open home/LAN use — goals can run in any directory
 // again (the validator restricted them to the repo dir). Re-add `validateCwd`
@@ -381,6 +404,8 @@ function restartSession(sessionId: string, goalId: string): void {
           .runForGoal(exitedGoal, gId)
           .catch((err) => logger.error({ err, goalId: gId }, 'verification: run failed'));
       }
+      // Phase 6: wake the orchestrator on a session ending (it may react/recommend).
+      void orchestrator?.trigger({ kind: 'session_ended', sessionId: gId, goalId: gId });
     },
     onReady() {
       const pending = interGoalMessageService.getInstructions(goalId);
@@ -424,6 +449,49 @@ const traceRouter = createTraceRouter(db, env.dataDir);
 const fileRouter = createFileRouter();
 const projectsRouter = createProjectsRouter(projectService);
 const verificationRouter = createVerificationRouter(verificationService);
+
+// Phase 6: orchestrator "Hawat" — disabled by default; enable via Settings/config.
+const orchestratorStateService = new OrchestratorStateService(db);
+const orchestratorMessageService = new OrchestratorMessageService(db);
+const orchestratorMemory = new MemoryStore(env.dataDir);
+const brainRunner = new BrainRunner(
+  new ClaudeBrainProvider(adapterForModel('haiku', ['claude']).resolveBinary()),
+);
+function orchestratorMcpConfigJson(): string {
+  const mcpEntry = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'mcp', 'dist', 'index.js');
+  const mcpEnv: Record<string, string> = { CLAUDE_DECK_URL: `http://127.0.0.1:${env.port}` };
+  const token = process.env['CLAUDE_DECK_TOKEN'];
+  if (token && token.trim().length > 0) mcpEnv['CLAUDE_DECK_TOKEN'] = token;
+  return JSON.stringify({
+    mcpServers: { 'claude-deck': { command: 'node', args: [mcpEntry], env: mcpEnv } },
+  });
+}
+orchestrator = new OrchestratorService({
+  stateService: orchestratorStateService,
+  messageService: orchestratorMessageService,
+  memoryStore: orchestratorMemory,
+  snapshotMd: () => buildSnapshot(db).toMarkdown(),
+  mcpConfigJson: orchestratorMcpConfigJson,
+  runFn: (prompt, onEvent) =>
+    brainRunner.run(
+      {
+        prompt,
+        model: orchestratorStateService.get().config.model,
+        mcpConfigJson: orchestratorMcpConfigJson(),
+        // recommend-not-act: the orchestrator brain runs SUPERVISED (--permission-mode
+        // default), never bypassPermissions. Tool calls go through native handling.
+        permissionMode: 'supervised',
+      },
+      onEvent,
+    ),
+  broadcast,
+});
+const orchestratorRouter = createOrchestratorRouter({
+  stateService: orchestratorStateService,
+  messageService: orchestratorMessageService,
+  trigger: (t) => orchestrator!.trigger(t),
+  ratifyApproval: (id, decision, reason) => approvalCoordinator.resolve(id, decision, reason),
+});
 const budgetRouter = createBudgetRouter(budgetService, {
   activeSessionsByProvider,
   fetchWindowUtilization: async () => {
@@ -444,7 +512,7 @@ const budgetRouter = createBudgetRouter(budgetService, {
 
 // Create Express app and HTTP server
 const app = createApp({
-  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter],
+  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter, orchestratorRouter],
   auth: { token: env.token },
 });
 // Make db available to routes that need it (analytics, hook-events)
@@ -462,6 +530,12 @@ scheduler.start();
 
 // Schedule daily trace pruning (reads config.tracePruneDays fresh each run).
 const tracePruneTask = startTracePruneJob(db, env.dataDir, () => configService.getPersisted().tracePruneDays);
+
+// Phase 6: heartbeat sweep — every 3 minutes, only fires a trigger when the
+// orchestrator is enabled (trigger() itself no-ops when disabled).
+const heartbeatJob = cron.schedule('*/3 * * * *', () => {
+  void orchestrator?.trigger({ kind: 'heartbeat' });
+});
 
 // 5E: every 30s, pause any running goal the budget guardrails flag (metered over-cap
 // or the global kill switch). Inert unless a provider is metered with caps configured.
@@ -514,6 +588,8 @@ function shutdown(signal: string): void {
   scheduler.stop();
   clearInterval(ingestionInterval);
   clearInterval(budgetMonitor);
+  heartbeatJob.stop();
+  orchestrator?.shutdown();
   tracePruneTask.stop();
   logger.info('Scheduler stopped');
 

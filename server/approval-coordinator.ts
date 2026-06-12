@@ -37,10 +37,16 @@ export class ApprovalCoordinator {
   private pending: Map<string, Deferred> = new Map();
   private db: Database.Database;
   private timeoutMs: number;
+  private onApprovalPending: ((approval: Approval) => void) | undefined;
 
-  constructor(db: Database.Database, timeoutMs: number = 30 * 60 * 1000) {
+  constructor(
+    db: Database.Database,
+    timeoutMs: number = 30 * 60 * 1000,
+    onApprovalPending?: (approval: Approval) => void,
+  ) {
     this.db = db;
     this.timeoutMs = timeoutMs;
+    this.onApprovalPending = onApprovalPending;
   }
 
   /**
@@ -100,6 +106,16 @@ export class ApprovalCoordinator {
       approval,
       goal_id: req.goal_id,
     });
+
+    // 5C/Phase 6: notify the orchestrator observer for supervised (blocking) approvals
+    // so it can wake and produce a recommendation. Never for auto-approved requests.
+    if (!isAutonomous && this.onApprovalPending) {
+      try {
+        this.onApprovalPending(approval);
+      } catch (err) {
+        logger.warn({ err }, 'onApprovalPending observer threw');
+      }
+    }
 
     // Autonomous mode: auto-approve immediately
     if (isAutonomous) {
