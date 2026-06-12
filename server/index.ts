@@ -5,6 +5,7 @@ import { runMigrations } from './db/migrate';
 import { createApp } from './app';
 import { setupWss } from './ws';
 import { ScheduledTaskService } from './services/scheduled-task-service';
+import { antigravityModelsService } from './services/antigravity-models-service';
 import { createGoalService } from './services/goal-service';
 import { createInterGoalMessageService } from './services/inter-goal-message-service';
 import { Scheduler } from './scheduler';
@@ -582,6 +583,18 @@ server.listen(env.port, env.bindHost, () => {
     }
   } catch (err) {
     logger.error({ err }, '5D: resume-on-boot reconciliation failed');
+  }
+
+  // Warm the Antigravity live-model cache (running `agy models` via PTY takes a few
+  // seconds) so its picker is populated before the UI loads. Only when the provider
+  // is enabled, and best-effort — failure just leaves the static fallback in place.
+  try {
+    const enabled = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
+    if (enabled.includes('antigravity')) {
+      void antigravityModelsService.warm();
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Antigravity model warm-up skipped');
   }
 });
 

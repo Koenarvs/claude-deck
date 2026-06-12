@@ -12,6 +12,10 @@ import { createDocWriter } from '../services/doc-writer';
 import { buildCatalog } from '../agents/registry';
 import { claudeModelsService, type ClaudeModelsService } from '../services/claude-models-service';
 import { codexModelsService, type CodexModelsService } from '../services/codex-models-service';
+import {
+  antigravityModelsService,
+  type AntigravityModelsService,
+} from '../services/antigravity-models-service';
 import type { AgentCatalogEntry } from '../../src/shared/agents/types';
 import type { ConfigService } from '../services/config-service';
 import { getModelBreakdown, getModelMix, getCostPerGoal } from '../services/analytics-model-service';
@@ -30,6 +34,8 @@ export interface SystemRouterConfig {
   claudeModels?: ClaudeModelsService;
   /** Live Codex model-list service (reads ~/.codex/models_cache.json; tests stub). */
   codexModels?: CodexModelsService;
+  /** Live Antigravity model-list service (runs `agy models` via PTY; tests stub). */
+  antigravityModels?: AntigravityModelsService;
 }
 
 /** Default skill roots: project + user .claude surfaces (mirrors skill-scanner). */
@@ -54,6 +60,7 @@ const docWriter = createDocWriter();
 const configService = config?.configService;
 const claudeModels = config?.claudeModels ?? claudeModelsService;
 const codexModels = config?.codexModels ?? codexModelsService;
+const antigravityModels = config?.antigravityModels ?? antigravityModelsService;
 
 // Provider list for billing-aware analytics: explicit override (tests) →
 // persisted config → single-claude-seat default.
@@ -248,13 +255,15 @@ router.get('/extensions', (_req, res) => {
  */
 async function buildCatalogWithLiveModels(enabledIds: string[]): Promise<AgentCatalogEntry[]> {
   const catalog = buildCatalog(enabledIds);
-  const [liveClaude, liveCodex] = await Promise.all([
+  const [liveClaude, liveCodex, liveAntigravity] = await Promise.all([
     claudeModels.getModelOptions(),
     codexModels.getModelOptions(),
+    antigravityModels.getModelOptions(),
   ]);
   return catalog.map((entry) => {
     if (entry.id === 'claude' && liveClaude) return { ...entry, models: liveClaude };
     if (entry.id === 'codex' && liveCodex) return { ...entry, models: liveCodex };
+    if (entry.id === 'antigravity' && liveAntigravity) return { ...entry, models: liveAntigravity };
     return entry;
   });
 }

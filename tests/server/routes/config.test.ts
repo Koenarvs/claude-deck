@@ -21,7 +21,13 @@ function start(
   const db = new Database(':memory:');
   runMigrations(db);
   const configService = createConfigService(db);
-  const router = createSystemRouter(undefined, { configService, claudeModels, codexModels });
+  // antigravityModels stubbed too so route tests never spawn the agy PTY.
+  const router = createSystemRouter(undefined, {
+    configService,
+    claudeModels,
+    codexModels,
+    antigravityModels: { getModelOptions: async () => null, warm: async () => {} },
+  });
   const app = express();
   app.use(express.json());
   app.use('/api', router);
