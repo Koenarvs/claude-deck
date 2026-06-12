@@ -25,8 +25,11 @@ const DEFAULT_TIMEOUT_MS = 4000; // per-attempt hang ceiling before aborting
 const DEFAULT_MAX_ATTEMPTS = 3;
 
 interface ModelsResponse {
-  data?: Array<{ id?: string; display_name?: string }>;
+  data?: Array<{ id?: string; display_name?: string; max_input_tokens?: number }>;
 }
+
+/** Models whose max_input_tokens reaches this get an extra "(1M)" context variant. */
+const ONE_MILLION_TOKENS = 1_000_000;
 
 export interface ClaudeModelsDeps {
   /** Returns a usable OAuth access token, or null if absent/expired. */
@@ -90,8 +93,20 @@ export function createClaudeModelsService(deps: ClaudeModelsDeps = {}) {
       }
       const body = (await res.json()) as ModelsResponse;
       const models = (body.data ?? [])
-        .filter((m): m is { id: string; display_name?: string } => typeof m.id === 'string')
-        .map((m) => ({ value: m.id, label: m.display_name ?? m.id }));
+        .filter((m): m is { id: string; display_name?: string; max_input_tokens?: number } =>
+          typeof m.id === 'string',
+        )
+        .flatMap((m) => {
+          const label = m.display_name ?? m.id;
+          const opts: ModelOption[] = [{ value: m.id, label }];
+          // Models that support the 1M context window get a second selectable variant,
+          // mirroring the Claude CLI's "(1M)" choice. The CLI parses the [1m] suffix and
+          // opts into 1M context (verified: `--model claude-sonnet-4-6[1m]`).
+          if (typeof m.max_input_tokens === 'number' && m.max_input_tokens >= ONE_MILLION_TOKENS) {
+            opts.push({ value: `${m.id}[1m]`, label: `${label} (1M)` });
+          }
+          return opts;
+        });
       if (models.length === 0) return null;
       // The 'default' sentinel ("let the CLI choose the latest") is Claude-specific
       // and not returned by the API, so it is prepended.

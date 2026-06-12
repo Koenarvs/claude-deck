@@ -8,9 +8,9 @@ vi.mock('../../../server/logger', () => ({
 
 const apiBody = {
   data: [
-    { id: 'claude-opus-4-8', display_name: 'Claude Opus 4.8' },
-    { id: 'claude-opus-4-7', display_name: 'Claude Opus 4.7' },
-    { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6' },
+    { id: 'claude-opus-4-8', display_name: 'Claude Opus 4.8', max_input_tokens: 1000000 },
+    { id: 'claude-opus-4-7', display_name: 'Claude Opus 4.7', max_input_tokens: 1000000 },
+    { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6', max_input_tokens: 1000000 },
   ],
 };
 
@@ -19,14 +19,36 @@ function okFetch(body: unknown) {
 }
 
 describe('claudeModelsService', () => {
-  it('maps the API list to options with the default sentinel first', async () => {
+  it('maps the API list to options with the default sentinel first + (1M) variants', async () => {
     const svc = createClaudeModelsService({ readToken: () => 'tok', fetchImpl: okFetch(apiBody) });
     const opts = await svc.getModelOptions();
     expect(opts).toEqual([
       { value: 'default', label: 'Default' },
       { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+      { value: 'claude-opus-4-8[1m]', label: 'Claude Opus 4.8 (1M)' },
       { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
+      { value: 'claude-opus-4-7[1m]', label: 'Claude Opus 4.7 (1M)' },
       { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { value: 'claude-sonnet-4-6[1m]', label: 'Claude Sonnet 4.6 (1M)' },
+    ]);
+  });
+
+  it('adds a (1M) variant only for models whose max_input_tokens reaches 1M', async () => {
+    const mixed = {
+      data: [
+        { id: 'claude-opus-4-8', display_name: 'Claude Opus 4.8', max_input_tokens: 1000000 },
+        { id: 'claude-haiku-4-5', display_name: 'Claude Haiku 4.5', max_input_tokens: 200000 },
+        { id: 'claude-no-meta', display_name: 'No Meta' }, // missing field → base only
+      ],
+    };
+    const svc = createClaudeModelsService({ readToken: () => 'tok', fetchImpl: okFetch(mixed) });
+    const opts = await svc.getModelOptions();
+    expect(opts?.map((o) => o.value)).toEqual([
+      'default',
+      'claude-opus-4-8',
+      'claude-opus-4-8[1m]',
+      'claude-haiku-4-5',
+      'claude-no-meta',
     ]);
   });
 
