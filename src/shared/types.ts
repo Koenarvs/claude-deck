@@ -130,6 +130,18 @@ export interface RoutingRecommendation {
   applied: boolean;
 }
 
+// ── 5F Shared-markdown attribution ───────────────────────────────────────────
+
+export interface DocWriteResult {
+  /** True when the on-disk file changed since the base read (write was refused). */
+  conflict: boolean;
+  /** True when the write succeeded. */
+  written: boolean;
+  path: string;
+  /** sha256 of the resulting on-disk content (or the conflicting content on conflict). */
+  baseHash: string;
+}
+
 export interface UpdateGoalInput {
   title?: string | undefined;
   description?: string | null | undefined;
