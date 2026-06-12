@@ -50,7 +50,8 @@ import { findJsonlFile } from './services/transcript-service';
 import { ingestAllSessions } from './services/ingestion-service';
 import { createModelValidator } from './security/model-allow';
 import { createConfigService } from './services/config-service';
-import { adapterForModel } from './agents/registry';
+import { adapterForModel, getAdapter } from './agents/registry';
+import type { AgentAdapter } from './agents/agent-adapter';
 import { homedir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -251,7 +252,7 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
   goalService.setCurrentSession(goalId, goalId);
 
   const enabledIds = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
-  const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
+  const adapter = resolveAdapterForModel(goal.model ?? 'default', enabledIds);
 
   // 5B: if the goal is in a registered project, provision/reuse an isolated git
   // worktree and run the PTY there (registration is the opt-in; idempotent so
@@ -344,6 +345,30 @@ const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
 // again (the validator restricted them to the repo dir). Re-add `validateCwd`
 // (see ./security/path-allow) to lock this down. validateModel stays — it blocks
 // arg-injection at near-zero cost and all real Claude models pass it.
+/**
+ * Routes a goal's model to its owning provider's adapter. Live model values (Claude
+ * API ids, Codex slugs, Antigravity display names) are NOT in the adapters' static
+ * models[], so registry.adapterForModel() can't match them and would fall back to
+ * Claude — spawning Claude Code for, e.g., a Gemini goal. We first map the value to
+ * its provider via the model-list service caches, then defer to the registry.
+ */
+function resolveAdapterForModel(model: string, enabledIds: string[]): AgentAdapter {
+  if (model && model !== 'default') {
+    const owners: Array<[string, () => string[]]> = [
+      ['antigravity', () => antigravityModelsService.cachedValues()],
+      ['codex', () => codexModelsService.cachedValues()],
+      ['claude', () => claudeModelsService.cachedValues()],
+    ];
+    for (const [id, values] of owners) {
+      if (enabledIds.includes(id) && values().includes(model)) {
+        const adapter = getAdapter(id);
+        if (adapter) return adapter;
+      }
+    }
+  }
+  return adapterForModel(model, enabledIds);
+}
+
 // Also accept the live catalog values the enabled providers currently offer (Claude
 // API versions, Codex slugs like gpt-5.2, Antigravity display names) — these come from
 // the providers' own model lists and the static registry's matchers don't recognize them.
@@ -381,7 +406,7 @@ function restartSession(sessionId: string, goalId: string): void {
   broadcast({ type: 'session:started', session: { id: sessionId, goal_id: goalId, ended_at: null } });
 
   const enabledIds = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
-  const adapter = adapterForModel(goal.model ?? 'default', enabledIds);
+  const adapter = resolveAdapterForModel(goal.model ?? 'default', enabledIds);
 
   // 5B: if the goal is in a registered project, provision/reuse an isolated git
   // worktree and run the PTY there (registration is the opt-in; idempotent so
@@ -586,7 +611,7 @@ server.listen(env.port, env.bindHost, () => {
     if (orphans.length > 0) {
       const enabledIds = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
       resumeOrphans(orphans, {
-        canResume: (model) => adapterForModel(model ?? 'default', enabledIds).capabilities.canResume,
+        canResume: (model) => resolveAdapterForModel(model ?? 'default', enabledIds).capabilities.canResume,
         resume: (o) => restartSession(o.sessionId, o.goalId),
       });
     }
