@@ -8,6 +8,7 @@ import {
   Sparkles,
   Settings,
   Search,
+  Bot,
 } from 'lucide-react';
 import { useSessionsStore } from '../stores/useSessionsStore';
 
@@ -21,6 +22,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { to: '/board', label: 'Board', icon: <LayoutGrid size={15} /> },
+  { to: '/orchestrator', label: 'Orchestrator', icon: <Bot size={15} /> },
   { to: '/sessions', label: 'Sessions', icon: <Layers size={15} /> },
   { to: '/analytics', label: 'Analytics', icon: <Gauge size={15} /> },
   { to: '/scheduled', label: 'Scheduled', icon: <Clock size={15} /> },

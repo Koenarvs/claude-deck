@@ -11,6 +11,7 @@ import ScheduledPage from './pages/ScheduledPage';
 import SkillsPage from './pages/SkillsPage';
 import ClaudeMdPage from './pages/ClaudeMdPage';
 import SettingsPage from './pages/SettingsPage';
+import OrchestratorPage from './pages/OrchestratorPage';
 
 export const routes: RouteObject[] = [
   {
@@ -19,6 +20,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <HomeRedirect /> },
       { path: 'board', element: <KanbanPage /> },
+      { path: 'orchestrator', element: <OrchestratorPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'goals/:id', element: <GoalDetailPage /> },
       { path: 'sessions', element: <SessionsListPage /> },
