@@ -28,6 +28,7 @@ import type {
   RawModelUsage,
   ModelPricing,
   AgentCapabilities,
+  McpServerDescriptor,
 } from '../../src/shared/agents/types';
 import { MODEL_REGISTRY, resolveModel } from '../../src/shared/agents/model-registry';
 import logger from '../logger';
@@ -80,6 +81,25 @@ export function ensureCodexProjectTrusted(configContent: string, pathKey: string
   if (configContent.includes(`projects.'${pathKey}'`)) return null;
   const section = `\n[projects.'${pathKey}']\ntrust_level = "trusted"\n`;
   return configContent.replace(/\s*$/, '\n') + section;
+}
+
+/**
+ * Serializes an MCP server descriptor into Codex `-c key=value` launch overrides that
+ * register it under `[mcp_servers.<name>]` for THIS invocation only — no global config
+ * mutation, so the per-goal env (CLAUDE_DECK_GOAL_ID) is correct and concurrent goals
+ * never race. Values are JSON (valid TOML for strings/arrays). The server name is
+ * sanitized to a TOML-safe bare key (claude-deck → claude_deck). Exported for testing.
+ * Validated: `codex mcp list -c …` shows the server as enabled.
+ */
+export function codexMcpConfigArgs(mcp: McpServerDescriptor): string[] {
+  const name = mcp.name.replace(/[^A-Za-z0-9_]/g, '_');
+  const args: string[] = [];
+  const set = (key: string, value: unknown) =>
+    args.push('-c', `mcp_servers.${name}.${key}=${JSON.stringify(value)}`);
+  set('command', mcp.command);
+  set('args', mcp.args);
+  for (const [k, v] of Object.entries(mcp.env)) set(`env.${k}`, v);
+  return args;
 }
 
 // Default rollout transcript store: $CODEX_HOME/sessions (defaults to ~/.codex).
@@ -277,6 +297,9 @@ export class CodexAdapter implements AgentAdapter {
     if (ctx.model && ctx.model !== 'default') args.push('--model', ctx.model);
     args.push('-C', ctx.cwd);
     args.push(...this.sandboxArgs(ctx.permissionMode));
+    // Register the claude-deck MCP server for this session via -c overrides (per-goal,
+    // no global config mutation). Lets a Codex goal call the deck's coordination tools.
+    if (ctx.mcpServer) args.push(...codexMcpConfigArgs(ctx.mcpServer));
     return args;
   }
 

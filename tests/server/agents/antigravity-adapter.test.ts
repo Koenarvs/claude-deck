@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AntigravityAdapter } from '../../../server/agents/antigravity-adapter';
-import type { SpawnContext } from '../../../src/shared/agents/types';
+import {
+  AntigravityAdapter,
+  ensureAntigravityMcpSettings,
+  antigravitySettingsPath,
+} from '../../../server/agents/antigravity-adapter';
+import type { SpawnContext, McpServerDescriptor } from '../../../src/shared/agents/types';
 
 const a = new AntigravityAdapter();
 
@@ -62,11 +66,11 @@ describe('AntigravityAdapter identity & catalog', () => {
     for (const m of a.models) expect(m.value).toBeTruthy();
   });
 
-  it('declares an honest capability matrix (no hooks, no approve, no mcp)', () => {
+  it('declares an honest capability matrix (no hooks/approve; resume, stream, mcp)', () => {
     expect(a.capabilities).toEqual({
       canObserveHooks: false,
       canResume: true,
-      canMcp: false,
+      canMcp: true,
       canApprove: false,
       canStream: true,
     });
@@ -263,5 +267,64 @@ describe('AntigravityAdapter session log discovery', () => {
       if (prev === undefined) delete process.env['ANTIGRAVITY_HOME'];
       else process.env['ANTIGRAVITY_HOME'] = prev;
     }
+  });
+});
+
+const mcp: McpServerDescriptor = {
+  name: 'claude-deck',
+  command: 'node',
+  args: ['C:/x/mcp/dist/index.js'],
+  env: { CLAUDE_DECK_URL: 'http://127.0.0.1:4100', CLAUDE_DECK_GOAL_ID: 'g1' },
+};
+
+describe('AntigravityAdapter — MCP capability', () => {
+  it('declares canMcp true (agy reads mcpServers from settings.json)', () => {
+    expect(a.capabilities.canMcp).toBe(true);
+  });
+});
+
+describe('ensureAntigravityMcpSettings', () => {
+  it('adds mcpServers while preserving other keys', () => {
+    const out = ensureAntigravityMcpSettings('{"trustedWorkspaces":["C:\\\\"]}', mcp);
+    const o = JSON.parse(out) as { trustedWorkspaces: string[]; mcpServers: Record<string, unknown> };
+    expect(o.trustedWorkspaces).toEqual(['C:\\']);
+    expect(o.mcpServers['claude-deck']).toEqual({
+      command: 'node',
+      args: ['C:/x/mcp/dist/index.js'],
+      env: { CLAUDE_DECK_URL: 'http://127.0.0.1:4100', CLAUDE_DECK_GOAL_ID: 'g1' },
+    });
+  });
+
+  it('tolerates empty or invalid existing content', () => {
+    expect(JSON.parse(ensureAntigravityMcpSettings('', mcp)).mcpServers['claude-deck'].command).toBe('node');
+    expect(JSON.parse(ensureAntigravityMcpSettings('not json{', mcp)).mcpServers['claude-deck'].command).toBe('node');
+  });
+});
+
+describe('AntigravityAdapter — prepareContext writes MCP settings (isolated)', () => {
+  let home: string;
+  let prev: string | undefined;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'agy-home-'));
+    prev = process.env['ANTIGRAVITY_HOME'];
+    process.env['ANTIGRAVITY_HOME'] = home;
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+    if (prev === undefined) delete process.env['ANTIGRAVITY_HOME'];
+    else process.env['ANTIGRAVITY_HOME'] = prev;
+  });
+
+  it('writes the claude-deck MCP into agy settings.json with the per-goal env', () => {
+    a.prepareContext({ ...base, mcpServer: mcp });
+    const p = antigravitySettingsPath();
+    expect(existsSync(p)).toBe(true);
+    const o = JSON.parse(readFileSync(p, 'utf-8')) as { mcpServers: Record<string, { env: Record<string, string> }> };
+    expect(o.mcpServers['claude-deck'].env['CLAUDE_DECK_GOAL_ID']).toBe('g1');
+  });
+
+  it('does not write settings when there is no MCP descriptor', () => {
+    a.prepareContext({ ...base, mcpServer: null });
+    expect(existsSync(antigravitySettingsPath())).toBe(false);
   });
 });

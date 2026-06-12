@@ -119,6 +119,10 @@ export class DashboardApiClient {
         const headers = {
             'Accept': 'application/json',
         };
+        const token = process.env['CLAUDE_DECK_TOKEN'];
+        if (token && token.trim().length > 0) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
         const init = { method, headers };
         if (body !== undefined) {
             headers['Content-Type'] = 'application/json';

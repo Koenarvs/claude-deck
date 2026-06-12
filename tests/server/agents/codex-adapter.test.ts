@@ -10,6 +10,7 @@ import {
   pickCodexBinary,
   codexTrustPathKey,
   ensureCodexProjectTrusted,
+  codexMcpConfigArgs,
 } from '../../../server/agents/codex-adapter';
 import type { SpawnContext } from '../../../src/shared/agents/types';
 
@@ -127,6 +128,34 @@ describe('CodexAdapter — buildResumeArgs', () => {
     expect(args).not.toContain('sess-9');
     expect(args).toEqual(expect.arrayContaining(['-C', '/repo']));
     expect(args).toEqual(a.buildStartArgs(base));
+  });
+});
+
+const mcpDescriptor = {
+  name: 'claude-deck',
+  command: 'node',
+  args: ['C:/x/mcp/dist/index.js'],
+  env: { CLAUDE_DECK_URL: 'http://127.0.0.1:4100', CLAUDE_DECK_GOAL_ID: 'g1' },
+};
+
+describe('codexMcpConfigArgs', () => {
+  it('serializes the descriptor into -c mcp_servers overrides with a TOML-safe name', () => {
+    const joined = codexMcpConfigArgs(mcpDescriptor).join(' ');
+    expect(joined).toContain('-c mcp_servers.claude_deck.command="node"');
+    expect(joined).toContain('-c mcp_servers.claude_deck.args=["C:/x/mcp/dist/index.js"]');
+    expect(joined).toContain('-c mcp_servers.claude_deck.env.CLAUDE_DECK_URL="http://127.0.0.1:4100"');
+    expect(joined).toContain('-c mcp_servers.claude_deck.env.CLAUDE_DECK_GOAL_ID="g1"');
+  });
+});
+
+describe('CodexAdapter — buildStartArgs MCP wiring', () => {
+  it('appends the MCP -c overrides when ctx.mcpServer is present (per-goal env)', () => {
+    const joined = a.buildStartArgs({ ...base, mcpServer: mcpDescriptor }).join(' ');
+    expect(joined).toContain('mcp_servers.claude_deck.command="node"');
+    expect(joined).toContain('mcp_servers.claude_deck.env.CLAUDE_DECK_GOAL_ID="g1"');
+  });
+  it('omits MCP overrides when ctx.mcpServer is null', () => {
+    expect(a.buildStartArgs({ ...base }).join(' ')).not.toContain('mcp_servers');
   });
 });
 

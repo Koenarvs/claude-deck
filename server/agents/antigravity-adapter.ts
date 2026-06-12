@@ -14,8 +14,8 @@
 // runtime. Items the real CLI must confirm are marked `// ASSUMED:`.
 
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { AgentAdapter, PromptStrategy } from './agent-adapter';
 import type {
@@ -25,9 +25,43 @@ import type {
   RawModelUsage,
   ModelPricing,
   AgentCapabilities,
+  McpServerDescriptor,
 } from '../../src/shared/agents/types';
 import { MODEL_REGISTRY, resolveModel } from '../../src/shared/agents/model-registry';
 import logger from '../logger';
+
+/**
+ * Merges an MCP server into agy's settings.json content (JSON). agy reads `mcpServers`
+ * from its settings.json — verified: it parses and preserves the key on rewrite. Other
+ * keys (e.g. trustedWorkspaces) are kept; the named server is replaced. Returns the new
+ * JSON text. Exported for testing.
+ */
+export function ensureAntigravityMcpSettings(content: string, mcp: McpServerDescriptor): string {
+  let obj: Record<string, unknown> = {};
+  if (content.trim()) {
+    try {
+      const parsed = JSON.parse(content) as unknown;
+      if (parsed && typeof parsed === 'object') obj = parsed as Record<string, unknown>;
+    } catch {
+      obj = {};
+    }
+  }
+  const existing = obj['mcpServers'];
+  const servers: Record<string, unknown> =
+    existing && typeof existing === 'object' ? (existing as Record<string, unknown>) : {};
+  servers[mcp.name] = { command: mcp.command, args: mcp.args, env: mcp.env };
+  obj['mcpServers'] = servers;
+  return JSON.stringify(obj, null, 2) + '\n';
+}
+
+/**
+ * Path to agy's user settings.json. Overridable via ANTIGRAVITY_HOME (used by tests so
+ * they never touch the real ~/.gemini); production resolves the real location agy reads.
+ */
+export function antigravitySettingsPath(): string {
+  const base = process.env['ANTIGRAVITY_HOME'] ?? join(homedir(), '.gemini', 'antigravity-cli');
+  return join(base, 'settings.json');
+}
 
 const ZERO_PRICING: ModelPricing = { input: 0, cache_read: 0, cache_creation: 0, output: 0 };
 
@@ -233,12 +267,13 @@ export class AntigravityAdapter implements AgentAdapter {
 
   // HONEST capability matrix (plan §2.8 + real-spike). agy has NO Claude-style
   // observable hook system and NO approval interception → false. It DOES resume
-  // (`--conversation`/`-c`), streams via PTY. MCP staging is unverified for
-  // headless agy → false (do not ship a half-working MCP config).
+  // (`--conversation`/`-c`), streams via PTY. MCP is supported: the agy binary bundles
+  // the MCP protocol and reads `mcpServers` from settings.json (verified), which
+  // prepareContext writes — so canMcp is true.
   readonly capabilities: AgentCapabilities = {
     canObserveHooks: false,
     canResume: true,
-    canMcp: false,
+    canMcp: true,
     canApprove: false,
     canStream: true,
   };
@@ -303,8 +338,28 @@ export class AntigravityAdapter implements AgentAdapter {
     // ASSUMED: Antigravity/Gemini reads `GEMINI.md` from the cwd as its native
     // context file (analogous to CLAUDE.md). Materializing it from the shared
     // goal docs is deferred to the integration layer (the foundation's goal-doc
-    // locator). Best-effort no-op here so spawning never blocks on doc-sourcing.
-    void ctx;
+    // locator).
+
+    // Register the claude-deck MCP server in agy's settings.json so an Antigravity goal
+    // can call the deck's coordination tools. agy has no per-launch -c override like Codex,
+    // so this writes the GLOBAL user settings (the file agy reads) with this goal's env
+    // (incl. CLAUDE_DECK_GOAL_ID). Best-effort: a failure never blocks the spawn.
+    // CAVEAT: the env is per-goal but the file is global — concurrent Antigravity goals
+    // can race on CLAUDE_DECK_GOAL_ID, and the entry persists in the user's agy config.
+    if (ctx.mcpServer) {
+      try {
+        const settingsPath = antigravitySettingsPath();
+        const existing = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf-8') : '';
+        const updated = ensureAntigravityMcpSettings(existing, ctx.mcpServer);
+        mkdirSync(dirname(settingsPath), { recursive: true });
+        writeFileSync(settingsPath, updated, 'utf-8');
+      } catch (err) {
+        logger.warn(
+          { err, goalId: ctx.goalId },
+          'AntigravityAdapter: failed to register MCP server in settings.json',
+        );
+      }
+    }
   }
 
   async installHooks(): Promise<void> {
