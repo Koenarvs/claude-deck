@@ -49,6 +49,17 @@ export function runMigrations(db: Database.Database): void {
 
     logger.info({ file, version }, 'Running migration');
     db.exec(sql);
+
+    // Record the applied version so it is not re-run on the next boot. Without this,
+    // any migration whose .sql does not self-insert would re-run — harmless for
+    // CREATE TABLE IF NOT EXISTS, but fatal for ALTER TABLE ADD COLUMN ("duplicate
+    // column"). INSERT OR IGNORE tolerates migrations that already self-record.
+    if (version !== null) {
+      db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(
+        version,
+        Date.now(),
+      );
+    }
   }
 
   // Migration 009 fixup: ensure inter_goal_messages has delivered_at/acknowledged_at.
