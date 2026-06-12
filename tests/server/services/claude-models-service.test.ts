@@ -37,6 +37,45 @@ describe('claudeModelsService', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('retries a transient network error and succeeds', async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls++;
+      if (calls < 3) throw new Error('fetch failed'); // ECONNRESET twice
+      return { ok: true, status: 200, json: async () => apiBody } as unknown as Response;
+    });
+    const svc = createClaudeModelsService({
+      readToken: () => 'tok',
+      fetchImpl,
+      sleep: async () => {},
+      maxAttempts: 3,
+    });
+    const opts = await svc.getModelOptions();
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(opts?.map((o) => o.value)).toContain('claude-opus-4-8');
+  });
+
+  it('falls back to null after exhausting retries', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('fetch failed');
+    });
+    const svc = createClaudeModelsService({
+      readToken: () => 'tok',
+      fetchImpl,
+      sleep: async () => {},
+      maxAttempts: 3,
+    });
+    expect(await svc.getModelOptions()).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('does NOT retry a non-OK (auth) response', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }) as unknown as Response);
+    const svc = createClaudeModelsService({ readToken: () => 'tok', fetchImpl, sleep: async () => {}, maxAttempts: 3 });
+    expect(await svc.getModelOptions()).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it('returns null when the API responds non-OK', async () => {
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }) as unknown as Response);
     const svc = createClaudeModelsService({ readToken: () => 'tok', fetchImpl });

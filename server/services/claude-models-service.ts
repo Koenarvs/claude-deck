@@ -19,7 +19,10 @@ import logger from '../logger';
 
 const MODELS_URL = 'https://api.anthropic.com/v1/models?limit=100';
 const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour — the model list changes rarely
-const DEFAULT_TIMEOUT_MS = 4000; // cold-start fetch budget before falling back
+const DEFAULT_TIMEOUT_MS = 4000; // per-attempt hang ceiling before aborting
+// The endpoint resets connections (ECONNRESET) sporadically; resets fail fast, so a
+// few retries make a single getModelOptions() call reliable without much added latency.
+const DEFAULT_MAX_ATTEMPTS = 3;
 
 interface ModelsResponse {
   data?: Array<{ id?: string; display_name?: string }>;
@@ -32,6 +35,10 @@ export interface ClaudeModelsDeps {
   now?: () => number;
   ttlMs?: number;
   timeoutMs?: number;
+  /** Attempts per fetch before giving up to the fallback (transient resets). */
+  maxAttempts?: number;
+  /** Sleep used for backoff between retries (injectable for tests). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Reads the Claude Code OAuth access token, treating an expired token as absent. */
@@ -56,15 +63,15 @@ export function createClaudeModelsService(deps: ClaudeModelsDeps = {}) {
   const now = deps.now ?? Date.now;
   const ttlMs = deps.ttlMs ?? DEFAULT_TTL_MS;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
   let cache: ModelOption[] | null = null;
   let fetchedAt = 0;
   let inflight: Promise<ModelOption[] | null> | null = null;
 
-  async function fetchOptions(): Promise<ModelOption[] | null> {
-    const token = readToken();
-    if (!token) return null;
-
+  /** One HTTP attempt. Returns options, or throws on a network error (caller retries). */
+  async function fetchOnce(token: string): Promise<ModelOption[] | null> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -77,6 +84,7 @@ export function createClaudeModelsService(deps: ClaudeModelsDeps = {}) {
         signal: controller.signal,
       });
       if (!res.ok) {
+        // Auth/other server error — retrying will not help; fall back immediately.
         logger.warn({ status: res.status }, 'Anthropic /v1/models returned non-OK; using fallback model list');
         return null;
       }
@@ -88,12 +96,31 @@ export function createClaudeModelsService(deps: ClaudeModelsDeps = {}) {
       // The 'default' sentinel ("let the CLI choose the latest") is Claude-specific
       // and not returned by the API, so it is prepended.
       return [{ value: 'default', label: 'Default' }, ...models];
-    } catch (err) {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Anthropic /v1/models fetch failed; using fallback model list');
-      return null;
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  async function fetchOptions(): Promise<ModelOption[] | null> {
+    const token = readToken();
+    if (!token) return null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fetchOnce(token);
+      } catch (err) {
+        // Transient network error (the endpoint resets connections sporadically).
+        if (attempt >= maxAttempts) {
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err), attempts: attempt },
+            'Anthropic /v1/models fetch failed; using fallback model list',
+          );
+          return null;
+        }
+        await sleep(150 * attempt);
+      }
+    }
+    return null;
   }
 
   /**
