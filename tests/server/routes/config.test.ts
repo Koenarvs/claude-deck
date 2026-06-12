@@ -9,11 +9,17 @@ import { createConfigService } from '../../../server/services/config-service';
 let server: http.Server | null = null;
 afterEach(() => { if (server) { server.close(); server = null; } });
 
-function start(): Promise<{ port: number; base: string }> {
+// Stub the live Anthropic model-list service so route tests never hit the network.
+// Default returns null → the catalog falls back to the static registry-derived models.
+function start(
+  claudeModels: { getModelOptions: () => Promise<Array<{ value: string; label: string }> | null> } = {
+    getModelOptions: async () => null,
+  },
+): Promise<{ port: number; base: string }> {
   const db = new Database(':memory:');
   runMigrations(db);
   const configService = createConfigService(db);
-  const router = createSystemRouter(undefined, { configService });
+  const router = createSystemRouter(undefined, { configService, claudeModels });
   const app = express();
   app.use(express.json());
   app.use('/api', router);
@@ -41,6 +47,23 @@ describe('GET/PUT /api/config (persisted)', () => {
     expect(body.providers).toEqual([{ id: 'claude', enabled: true, billingMode: 'seat' }]);
     const catalog = body.catalog as Array<{ id: string; capabilities: { canApprove: boolean } }>;
     expect(catalog.find((c) => c.id === 'claude')?.capabilities.canApprove).toBe(true);
+  });
+
+  it('overlays the live Anthropic model list onto the claude catalog entry', async () => {
+    const { base } = await start({
+      getModelOptions: async () => [
+        { value: 'default', label: 'Default' },
+        { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+        { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
+      ],
+    });
+    const body = (await (await fetch(`${base}/api/config`)).json()) as {
+      catalog: Array<{ id: string; models: Array<{ value: string; label: string }> }>;
+    };
+    const claude = body.catalog.find((c) => c.id === 'claude');
+    expect(claude?.models.map((m) => m.value)).toEqual(['default', 'claude-opus-4-8', 'claude-opus-4-7']);
+    // Other providers keep their static registry-derived models.
+    expect(body.catalog.find((c) => c.id === 'codex')).toBeTruthy();
   });
 
   it('PUT then GET round-trips the updated values (proves persistence)', async () => {

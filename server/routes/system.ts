@@ -10,6 +10,8 @@ import { findJsonlFile, getFormattedConversation } from '../services/transcript-
 import { pathWithinRoots } from '../security/path-allow';
 import { createDocWriter } from '../services/doc-writer';
 import { buildCatalog } from '../agents/registry';
+import { claudeModelsService, type ClaudeModelsService } from '../services/claude-models-service';
+import type { AgentCatalogEntry } from '../../src/shared/agents/types';
 import type { ConfigService } from '../services/config-service';
 import { getModelBreakdown, getModelMix, getCostPerGoal } from '../services/analytics-model-service';
 import { getProviderValue, getWindowUtilization } from '../services/analytics-value-service';
@@ -23,6 +25,8 @@ export interface SystemRouterConfig {
   configService?: ConfigService;
   /** Override the provider list (tests). Falls back to configService's providers. */
   getProviders?: () => ProviderConfig[];
+  /** Live Anthropic model-list service for the catalog overlay (tests inject a stub). */
+  claudeModels?: ClaudeModelsService;
 }
 
 /** Default skill roots: project + user .claude surfaces (mirrors skill-scanner). */
@@ -45,6 +49,7 @@ const router = Router();
 const skillRoots = config?.skillRoots ?? defaultSkillRoots();
 const docWriter = createDocWriter();
 const configService = config?.configService;
+const claudeModels = config?.claudeModels ?? claudeModelsService;
 
 // Provider list for billing-aware analytics: explicit override (tests) →
 // persisted config → single-claude-seat default.
@@ -231,6 +236,20 @@ router.get('/extensions', (_req, res) => {
 });
 
 /**
+ * Builds the provider catalog and overlays the live Anthropic model list onto the
+ * Claude entry (the concrete versions shown by `/model`). Falls back to the static
+ * registry-derived models when the live list is unavailable.
+ */
+async function buildCatalogWithLiveClaudeModels(enabledIds: string[]): Promise<AgentCatalogEntry[]> {
+  const catalog = buildCatalog(enabledIds);
+  const liveClaudeModels = await claudeModels.getModelOptions();
+  if (!liveClaudeModels) return catalog;
+  return catalog.map((entry) =>
+    entry.id === 'claude' ? { ...entry, models: liveClaudeModels } : entry,
+  );
+}
+
+/**
  * GET /api/config
  * Returns the persisted app configuration, runtime fields (dataDir,
  * hooksInstalled), and the provider catalog (with capabilities).
@@ -248,7 +267,7 @@ router.get('/config', async (_req, res) => {
     ...persisted,
     dataDir: process.env['DATA_DIR'] ?? './data',
     hooksInstalled: status.installed,
-    catalog: buildCatalog(enabledIds),
+    catalog: await buildCatalogWithLiveClaudeModels(enabledIds),
   });
 });
 
@@ -257,7 +276,7 @@ router.get('/config', async (_req, res) => {
  * Persists a partial config update and returns the merged result + catalog.
  * Invalid bodies (Zod failure) return 400 and write nothing.
  */
-router.put('/config', (req, res) => {
+router.put('/config', async (req, res) => {
   if (!configService) {
     logger.info({ config: req.body }, 'Config update received (no persistence configured)');
     res.json({ ...req.body, updated: true });
@@ -266,7 +285,7 @@ router.put('/config', (req, res) => {
   try {
     const updated = configService.updatePersisted(req.body ?? {});
     const enabledIds = updated.providers.filter((p) => p.enabled).map((p) => p.id);
-    res.json({ ...updated, catalog: buildCatalog(enabledIds) });
+    res.json({ ...updated, catalog: await buildCatalogWithLiveClaudeModels(enabledIds) });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: message });
