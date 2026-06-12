@@ -60,6 +60,7 @@ import { BrainRunner } from './orchestrator/brain-runner';
 import { ClaudeBrainProvider } from './orchestrator/brain-provider';
 import { OrchestratorService } from './orchestrator/orchestrator-service';
 import { createOrchestratorRouter } from './routes/orchestrator';
+import { createOrchestratorChannelsRouter } from './routes/orchestrator-channels';
 import logger from './logger';
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
@@ -492,6 +493,10 @@ const orchestratorRouter = createOrchestratorRouter({
   trigger: (t) => orchestrator!.trigger(t),
   ratifyApproval: (id, decision, reason) => approvalCoordinator.resolve(id, decision, reason),
 });
+const orchestratorChannelsRouter = createOrchestratorChannelsRouter({
+  stateService: orchestratorStateService,
+  trigger: (t) => orchestrator!.trigger(t),
+});
 const budgetRouter = createBudgetRouter(budgetService, {
   activeSessionsByProvider,
   fetchWindowUtilization: async () => {
@@ -512,7 +517,7 @@ const budgetRouter = createBudgetRouter(budgetService, {
 
 // Create Express app and HTTP server
 const app = createApp({
-  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter, orchestratorRouter],
+  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter, orchestratorRouter, orchestratorChannelsRouter],
   auth: { token: env.token },
 });
 // Make db available to routes that need it (analytics, hook-events)

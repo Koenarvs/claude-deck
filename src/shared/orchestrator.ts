@@ -34,6 +34,8 @@ export const OrchestratorConfigSchema = z.object({
   idle_timeout_ms: z.number().int().min(10),
   max_concurrent_children: z.number().int().min(0),
   max_depth: z.number().int().min(0),
+  /** The single paired Discord user id the inbound lock checks against (5F faces). */
+  discord_owner_id: z.string().nullable().default(null),
 });
 export type OrchestratorConfig = z.infer<typeof OrchestratorConfigSchema>;
 
@@ -44,6 +46,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   idle_timeout_ms: 600_000,
   max_concurrent_children: 3,
   max_depth: 2,
+  discord_owner_id: null,
 };
 
 export const OrchestratorStateRecordSchema = z.object({
