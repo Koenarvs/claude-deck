@@ -23,7 +23,7 @@ describe('registry', () => {
   });
 
   it('enabledModelOptions is the union of enabled providers', () => {
-    expect(reg.enabledModelOptions(['claude']).map((m) => m.value)).toEqual(['default', 'opus', 'sonnet', 'haiku']);
+    expect(reg.enabledModelOptions(['claude']).map((m) => m.value)).toEqual(['default', 'fable-5', 'opus', 'sonnet', 'haiku']);
     expect(reg.enabledModelOptions(['claude', 'mock']).some((m) => m.value === 'mock')).toBe(true);
   });
 
@@ -59,7 +59,7 @@ describe('default production registry (claude + codex + antigravity)', () => {
   });
 
   it('enabledModelOptions unions only enabled providers', () => {
-    expect(enabledModelOptions(['claude']).length).toBe(4);
+    expect(enabledModelOptions(['claude']).length).toBe(5); // default + fable-5 + opus + sonnet + haiku
     expect(enabledModelOptions(['claude', 'codex']).some((m) => m.value === 'gpt-5.4')).toBe(true);
   });
 });

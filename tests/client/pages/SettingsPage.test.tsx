@@ -3,6 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useConfigStore } from '../../../src/stores/useConfigStore';
 import type { AppConfig } from '../../../src/shared/types';
+import type { AgentCatalogEntry } from '../../../src/shared/agents/types';
+
+const caps = { canObserveHooks: false, canResume: true, canMcp: false, canApprove: false, canStream: true };
+const catalogThreeProviders: AgentCatalogEntry[] = [
+  { id: 'claude', label: 'Claude Code', enabled: true, capabilities: caps, models: [{ value: 'default', label: 'Default' }] },
+  { id: 'codex', label: 'OpenAI Codex', enabled: false, capabilities: caps, models: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] },
+  { id: 'antigravity', label: 'Antigravity', enabled: false, capabilities: caps, models: [{ value: 'gemini-3-pro', label: 'Gemini 3 Pro' }] },
+];
 
 // ── Mock fetch ───────────────────────────────────────────────────────────────
 
@@ -20,7 +28,7 @@ const defaultConfig: AppConfig = {
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
-  useConfigStore.setState({ config: null });
+  useConfigStore.setState({ config: null, catalog: [] });
 });
 
 afterEach(() => {
@@ -273,5 +281,36 @@ describe('SettingsPage', () => {
     // Should render immediately without loading state since config exists
     expect(screen.getByText('Settings')).toBeInTheDocument();
     expect(screen.queryByText('Loading settings...')).not.toBeInTheDocument();
+  });
+
+  // Regression: the Agents section (provider enable toggles) disappeared whenever
+  // config was already cached in the store, because the catalog lived in local
+  // state filled only by a fetch that the cached-config path skipped. The catalog
+  // now comes from the store + the effect fetches when it is empty.
+  it('renders the Agents section with every provider even when config is preloaded', async () => {
+    useConfigStore.setState({ config: defaultConfig, catalog: [] });
+    fetchMock.mockImplementation((url: string) => {
+      if (url === '/api/config') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ...defaultConfig, catalog: catalogThreeProviders }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ hooks: {} }) });
+    });
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    // The Agents section and a toggle for each provider must appear.
+    await waitFor(() => {
+      expect(screen.getByText('Agents')).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Claude Code')).toBeInTheDocument();
+    expect(screen.getByLabelText('OpenAI Codex')).toBeInTheDocument();
+    expect(screen.getByLabelText('Antigravity')).toBeInTheDocument();
+    // Codex starts disabled and is toggleable (not the always-on Claude).
+    expect(screen.getByLabelText('OpenAI Codex')).not.toBeChecked();
+    expect(screen.getByLabelText('OpenAI Codex')).toBeEnabled();
   });
 });

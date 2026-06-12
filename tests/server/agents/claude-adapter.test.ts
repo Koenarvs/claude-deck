@@ -55,8 +55,9 @@ describe('ClaudeAdapter args (characterization of current pty-manager behavior)'
     ]);
   });
 
-  it('catalog: exposes default/opus/sonnet/haiku and all capabilities true', () => {
-    expect(a.models.map((m) => m.value)).toEqual(['default', 'opus', 'sonnet', 'haiku']);
+  it('catalog: exposes default + every registry claude model, all capabilities true', () => {
+    // Derived from MODEL_REGISTRY (provider 'claude') with the 'default' sentinel first.
+    expect(a.models.map((m) => m.value)).toEqual(['default', 'fable-5', 'opus', 'sonnet', 'haiku']);
     expect(a.capabilities).toEqual({
       canObserveHooks: true, canResume: true, canMcp: true, canApprove: true, canStream: true,
     });

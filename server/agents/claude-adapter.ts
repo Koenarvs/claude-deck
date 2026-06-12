@@ -14,6 +14,7 @@ import type {
   McpServerDescriptor,
   AgentCapabilities,
 } from '../../src/shared/agents/types';
+import { MODEL_REGISTRY } from '../../src/shared/agents/model-registry';
 import { hookInstallerService } from '../services/hook-installer-service';
 import {
   parseClaudeUsage,
@@ -35,11 +36,17 @@ function serializeMcp(mcp: McpServerDescriptor): string {
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
   readonly label = 'Claude Code';
+  // Derived from the shared registry (single source of truth) so the Claude picker
+  // stays in sync with pricing/tier/quota — matching the codex + antigravity
+  // adapters. The 'default' sentinel ("let the CLI choose") is Claude-specific and
+  // not a registry model, so it is prepended. Values are registry ids, passed
+  // verbatim as `--model` (opus/sonnet/haiku/fable-5).
   readonly models: ModelOption[] = [
     { value: 'default', label: 'Default' },
-    { value: 'opus', label: 'Opus' },
-    { value: 'sonnet', label: 'Sonnet' },
-    { value: 'haiku', label: 'Haiku' },
+    ...MODEL_REGISTRY.filter((m) => m.provider === 'claude').map((m) => ({
+      value: m.id,
+      label: m.label,
+    })),
   ];
   readonly capabilities: AgentCapabilities = {
     canObserveHooks: true,

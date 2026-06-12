@@ -36,14 +36,22 @@ const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string; descript
 export default function SettingsPage() {
   const config = useConfigStore((s) => s.config);
   const setConfig = useConfigStore((s) => s.setConfig);
+  // The catalog lives in the store (App.tsx boot-loads it). Sourcing it from the
+  // store — rather than local state filled only by this page's own fetch — means
+  // the Agents section and model dropdowns render even when `config` was already
+  // cached (in which case the effect below skips fetchConfig). Previously the
+  // local catalog stayed [] in that common case, hiding the Agents section.
+  const catalog = useConfigStore((s) => s.catalog);
+  const setCatalog = useConfigStore((s) => s.setCatalog);
   const [loading, setLoading] = useState(!config);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<AgentCatalogEntry[]>([]);
 
   const fetchConfig = useCallback(async () => {
     try {
-      setLoading(true);
+      // Only show the full-page spinner on the initial load (no config yet). A
+      // background catalog top-up (config cached, catalog empty) must not flash it.
+      if (useConfigStore.getState().config === null) setLoading(true);
       setError(null);
       const res = await fetch('/api/config');
       if (!res.ok) throw new Error(`Failed to fetch config: ${res.statusText}`);
@@ -58,10 +66,13 @@ export default function SettingsPage() {
   }, [setConfig]);
 
   useEffect(() => {
-    if (!config) {
+    // Fetch if config is missing OR the catalog hasn't been loaded yet — the
+    // latter guards the case where config was boot-loaded but the catalog is
+    // empty, which would otherwise hide the Agents section + provider models.
+    if (!config || catalog.length === 0) {
       void fetchConfig();
     }
-  }, [config, fetchConfig]);
+  }, [config, catalog.length, fetchConfig]);
 
   const updateConfig = async (updates: Partial<AppConfig>) => {
     try {
