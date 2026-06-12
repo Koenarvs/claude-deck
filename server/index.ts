@@ -6,6 +6,8 @@ import { createApp } from './app';
 import { setupWss } from './ws';
 import { ScheduledTaskService } from './services/scheduled-task-service';
 import { antigravityModelsService } from './services/antigravity-models-service';
+import { claudeModelsService } from './services/claude-models-service';
+import { codexModelsService } from './services/codex-models-service';
 import { createGoalService } from './services/goal-service';
 import { createInterGoalMessageService } from './services/inter-goal-message-service';
 import { Scheduler } from './scheduler';
@@ -342,7 +344,14 @@ const scheduledRouter = createScheduledRouter(scheduledTaskService, scheduler);
 // again (the validator restricted them to the repo dir). Re-add `validateCwd`
 // (see ./security/path-allow) to lock this down. validateModel stays — it blocks
 // arg-injection at near-zero cost and all real Claude models pass it.
-const validateModel = createModelValidator();
+// Also accept the live catalog values the enabled providers currently offer (Claude
+// API versions, Codex slugs like gpt-5.2, Antigravity display names) — these come from
+// the providers' own model lists and the static registry's matchers don't recognize them.
+const validateModel = createModelValidator(() => [
+  ...claudeModelsService.cachedValues(),
+  ...codexModelsService.cachedValues(),
+  ...antigravityModelsService.cachedValues(),
+]);
 const goalsRouter = createGoalsRouter(goalService, spawnTerminalSession, interGoalMessageService, { validateModel }, workspaceService);
 /**
  * Restarts an ended session by spawning a new PTY with --resume.

@@ -12,8 +12,11 @@ afterEach(() => { if (server) { server.close(); server = null; } });
 // Stub the live model-list services so route tests are hermetic (no network / no
 // reading the dev machine's ~/.codex cache). Default returns null → the catalog
 // falls back to the static registry-derived models.
-type ModelsStub = { getModelOptions: () => Promise<Array<{ value: string; label: string }> | null> };
-const nullModels: ModelsStub = { getModelOptions: async () => null };
+type ModelsStub = {
+  getModelOptions: () => Promise<Array<{ value: string; label: string }> | null>;
+  cachedValues: () => string[];
+};
+const nullModels: ModelsStub = { getModelOptions: async () => null, cachedValues: () => [] };
 function start(
   claudeModels: ModelsStub = nullModels,
   codexModels: ModelsStub = nullModels,
@@ -26,7 +29,7 @@ function start(
     configService,
     claudeModels,
     codexModels,
-    antigravityModels: { getModelOptions: async () => null, warm: async () => {} },
+    antigravityModels: { getModelOptions: async () => null, warm: async () => {}, cachedValues: () => [] },
   });
   const app = express();
   app.use(express.json());
@@ -64,6 +67,7 @@ describe('GET/PUT /api/config (persisted)', () => {
         { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
         { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
       ],
+      cachedValues: () => [],
     });
     const body = (await (await fetch(`${base}/api/config`)).json()) as {
       catalog: Array<{ id: string; models: Array<{ value: string; label: string }> }>;
@@ -80,6 +84,7 @@ describe('GET/PUT /api/config (persisted)', () => {
         { value: 'gpt-5.5', label: 'GPT-5.5' },
         { value: 'gpt-5.2', label: 'gpt-5.2' },
       ],
+      cachedValues: () => [],
     });
     const body = (await (await fetch(`${base}/api/config`)).json()) as {
       catalog: Array<{ id: string; models: Array<{ value: string }> }>;

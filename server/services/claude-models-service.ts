@@ -160,7 +160,12 @@ export function createClaudeModelsService(deps: ClaudeModelsDeps = {}) {
     return inflight;
   }
 
-  return { getModelOptions };
+  /** The currently-cached model values (sync; [] when cold). Used by the model validator. */
+  function cachedValues(): string[] {
+    return cache ? cache.map((o) => o.value) : [];
+  }
+
+  return { getModelOptions, cachedValues };
 }
 
 export type ClaudeModelsService = ReturnType<typeof createClaudeModelsService>;

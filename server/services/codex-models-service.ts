@@ -66,7 +66,12 @@ export function createCodexModelsService(deps: CodexModelsDeps = {}) {
     }
   }
 
-  return { getModelOptions };
+  /** The currently-cached model values (sync; [] when cold). Used by the model validator. */
+  function cachedValues(): string[] {
+    return cache ? cache.map((o) => o.value) : [];
+  }
+
+  return { getModelOptions, cachedValues };
 }
 
 export type CodexModelsService = ReturnType<typeof createCodexModelsService>;

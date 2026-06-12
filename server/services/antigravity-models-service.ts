@@ -173,7 +173,12 @@ export function createAntigravityModelsService(deps: AntigravityModelsDeps = {})
     await refresh();
   }
 
-  return { getModelOptions, warm };
+  /** The currently-cached model values (sync; [] when cold). Used by the model validator. */
+  function cachedValues(): string[] {
+    return cache ? cache.map((o) => o.value) : [];
+  }
+
+  return { getModelOptions, warm, cachedValues };
 }
 
 export type AntigravityModelsService = ReturnType<typeof createAntigravityModelsService>;
