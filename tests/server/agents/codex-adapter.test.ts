@@ -8,6 +8,8 @@ import {
   listCodexRollouts,
   locateCodexRollout,
   pickCodexBinary,
+  codexTrustPathKey,
+  ensureCodexProjectTrusted,
 } from '../../../server/agents/codex-adapter';
 import type { SpawnContext } from '../../../src/shared/agents/types';
 
@@ -71,8 +73,8 @@ describe('pickCodexBinary', () => {
 });
 
 describe('CodexAdapter — promptStrategy & capabilities', () => {
-  it('promptStrategy is flag (prompt passed as launch arg, not typed)', () => {
-    expect(a.promptStrategy).toEqual({ kind: 'flag' });
+  it('promptStrategy is idle (prompt typed into the interactive TUI after it settles)', () => {
+    expect(a.promptStrategy).toEqual({ kind: 'idle', idleMs: 3000 });
   });
 
   it('capabilities: honest — no hooks/approve, yes resume/mcp/stream', () => {
@@ -86,16 +88,17 @@ describe('CodexAdapter — promptStrategy & capabilities', () => {
   });
 });
 
-describe('CodexAdapter — buildStartArgs', () => {
-  it('supervised: exec + json + model + cwd + read-only sandbox + on-request approval', () => {
+describe('CodexAdapter — buildStartArgs (interactive, persistent session)', () => {
+  it('supervised: interactive (no exec/json) + model + cwd + read-only sandbox + on-request approval', () => {
     const args = a.buildStartArgs({ ...base });
-    expect(args[0]).toBe('exec');
-    expect(args).toContain('--json');
+    // Interactive mode: NO `exec` subcommand and NO `--json` (those make it one-shot).
+    expect(args).not.toContain('exec');
+    expect(args).not.toContain('--json');
     expect(args).toEqual(expect.arrayContaining(['--model', 'gpt-5.5']));
     expect(args).toEqual(expect.arrayContaining(['-C', '/repo']));
     expect(args).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
     expect(args).toEqual(expect.arrayContaining(['--ask-for-approval', 'on-request']));
-    // prompt is NOT in argv (flag strategy → PtyManager appends it)
+    // prompt is NOT in argv (typed into the TUI after readiness)
     expect(args).not.toContain('say hello');
   });
 
@@ -117,16 +120,35 @@ describe('CodexAdapter — buildStartArgs', () => {
 });
 
 describe('CodexAdapter — buildResumeArgs', () => {
-  it('uses the exec resume subcommand with the session id', () => {
+  it('starts a fresh interactive session in the cwd (codex session id is not settable)', () => {
     const args = a.buildResumeArgs('sess-9', base);
-    expect(args.slice(0, 3)).toEqual(['exec', 'resume', 'sess-9']);
-    expect(args).toContain('--json');
+    expect(args).not.toContain('exec');
+    expect(args).not.toContain('resume');
+    expect(args).not.toContain('sess-9');
+    expect(args).toEqual(expect.arrayContaining(['-C', '/repo']));
+    expect(args).toEqual(a.buildStartArgs(base));
   });
+});
 
-  it('resume carries the sandbox/approval mapping for the mode', () => {
-    const args = a.buildResumeArgs('sess-9', { ...base, permissionMode: 'autonomous' });
-    expect(args).toEqual(expect.arrayContaining(['--sandbox', 'workspace-write']));
-    expect(args).toEqual(expect.arrayContaining(['--ask-for-approval', 'never']));
+describe('codexTrustPathKey', () => {
+  it('lowercases the drive letter and uses backslashes on Windows', () => {
+    expect(codexTrustPathKey('C:/github/claude-deck', 'win32')).toBe('c:\\github\\claude-deck');
+  });
+  it('returns the path verbatim on non-Windows', () => {
+    expect(codexTrustPathKey('/home/u/repo', 'linux')).toBe('/home/u/repo');
+  });
+});
+
+describe('ensureCodexProjectTrusted', () => {
+  it('appends a trusted project section when absent', () => {
+    const out = ensureCodexProjectTrusted('model = "gpt-5.5"\n', 'c:\\github\\claude-deck');
+    expect(out).toContain("[projects.'c:\\github\\claude-deck']");
+    expect(out).toContain('trust_level = "trusted"');
+    expect(out!.startsWith('model = "gpt-5.5"')).toBe(true);
+  });
+  it('is idempotent — returns null when the project is already present', () => {
+    const existing = "model = \"x\"\n\n[projects.'c:\\github\\claude-deck']\ntrust_level = \"trusted\"\n";
+    expect(ensureCodexProjectTrusted(existing, 'c:\\github\\claude-deck')).toBeNull();
   });
 });
 
@@ -270,11 +292,20 @@ describe('CodexAdapter — listSessionLogs / locateSessionLog', () => {
 
 describe('CodexAdapter — prepareContext writes AGENTS.md', () => {
   let cwd: string;
+  let codexHome: string;
+  let priorCodexHome: string | undefined;
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), 'codex-ctx-'));
+    // Isolate CODEX_HOME so the pre-trust step can never touch the real ~/.codex/config.toml.
+    codexHome = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    priorCodexHome = process.env['CODEX_HOME'];
+    process.env['CODEX_HOME'] = codexHome;
   });
   afterEach(() => {
     rmSync(cwd, { recursive: true, force: true });
+    rmSync(codexHome, { recursive: true, force: true });
+    if (priorCodexHome === undefined) delete process.env['CODEX_HOME'];
+    else process.env['CODEX_HOME'] = priorCodexHome;
   });
 
   it('writes a non-empty AGENTS.md into ctx.cwd', () => {
@@ -282,6 +313,11 @@ describe('CodexAdapter — prepareContext writes AGENTS.md', () => {
     const target = join(cwd, 'AGENTS.md');
     expect(existsSync(target)).toBe(true);
     expect(readFileSync(target, 'utf-8').length).toBeGreaterThan(0);
+  });
+
+  it('does not pre-trust a non-git cwd (no config.toml written)', () => {
+    a.prepareContext({ ...base, cwd });
+    expect(existsSync(join(codexHome, 'config.toml'))).toBe(false);
   });
 });
 

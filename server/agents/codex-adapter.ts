@@ -16,7 +16,7 @@
 // is a sibling deliverable not yet present, so the rollout-JSONL primitives are
 // inlined here to keep this adapter self-contained.
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -57,6 +57,29 @@ export function pickCodexBinary(whichOutput: string, platform: NodeJS.Platform):
   const bare = lines.find((l) => !/\.[a-z0-9]+$/i.test(l));
   if (bare) return bare + '.cmd';
   return lines[0]!;
+}
+
+/**
+ * Formats an absolute path the way Codex records trusted projects in config.toml:
+ * a lowercased drive letter and native (backslash) separators on Windows, verbatim
+ * elsewhere. (Codex wrote `[projects.'c:\github\claude-deck']`.) Exported for testing.
+ */
+export function codexTrustPathKey(absPath: string, platform: NodeJS.Platform): string {
+  if (platform !== 'win32') return absPath;
+  const back = absPath.replace(/\//g, '\\');
+  return back.replace(/^([A-Za-z]):/, (_m, d: string) => d.toLowerCase() + ':');
+}
+
+/**
+ * Ensures `pathKey` is marked trusted in Codex's config.toml content, so the interactive
+ * `codex` CLI does not block on the "Do you trust this directory?" prompt. Append-only and
+ * idempotent: returns the updated content, or null when the project is already present
+ * (no write needed). Exported for testing.
+ */
+export function ensureCodexProjectTrusted(configContent: string, pathKey: string): string | null {
+  if (configContent.includes(`projects.'${pathKey}'`)) return null;
+  const section = `\n[projects.'${pathKey}']\ntrust_level = "trusted"\n`;
+  return configContent.replace(/\s*$/, '\n') + section;
 }
 
 // Default rollout transcript store: $CODEX_HOME/sessions (defaults to ~/.codex).
@@ -208,20 +231,18 @@ export class CodexAdapter implements AgentAdapter {
     'Sign in to Codex with your ChatGPT account (run `codex login`). No API key required.';
   readonly models: ModelOption[] = CODEX_MODELS;
 
-  // Prompt is a positional launch arg (codex exec "<prompt>"), so PtyManager
-  // appends it — buildStartArgs/buildResumeArgs deliberately exclude it.
-  readonly promptStrategy: PromptStrategy = { kind: 'flag' };
+  // Interactive (persistent) TUI session — the deck types the prompt into the running
+  // session after its UI settles, so readiness is idle-based (NOT a launch flag).
+  readonly promptStrategy: PromptStrategy = { kind: 'idle', idleMs: 3000 };
 
   readonly capabilities: AgentCapabilities = {
     canObserveHooks: false, // no Claude-style hook system; cannot stream PreToolUse/Stop events
-    canResume: true, // codex exec resume <id> "<prompt>"
-    // ASSUMED: MCP is configurable for headless `exec` via ~/.codex/config.toml
-    // [mcp_servers.*] (there is no --mcp-config flag like Claude). Spike Step 5
-    // must confirm; if headless exec cannot load MCP servers, set this false and
-    // a Codex goal cannot orchestrate siblings via the claude-deck MCP server.
+    canResume: true, // deck-side continuity; codex starts a fresh session on resume (see buildResumeArgs)
+    // MCP is configured via ~/.codex/config.toml [mcp_servers.*] (no --mcp-config flag
+    // like Claude); prepareContext is the place to stage it. NO API keys.
     canMcp: true,
-    canApprove: false, // headless exec has no interceptable approval round-trip
-    canStream: true, // --json yields a live NDJSON event stream on stdout
+    canApprove: false, // no interceptable approval round-trip the deck can mediate
+    canStream: true, // the interactive TUI streams output to the PTY (xterm.js renders it)
   };
 
   resolveBinary(): string {
@@ -247,22 +268,24 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   buildStartArgs(ctx: SpawnContext): string[] {
-    const args: string[] = ['exec', '--json'];
+    // Interactive (persistent) session — NOT `codex exec`, which is one-shot and exits
+    // immediately (the deck's terminal would just show "exited"). The bare `codex`
+    // form launches the TUI and stays alive for follow-up instructions. The directory
+    // is pre-trusted in prepareContext so the trust prompt never blocks. No --json
+    // (that is exec-only); the deck reads the PTY stream and xterm.js renders the TUI.
+    const args: string[] = [];
     if (ctx.model && ctx.model !== 'default') args.push('--model', ctx.model);
     args.push('-C', ctx.cwd);
     args.push(...this.sandboxArgs(ctx.permissionMode));
-    // MCP: configured via ~/.codex/config.toml [mcp_servers.*], NOT a flag. When
-    // canMcp, prepareContext (or a config-merge helper) writes it before spawn;
-    // no argv change here. NO API keys.
-    // Prompt is appended by PtyManager (promptStrategy.kind === 'flag').
     return args;
   }
 
-  buildResumeArgs(sessionId: string, ctx: SpawnContext): string[] {
-    // ASSUMED: resume is the `exec resume <id>` subcommand (not a --resume flag).
-    const args: string[] = ['exec', 'resume', sessionId, '--json'];
-    args.push(...this.sandboxArgs(ctx.permissionMode));
-    return args;
+  buildResumeArgs(_sessionId: string, ctx: SpawnContext): string[] {
+    // Codex does not let a caller SET its session id (it generates its own), so the
+    // deck cannot resume a specific codex conversation by our goal/session id. On
+    // resume we start a fresh interactive session in the same cwd; deck-side message
+    // history preserves the user-facing continuity.
+    return this.buildStartArgs(ctx);
   }
 
   /** Generate AGENTS.md from the shared goal context so the same markdown drives a Codex goal. */
@@ -283,6 +306,36 @@ export class CodexAdapter implements AgentAdapter {
       writeFileSync(target, body, 'utf-8');
     } catch (err) {
       logger.warn({ err, goalId: ctx.goalId }, 'CodexAdapter: failed to write AGENTS.md');
+    }
+
+    // Pre-trust the goal's git repo root in Codex config so the interactive CLI does
+    // not block on the "Do you trust this directory?" prompt. ONLY for a confirmed git
+    // repo root — never a bare cwd, so we never auto-trust an arbitrary/system dir.
+    // Best-effort: a failure never blocks the spawn (the prompt would just appear on
+    // first run, as it does in a normal terminal).
+    try {
+      let root: string | null = null;
+      try {
+        const top = execFileSync('git', ['-C', ctx.cwd, 'rev-parse', '--show-toplevel'], {
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+        if (top) root = top;
+      } catch {
+        /* not a git repo — skip pre-trust (do not trust a non-repo dir) */
+      }
+      if (root) {
+        const key = codexTrustPathKey(root, process.platform);
+        const configPath = join(
+          process.env['CODEX_HOME'] ?? join(homedir(), '.codex'),
+          'config.toml',
+        );
+        const existing = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '';
+        const updated = ensureCodexProjectTrusted(existing, key);
+        if (updated !== null) writeFileSync(configPath, updated, 'utf-8');
+      }
+    } catch (err) {
+      logger.warn({ err, goalId: ctx.goalId }, 'CodexAdapter: failed to pre-trust project in config.toml');
     }
   }
 
