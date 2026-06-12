@@ -34,6 +34,31 @@ import logger from '../logger';
 
 let cachedPath: string | null = null;
 
+/**
+ * Picks the spawnable codex binary from `where`/`which` output. On Windows npm
+ * installs codex as a `.cmd` shim (plus an extensionless git-bash script and a
+ * `.ps1`) — there is NO `codex.exe`. node-pty can spawn `.cmd`/`.exe` but not the
+ * bare extensionless shim, so we must select `.cmd` and never append `.exe`.
+ * Prefers a real `.exe`, then `.cmd`, then a `.cmd` sibling of a bare path.
+ * Exported for testing.
+ */
+export function pickCodexBinary(whichOutput: string, platform: NodeJS.Platform): string {
+  const lines = whichOutput
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => (l.startsWith('/c/') ? 'C:/' + l.slice(3) : l));
+  if (lines.length === 0) return platform === 'win32' ? 'codex.cmd' : 'codex';
+  if (platform !== 'win32') return lines[0]!;
+  const exe = lines.find((l) => /\.exe$/i.test(l));
+  if (exe) return exe;
+  const cmd = lines.find((l) => /\.cmd$/i.test(l));
+  if (cmd) return cmd;
+  const bare = lines.find((l) => !/\.[a-z0-9]+$/i.test(l));
+  if (bare) return bare + '.cmd';
+  return lines[0]!;
+}
+
 // Default rollout transcript store: $CODEX_HOME/sessions (defaults to ~/.codex).
 // ASSUMED: layout is sessions/YYYY/MM/DD/rollout-*.jsonl (per plan; confirm vs real CLI).
 const CODEX_SESSIONS_DIR = join(
@@ -202,18 +227,12 @@ export class CodexAdapter implements AgentAdapter {
   resolveBinary(): string {
     if (cachedPath) return cachedPath;
     try {
-      let p = execSync(process.platform === 'win32' ? 'where codex' : 'which codex', {
+      const out = execSync(process.platform === 'win32' ? 'where codex' : 'which codex', {
         encoding: 'utf-8',
-      })
-        .trim()
-        .split(/\r?\n/)[0]
-        .trim();
-      // Git-Bash style POSIX path (/c/...) → Windows drive path.
-      if (p.startsWith('/c/')) p = 'C:/' + p.slice(3);
-      if (process.platform === 'win32' && !p.endsWith('.exe') && !p.endsWith('.cmd')) p += '.exe';
-      cachedPath = p;
+      });
+      cachedPath = pickCodexBinary(out, process.platform);
     } catch {
-      cachedPath = process.platform === 'win32' ? 'codex.exe' : 'codex';
+      cachedPath = process.platform === 'win32' ? 'codex.cmd' : 'codex';
     }
     return cachedPath;
   }

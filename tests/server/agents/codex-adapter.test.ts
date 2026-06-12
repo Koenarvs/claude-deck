@@ -7,6 +7,7 @@ import {
   parseCodexUsage,
   listCodexRollouts,
   locateCodexRollout,
+  pickCodexBinary,
 } from '../../../server/agents/codex-adapter';
 import type { SpawnContext } from '../../../src/shared/agents/types';
 
@@ -35,6 +36,37 @@ describe('CodexAdapter — identity & catalog', () => {
     expect(values).toContain('gpt-5.3-codex');
     // every value must resolve via the registry so resolveModel works
     expect(values.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('pickCodexBinary', () => {
+  it('on Windows selects the .cmd shim, never appends .exe (no codex.exe exists)', () => {
+    // npm install layout: bare git-bash script + .cmd, in `where` order.
+    const out = 'C:\\Users\\me\\AppData\\Roaming\\npm\\codex\r\nC:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd';
+    expect(pickCodexBinary(out, 'win32')).toBe('C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd');
+  });
+
+  it('prefers a real .exe when present', () => {
+    const out = 'C:\\tools\\codex.exe\r\nC:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd';
+    expect(pickCodexBinary(out, 'win32')).toBe('C:\\tools\\codex.exe');
+  });
+
+  it('appends .cmd to a lone extensionless Windows path', () => {
+    expect(pickCodexBinary('C:\\Users\\me\\AppData\\Roaming\\npm\\codex', 'win32')).toBe(
+      'C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd',
+    );
+  });
+
+  it('on non-Windows returns the first path as-is', () => {
+    expect(pickCodexBinary('/usr/local/bin/codex\n/opt/codex', 'linux')).toBe('/usr/local/bin/codex');
+  });
+
+  it('normalizes a git-bash /c/ path', () => {
+    expect(pickCodexBinary('/c/tools/codex.exe', 'win32')).toBe('C:/tools/codex.exe');
+  });
+
+  it('falls back to codex.cmd on Windows when output is empty', () => {
+    expect(pickCodexBinary('', 'win32')).toBe('codex.cmd');
   });
 });
 
