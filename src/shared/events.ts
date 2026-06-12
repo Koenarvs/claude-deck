@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OrchestratorMessageSchema, OrchestratorStatusSchema } from './orchestrator';
 import {
   GoalSchema,
   ProjectSchema,
@@ -183,11 +184,28 @@ export const VerificationUpdatedEventSchema = z.object({
   result: VerificationResultSchema,
 });
 
+export const OrchestratorMessageEventSchema = z.object({
+  type: z.literal('orchestrator:message'),
+  message: OrchestratorMessageSchema,
+});
+export const OrchestratorStatusEventSchema = z.object({
+  type: z.literal('orchestrator:status'),
+  status: OrchestratorStatusSchema,
+});
+export const OrchestratorToolEventSchema = z.object({
+  type: z.literal('orchestrator:tool'),
+  tool: z.string(),
+  summary: z.string(),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   GoalCreatedEventSchema,
   ProjectUpdatedEventSchema,
   ProjectRemovedEventSchema,
   VerificationUpdatedEventSchema,
+  OrchestratorMessageEventSchema,
+  OrchestratorStatusEventSchema,
+  OrchestratorToolEventSchema,
   GoalUpdatedEventSchema,
   GoalStatusEventSchema,
   GoalPlanUpdatedEventSchema,

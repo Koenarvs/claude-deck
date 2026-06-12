@@ -31,7 +31,7 @@ export const OrchestratorConfigSchema = z.object({
   enabled: z.boolean(),
   persona_name: z.string().min(1),
   model: z.string().min(1),
-  idle_timeout_ms: z.number().int().min(10_000),
+  idle_timeout_ms: z.number().int().min(10),
   max_concurrent_children: z.number().int().min(0),
   max_depth: z.number().int().min(0),
 });
