@@ -262,11 +262,7 @@ export class PtyManager implements Killable {
     const args = this.adapter.buildResumeArgs(sessionId, this.spawnContext());
     this.initTrace();
 
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined) env[k] = v;
-    }
-    env['TERM'] = 'xterm-256color';
+    const env = this.buildEnv();
 
     logger.info(
       { goalId: this.goalId, sessionId, claudePath },

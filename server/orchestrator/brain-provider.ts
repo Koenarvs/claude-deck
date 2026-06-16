@@ -60,8 +60,11 @@ export function extractMemoryUpdate(fullText: string): string | null {
  */
 export class ClaudeBrainProvider implements BrainProvider {
   private readonly binary: string;
-  constructor(binary: string) {
+  /** Lazily-resolved env overrides merged onto process.env at spawn (e.g. headroom's ANTHROPIC_BASE_URL). */
+  private readonly extraEnv: () => Record<string, string>;
+  constructor(binary: string, extraEnv: () => Record<string, string> = () => ({})) {
     this.binary = binary;
+    this.extraEnv = extraEnv;
   }
 
   buildInvocation(input: BrainInvocationInput): BrainInvocation {
@@ -80,7 +83,7 @@ export class ClaudeBrainProvider implements BrainProvider {
         '--mcp-config',
         input.mcpConfigJson,
       ],
-      env: {},
+      env: this.extraEnv(),
     };
   }
 
