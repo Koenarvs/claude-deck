@@ -8,6 +8,7 @@ const DEFAULTS: PersistedConfig = {
   defaultModel: 'default',
   defaultPermissionMode: 'supervised',
   providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
+  headroom: { enabled: false, baseUrl: 'http://localhost:8787' },
 };
 
 /**

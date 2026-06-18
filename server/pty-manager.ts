@@ -48,6 +48,13 @@ interface PtyManagerOptions {
   traceDir?: string;
   /** 5B: run the PTY here (an isolated worktree) instead of goal.cwd. */
   cwdOverride?: string;
+  /**
+   * When set, the session is launched with ANTHROPIC_BASE_URL pointed here so a
+   * local `headroom proxy` can compress requests before forwarding to Anthropic.
+   * Subscription auth is preserved (the proxy relays the client's token). Unset
+   * (the default) leaves traffic going straight to Anthropic.
+   */
+  headroomBaseUrl?: string;
 }
 
 export class PtyManager implements Killable {
@@ -61,6 +68,7 @@ export class PtyManager implements Killable {
   private readonly traceDir: string | undefined;
   /** The directory the PTY runs in — an isolated worktree (5B) or the goal's cwd. */
   private readonly cwd: string;
+  private readonly headroomBaseUrl: string | undefined;
   private traceWriter: TraceWriter | null = null;
   private exited = false;
 
@@ -73,6 +81,22 @@ export class PtyManager implements Killable {
     this.onReadyCallback = options.onReady;
     this.traceDir = options.traceDir;
     this.cwd = options.cwdOverride ?? goal.cwd;
+    this.headroomBaseUrl = options.headroomBaseUrl;
+  }
+
+  /**
+   * Spawn environment shared by start() and resume(): inherits process.env,
+   * forces TERM, and — when headroom is enabled — points the CLI at the local
+   * compression proxy via ANTHROPIC_BASE_URL (the proxy relays auth untouched).
+   */
+  private buildEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined) env[k] = v;
+    }
+    env['TERM'] = 'xterm-256color';
+    if (this.headroomBaseUrl) env['ANTHROPIC_BASE_URL'] = this.headroomBaseUrl;
+    return env;
   }
 
   /** Lazily create the per-session trace writer (no-op when no trace dir is set). */
@@ -117,11 +141,7 @@ export class PtyManager implements Killable {
     const args = this.buildLaunchArgs();
     this.initTrace();
 
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined) env[k] = v;
-    }
-    env['TERM'] = 'xterm-256color';
+    const env = this.buildEnv();
 
     logger.info(
       { goalId: this.goalId, claudePath, args, cwd: this.cwd },
@@ -242,11 +262,7 @@ export class PtyManager implements Killable {
     const args = this.adapter.buildResumeArgs(sessionId, this.spawnContext());
     this.initTrace();
 
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined) env[k] = v;
-    }
-    env['TERM'] = 'xterm-256color';
+    const env = this.buildEnv();
 
     logger.info(
       { goalId: this.goalId, sessionId, claudePath },

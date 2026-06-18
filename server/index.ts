@@ -177,6 +177,18 @@ function activeSessionsByProvider(): Record<string, number> {
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
+
+/**
+ * Headroom env fragment for a spawned session/brain. When compression is enabled
+ * in config, returns { headroomBaseUrl } so the CLI is launched with
+ * ANTHROPIC_BASE_URL pointed at the local proxy; otherwise {} (launch normally).
+ * Read live each spawn so toggling config takes effect without a restart.
+ */
+function headroomOpts(): { headroomBaseUrl?: string } {
+  const h = configService.getPersisted().headroom;
+  return h.enabled ? { headroomBaseUrl: h.baseUrl } : {};
+}
+
 // Phase 6: declared early so the approval/scheduler observers can reference it; the
 // instance is assigned below once its deps (brain runner etc.) are constructed.
 let orchestrator: OrchestratorService | undefined;
@@ -269,6 +281,7 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     broadcast,
     traceDir: join(env.dataDir, 'traces', goalId),
     ...(workspaceCwd ? { cwdOverride: workspaceCwd } : {}),
+    ...headroomOpts(),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
       goalService.update(gId, { status: 'waiting' });
@@ -423,6 +436,7 @@ function restartSession(sessionId: string, goalId: string): void {
     broadcast,
     traceDir: join(env.dataDir, 'traces', goalId),
     ...(workspaceCwd ? { cwdOverride: workspaceCwd } : {}),
+    ...headroomOpts(),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Restarted session ended');
       goalService.update(gId, { status: 'waiting' });
@@ -491,7 +505,10 @@ const orchestratorStateService = new OrchestratorStateService(db);
 const orchestratorMessageService = new OrchestratorMessageService(db);
 const orchestratorMemory = new MemoryStore(env.dataDir);
 const brainRunner = new BrainRunner(
-  new ClaudeBrainProvider(adapterForModel('haiku', ['claude']).resolveBinary()),
+  new ClaudeBrainProvider(adapterForModel('haiku', ['claude']).resolveBinary(), () => {
+    const h = headroomOpts();
+    return h.headroomBaseUrl ? { ANTHROPIC_BASE_URL: h.headroomBaseUrl } : {};
+  }),
 );
 function orchestratorMcpConfigJson(): string {
   const mcpEntry = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'mcp', 'dist', 'index.js');

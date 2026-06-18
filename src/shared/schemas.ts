@@ -315,6 +315,18 @@ export const ProviderConfigSchema = z.object({
 });
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
+/**
+ * Headroom context-compression proxy. When enabled, spawned sessions (and the
+ * orchestrator brain) get ANTHROPIC_BASE_URL pointed at a running `headroom
+ * proxy`, which compresses request bodies before forwarding to Anthropic with
+ * the client's existing (subscription) auth untouched. Off by default.
+ */
+export const HeadroomConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  baseUrl: z.string().url().default('http://localhost:8787'),
+});
+export type HeadroomConfig = z.infer<typeof HeadroomConfigSchema>;
+
 export const AppConfigSchema = z.object({
   homeRoute: z.string(),
   dataDir: z.string(),
@@ -323,6 +335,7 @@ export const AppConfigSchema = z.object({
   defaultModel: GoalModelSchema,
   defaultPermissionMode: PermissionModeSchema,
   providers: z.array(ProviderConfigSchema).default([{ id: 'claude', enabled: true, billingMode: 'seat' }]),
+  headroom: HeadroomConfigSchema.default({ enabled: false, baseUrl: 'http://localhost:8787' }),
 });
 
 /** The subset of AppConfig that is persisted (dataDir/hooksInstalled are computed at runtime). */
@@ -332,6 +345,7 @@ export const PersistedConfigSchema = AppConfigSchema.pick({
   defaultModel: true,
   defaultPermissionMode: true,
   providers: true,
+  headroom: true,
 });
 export type PersistedConfig = z.infer<typeof PersistedConfigSchema>;
 
