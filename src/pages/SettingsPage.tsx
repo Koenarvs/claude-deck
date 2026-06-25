@@ -111,6 +111,11 @@ export default function SettingsPage() {
   }
 
   const modelOptions = catalog.length > 0 ? modelOptionsFromCatalog(catalog) : MODEL_OPTIONS;
+  const updateHeadroom = (updates: Partial<AppConfig['headroom']>) => {
+    const nextHeadroom = { ...config.headroom, ...updates };
+    setConfig({ ...config, headroom: nextHeadroom });
+    void updateConfig({ headroom: nextHeadroom });
+  };
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
@@ -237,6 +242,111 @@ export default function SettingsPage() {
 
       {/* Orchestrator persona + governance */}
       <OrchestratorSection modelOptions={modelOptions} />
+
+      {/* Headroom Compression */}
+      <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-deck-text">Headroom Compression</h3>
+            <p className="mt-1 text-xs text-deck-muted">
+              Route context compression through a Headroom service before it reaches the agent.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.headroom.enabled}
+            onClick={() =>
+              void updateConfig({
+                headroom: { ...config.headroom, enabled: !config.headroom.enabled },
+              })
+            }
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+              config.headroom.enabled ? 'bg-deck-accent' : 'bg-deck-border'
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                config.headroom.enabled ? 'translate-x-5' : 'translate-x-1'
+              }`}
+            />
+            <span className="sr-only">Enable headroom compression</span>
+          </button>
+        </div>
+
+        <div className="mt-4">
+          <label htmlFor="headroom-base-url" className="mb-1 block text-xs font-medium text-deck-muted">
+            Headroom Base URL
+          </label>
+          <input
+            id="headroom-base-url"
+            type="url"
+            value={config.headroom.baseUrl}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                headroom: { ...config.headroom, baseUrl: e.target.value },
+              })
+            }
+            onBlur={(e) => {
+              const baseUrl = e.target.value.trim();
+              if (!baseUrl) return;
+              updateHeadroom({ baseUrl });
+            }}
+            placeholder="http://localhost:8787"
+            className="w-full rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
+          />
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-4 rounded-md border border-deck-border/70 bg-deck-bg/40 px-3 py-3">
+          <div>
+            <p className="text-sm font-medium text-deck-text">Auto-start managed proxy</p>
+            <p className="mt-1 text-xs text-deck-muted">
+              Launch a local Headroom process on Claude Deck startup and restart it when settings change.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.headroom.launchOnStartup}
+            onClick={() => updateHeadroom({ launchOnStartup: !config.headroom.launchOnStartup })}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+              config.headroom.launchOnStartup ? 'bg-deck-accent' : 'bg-deck-border'
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                config.headroom.launchOnStartup ? 'translate-x-5' : 'translate-x-1'
+              }`}
+            />
+            <span className="sr-only">Auto-start managed Headroom proxy</span>
+          </button>
+        </div>
+
+        <div className="mt-4">
+          <label htmlFor="headroom-command" className="mb-1 block text-xs font-medium text-deck-muted">
+            Launch Command
+          </label>
+          <input
+            id="headroom-command"
+            type="text"
+            value={config.headroom.command}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                headroom: { ...config.headroom, command: e.target.value },
+              })
+            }
+            onBlur={(e) => {
+              const command = e.target.value.trim();
+              if (!command) return;
+              updateHeadroom({ command });
+            }}
+            placeholder="headroom proxy --port 8787"
+            className="w-full rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
+          />
+        </div>
+      </div>
 
       {/* Trace Retention */}
       <div className="rounded-lg border border-deck-border bg-deck-surface p-4">

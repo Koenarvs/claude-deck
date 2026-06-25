@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import http from 'node:http';
 import express from 'express';
 import Database from 'better-sqlite3';
@@ -56,6 +56,12 @@ describe('GET/PUT /api/config (persisted)', () => {
     expect(body.defaultModel).toBe('default');
     expect(body.defaultPermissionMode).toBe('supervised');
     expect(body.providers).toEqual([{ id: 'claude', enabled: true, billingMode: 'seat' }]);
+    expect(body.headroom).toEqual({
+      enabled: true,
+      baseUrl: 'http://localhost:8787',
+      launchOnStartup: true,
+      command: 'headroom proxy --port 8787',
+    });
     const catalog = body.catalog as Array<{ id: string; capabilities: { canApprove: boolean } }>;
     expect(catalog.find((c) => c.id === 'claude')?.capabilities.canApprove).toBe(true);
   });
@@ -98,11 +104,60 @@ describe('GET/PUT /api/config (persisted)', () => {
     await fetch(`${base}/api/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ defaultModel: 'opus', tracePruneDays: 30 }),
+      body: JSON.stringify({
+        defaultModel: 'opus',
+        tracePruneDays: 30,
+        headroom: { baseUrl: 'http://localhost:9999', launchOnStartup: false },
+      }),
     });
     const body = (await (await fetch(`${base}/api/config`)).json()) as Record<string, unknown>;
     expect(body.defaultModel).toBe('opus');
     expect(body.tracePruneDays).toBe(30); // field-name guard (not traceRetentionDays)
+    expect(body.headroom).toEqual({
+      enabled: true,
+      baseUrl: 'http://localhost:9999',
+      launchOnStartup: false,
+      command: 'headroom proxy --port 8787',
+    });
+  });
+
+  it('invokes the config update callback with merged headroom config', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const configService = createConfigService(db);
+    const onConfigUpdated = vi.fn();
+    const router = createSystemRouter(undefined, {
+      configService,
+      onConfigUpdated,
+      claudeModels: nullModels,
+      codexModels: nullModels,
+      antigravityModels: { getModelOptions: async () => null, warm: async () => {}, cachedValues: () => [] },
+    });
+    const app = express();
+    app.use(express.json());
+    app.use('/api', router);
+    const srv = http.createServer(app);
+    server = srv;
+    const port = await new Promise<number>((resolve) =>
+      srv.listen(0, '127.0.0.1', () => {
+        const a = srv.address();
+        resolve(typeof a === 'object' && a ? a.port : 0);
+      }),
+    );
+
+    await fetch(`http://127.0.0.1:${port}/api/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ headroom: { launchOnStartup: false } }),
+    });
+
+    expect(onConfigUpdated).toHaveBeenCalledTimes(1);
+    expect(onConfigUpdated.mock.calls[0]?.[0].headroom).toEqual({
+      enabled: true,
+      baseUrl: 'http://localhost:8787',
+      launchOnStartup: false,
+      command: 'headroom proxy --port 8787',
+    });
   });
 
   it('invalid PUT (tracePruneDays 0) returns 400 and writes nothing', async () => {

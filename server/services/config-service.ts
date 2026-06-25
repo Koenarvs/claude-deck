@@ -8,7 +8,22 @@ const DEFAULTS: PersistedConfig = {
   defaultModel: 'default',
   defaultPermissionMode: 'supervised',
   providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
+  headroom: {
+    enabled: true,
+    baseUrl: 'http://localhost:8787',
+    launchOnStartup: true,
+    command: 'headroom proxy --port 8787',
+  },
 };
+
+export interface PersistedConfigUpdate {
+  homeRoute?: PersistedConfig['homeRoute'];
+  tracePruneDays?: PersistedConfig['tracePruneDays'];
+  defaultModel?: PersistedConfig['defaultModel'];
+  defaultPermissionMode?: PersistedConfig['defaultPermissionMode'];
+  providers?: PersistedConfig['providers'];
+  headroom?: Partial<PersistedConfig['headroom']>;
+}
 
 /**
  * Enforces the claude-always-on invariant: a 'claude' record is always present
@@ -48,9 +63,16 @@ export function createConfigService(db: Database.Database) {
     }
   }
 
-  function updatePersisted(partial: Partial<PersistedConfig>): PersistedConfig {
+  function updatePersisted(partial: PersistedConfigUpdate): PersistedConfig {
     const current = getPersisted();
-    const merged: PersistedConfig = { ...current, ...partial };
+    const merged: PersistedConfig = {
+      ...current,
+      ...partial,
+      headroom: {
+        ...current.headroom,
+        ...(partial.headroom ?? {}),
+      },
+    };
     merged.providers = normalizeProviders(merged.providers);
     const validated = PersistedConfigSchema.parse(merged);
     upsertStmt.run(JSON.stringify(validated), Date.now());

@@ -23,11 +23,23 @@ describe('config-service', () => {
     expect(c.defaultModel).toBe('default');
     expect(c.providers).toEqual([{ id: 'claude', enabled: true, billingMode: 'seat' }]);
     expect(c.tracePruneDays).toBe(90);
+    expect(c.headroom).toEqual({
+      enabled: true,
+      baseUrl: 'http://localhost:8787',
+      launchOnStartup: true,
+      command: 'headroom proxy --port 8787',
+    });
   });
 
   it('persists and merges partial updates', () => {
-    svc.updatePersisted({ defaultModel: 'opus' });
+    svc.updatePersisted({ defaultModel: 'opus', headroom: { baseUrl: 'http://localhost:9999' } });
     expect(svc.getPersisted().defaultModel).toBe('opus');
+    expect(svc.getPersisted().headroom).toEqual({
+      enabled: true,
+      baseUrl: 'http://localhost:9999',
+      launchOnStartup: true,
+      command: 'headroom proxy --port 8787',
+    });
     expect(svc.getPersisted().homeRoute).toBe('/board'); // unchanged
   });
 

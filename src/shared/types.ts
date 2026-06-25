@@ -364,6 +364,13 @@ export interface ProviderConfig {
   budget?: { dailyUsd?: number; monthlyUsd?: number; perGoalUsd?: number };
 }
 
+export interface HeadroomConfig {
+  enabled: boolean;
+  baseUrl: string;
+  launchOnStartup: boolean;
+  command: string;
+}
+
 export interface AppConfig {
   homeRoute: string;
   dataDir: string;
@@ -372,6 +379,7 @@ export interface AppConfig {
   defaultModel: GoalModel;
   defaultPermissionMode: PermissionMode;
   providers: ProviderConfig[];
+  headroom: HeadroomConfig;
 }
 
 // ── Stream JSON Events (CLI → server) ─────────────────────────────────────────

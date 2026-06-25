@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useConfigStore } from '../../../src/stores/useConfigStore';
 import type { AppConfig } from '../../../src/shared/types';
@@ -24,6 +24,12 @@ const defaultConfig: AppConfig = {
   defaultModel: 'sonnet',
   defaultPermissionMode: 'supervised',
   providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
+  headroom: {
+    enabled: true,
+    baseUrl: 'http://localhost:8787',
+    launchOnStartup: true,
+    command: 'headroom proxy --port 8787',
+  },
 };
 
 beforeEach(() => {
@@ -186,6 +192,27 @@ describe('SettingsPage', () => {
     expect(screen.getByText('days')).toBeInTheDocument();
   });
 
+  it('renders Headroom Compression section', async () => {
+    mockConfigFetch();
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Headroom Compression')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('switch', { name: 'Enable headroom compression' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByLabelText('Headroom Base URL')).toHaveValue('http://localhost:8787');
+    expect(screen.getByRole('switch', { name: 'Auto-start managed Headroom proxy' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByLabelText('Launch Command')).toHaveValue('headroom proxy --port 8787');
+  });
+
   it('sends PUT when model is changed', async () => {
     const user = userEvent.setup();
     mockConfigFetch();
@@ -253,6 +280,200 @@ describe('SettingsPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Saved')).toBeInTheDocument();
+    });
+  });
+
+  it('sends PUT when headroom compression is toggled', async () => {
+    const user = userEvent.setup();
+    mockConfigFetch();
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('switch', { name: 'Enable headroom compression' })).toBeInTheDocument();
+    });
+
+    fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url === '/api/config' && opts?.method === 'PUT') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ...defaultConfig, headroom: { ...defaultConfig.headroom, enabled: false } }),
+        });
+      }
+      if (url === '/api/extensions') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ hooks: {} }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultConfig) });
+    });
+
+    await user.click(screen.getByRole('switch', { name: 'Enable headroom compression' }));
+
+    await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+        '/api/config',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            headroom: {
+              enabled: false,
+              baseUrl: 'http://localhost:8787',
+              launchOnStartup: true,
+              command: 'headroom proxy --port 8787',
+            },
+          }),
+        }),
+      );
+    });
+  });
+
+  it('sends PUT when the headroom base URL is changed and blurred', async () => {
+    mockConfigFetch();
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    const updatedUrl = 'http://localhost:9999';
+    await waitFor(() => {
+      expect(screen.getByLabelText('Headroom Base URL')).toHaveValue('http://localhost:8787');
+    });
+
+    fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url === '/api/config' && opts?.method === 'PUT') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ...defaultConfig,
+              headroom: { ...defaultConfig.headroom, baseUrl: updatedUrl },
+            }),
+        });
+      }
+      if (url === '/api/extensions') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ hooks: {} }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultConfig) });
+    });
+
+    const input = screen.getByLabelText('Headroom Base URL');
+    fireEvent.change(input, { target: { value: updatedUrl } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, opts]) =>
+            url === '/api/config' &&
+            opts?.method === 'PUT' &&
+            opts?.body === JSON.stringify({
+              headroom: {
+                enabled: true,
+                baseUrl: updatedUrl,
+                launchOnStartup: true,
+                command: 'headroom proxy --port 8787',
+              },
+            }),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it('sends PUT when auto-start is toggled', async () => {
+    const user = userEvent.setup();
+    mockConfigFetch();
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('switch', { name: 'Auto-start managed Headroom proxy' })).toBeInTheDocument();
+    });
+
+    fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url === '/api/config' && opts?.method === 'PUT') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ...defaultConfig,
+              headroom: { ...defaultConfig.headroom, launchOnStartup: false },
+            }),
+        });
+      }
+      if (url === '/api/extensions') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ hooks: {} }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultConfig) });
+    });
+
+    await user.click(screen.getByRole('switch', { name: 'Auto-start managed Headroom proxy' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/config',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            headroom: {
+              enabled: true,
+              baseUrl: 'http://localhost:8787',
+              launchOnStartup: false,
+              command: 'headroom proxy --port 8787',
+            },
+          }),
+        }),
+      );
+    });
+  });
+
+  it('sends PUT when the headroom command is changed and blurred', async () => {
+    mockConfigFetch();
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    const updatedCommand = 'headroom proxy --port 9999';
+    await waitFor(() => {
+      expect(screen.getByLabelText('Launch Command')).toHaveValue('headroom proxy --port 8787');
+    });
+
+    fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url === '/api/config' && opts?.method === 'PUT') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ...defaultConfig,
+              headroom: { ...defaultConfig.headroom, command: updatedCommand },
+            }),
+        });
+      }
+      if (url === '/api/extensions') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ hooks: {} }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultConfig) });
+    });
+
+    const input = screen.getByLabelText('Launch Command');
+    fireEvent.change(input, { target: { value: updatedCommand } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, opts]) =>
+            url === '/api/config' &&
+            opts?.method === 'PUT' &&
+            opts?.body === JSON.stringify({
+              headroom: {
+                enabled: true,
+                baseUrl: 'http://localhost:8787',
+                launchOnStartup: true,
+                command: updatedCommand,
+              },
+            }),
+        ),
+      ).toBe(true);
     });
   });
 

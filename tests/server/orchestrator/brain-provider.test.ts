@@ -22,6 +22,19 @@ describe('ClaudeBrainProvider.buildInvocation', () => {
     expect(inv.args).toContain('--output-format');
     expect(inv.args).toContain('stream-json');
   });
+
+  it('passes through extra env overrides for headroom', () => {
+    const p = new ClaudeBrainProvider('/usr/bin/claude', () => ({
+      ANTHROPIC_BASE_URL: 'http://localhost:8787',
+    }));
+    const inv = p.buildInvocation({
+      prompt: 'hello',
+      model: 'haiku',
+      mcpConfigJson: '{"mcpServers":{}}',
+      permissionMode: 'supervised',
+    });
+    expect(inv.env).toEqual({ ANTHROPIC_BASE_URL: 'http://localhost:8787' });
+  });
 });
 
 describe('parseStreamLine', () => {

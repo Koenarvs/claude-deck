@@ -18,6 +18,7 @@ import {
 } from '../services/antigravity-models-service';
 import type { AgentCatalogEntry } from '../../src/shared/agents/types';
 import type { ConfigService } from '../services/config-service';
+import type { PersistedConfig } from '../../src/shared/schemas';
 import { getModelBreakdown, getModelMix, getCostPerGoal } from '../services/analytics-model-service';
 import { getProviderValue, getWindowUtilization } from '../services/analytics-value-service';
 import type { ProviderConfig } from '../../src/shared/agents/provider-config';
@@ -36,6 +37,8 @@ export interface SystemRouterConfig {
   codexModels?: CodexModelsService;
   /** Live Antigravity model-list service (runs `agy models` via PTY; tests stub). */
   antigravityModels?: AntigravityModelsService;
+  /** Optional side-effect hook invoked after persisted config updates. */
+  onConfigUpdated?: (updated: PersistedConfig, previous: PersistedConfig) => void | Promise<void>;
 }
 
 /** Default skill roots: project + user .claude surfaces (mirrors skill-scanner). */
@@ -302,9 +305,17 @@ router.put('/config', async (req, res) => {
     return;
   }
   try {
+    const previous = configService.getPersisted();
     const updated = configService.updatePersisted(req.body ?? {});
+    await config?.onConfigUpdated?.(updated, previous);
     const enabledIds = updated.providers.filter((p) => p.enabled).map((p) => p.id);
-    res.json({ ...updated, catalog: await buildCatalogWithLiveModels(enabledIds) });
+    const status = await hookInstallerService.status();
+    res.json({
+      ...updated,
+      dataDir: process.env['DATA_DIR'] ?? './data',
+      hooksInstalled: status.installed,
+      catalog: await buildCatalogWithLiveModels(enabledIds),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: message });

@@ -371,6 +371,12 @@ describe('AppConfigSchema', () => {
       tracePruneDays: 90,
       defaultModel: 'sonnet',
       defaultPermissionMode: 'supervised',
+      headroom: {
+        enabled: true,
+        baseUrl: 'http://localhost:8787',
+        launchOnStartup: true,
+        command: 'headroom proxy --port 8787',
+      },
     });
     expect(result.success).toBe(true);
   });
@@ -416,9 +422,15 @@ describe('AppConfigSchema providers (Delta B)', () => {
       defaultModel: 'opus',
       defaultPermissionMode: 'autonomous',
       providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
+      headroom: {
+        enabled: true,
+        baseUrl: 'http://localhost:8787',
+        launchOnStartup: true,
+        command: 'headroom proxy --port 8787',
+      },
     });
     expect(Object.keys(p).sort()).toEqual(
-      ['defaultModel', 'defaultPermissionMode', 'homeRoute', 'providers', 'tracePruneDays'],
+      ['defaultModel', 'defaultPermissionMode', 'headroom', 'homeRoute', 'providers', 'tracePruneDays'],
     );
   });
 });

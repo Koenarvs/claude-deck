@@ -315,6 +315,14 @@ export const ProviderConfigSchema = z.object({
 });
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
+export const HeadroomConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  baseUrl: z.string().url().default('http://localhost:8787'),
+  launchOnStartup: z.boolean().default(true),
+  command: z.string().min(1).default('headroom proxy --port 8787'),
+});
+export type HeadroomConfig = z.infer<typeof HeadroomConfigSchema>;
+
 export const AppConfigSchema = z.object({
   homeRoute: z.string(),
   dataDir: z.string(),
@@ -323,6 +331,12 @@ export const AppConfigSchema = z.object({
   defaultModel: GoalModelSchema,
   defaultPermissionMode: PermissionModeSchema,
   providers: z.array(ProviderConfigSchema).default([{ id: 'claude', enabled: true, billingMode: 'seat' }]),
+  headroom: HeadroomConfigSchema.default({
+    enabled: true,
+    baseUrl: 'http://localhost:8787',
+    launchOnStartup: true,
+    command: 'headroom proxy --port 8787',
+  }),
 });
 
 /** The subset of AppConfig that is persisted (dataDir/hooksInstalled are computed at runtime). */
@@ -332,6 +346,7 @@ export const PersistedConfigSchema = AppConfigSchema.pick({
   defaultModel: true,
   defaultPermissionMode: true,
   providers: true,
+  headroom: true,
 });
 export type PersistedConfig = z.infer<typeof PersistedConfigSchema>;
 

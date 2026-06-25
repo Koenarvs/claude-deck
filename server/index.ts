@@ -50,6 +50,7 @@ import { findJsonlFile } from './services/transcript-service';
 import { ingestAllSessions } from './services/ingestion-service';
 import { createModelValidator } from './security/model-allow';
 import { createConfigService } from './services/config-service';
+import { HeadroomService } from './services/headroom-service';
 import { adapterForModel, getAdapter } from './agents/registry';
 import type { AgentAdapter } from './agents/agent-adapter';
 import { homedir } from 'node:os';
@@ -177,6 +178,7 @@ function activeSessionsByProvider(): Record<string, number> {
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
+const headroomService = new HeadroomService();
 // Phase 6: declared early so the approval/scheduler observers can reference it; the
 // instance is assigned below once its deps (brain runner etc.) are constructed.
 let orchestrator: OrchestratorService | undefined;
@@ -205,6 +207,12 @@ const sessionService = new SessionService(db, broadcast);
 const messageService = new MessageService(db, broadcast);
 
 const conversationLoggers = new Map<string, ConversationLogger>();
+
+function currentHeadroomBaseUrl(providerId: string): string | undefined {
+  if (providerId !== 'claude') return undefined;
+  const { headroom } = configService.getPersisted();
+  return headroom.enabled ? headroom.baseUrl : undefined;
+}
 
 /**
  * Spawns or resumes a PTY-based terminal session for a goal.
@@ -265,9 +273,11 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     logger.warn({ err, goalId }, 'workspace provision failed — running in-place');
   }
 
+  const headroomBaseUrl = currentHeadroomBaseUrl(adapter.id);
   const ptyMgr = new PtyManager(goal, adapter, {
     broadcast,
     traceDir: join(env.dataDir, 'traces', goalId),
+    ...(headroomBaseUrl ? { headroomBaseUrl } : {}),
     ...(workspaceCwd ? { cwdOverride: workspaceCwd } : {}),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
@@ -419,9 +429,11 @@ function restartSession(sessionId: string, goalId: string): void {
     logger.warn({ err, goalId }, 'workspace provision failed — running in-place');
   }
 
+  const headroomBaseUrl = currentHeadroomBaseUrl(adapter.id);
   const ptyMgr = new PtyManager(goal, adapter, {
     broadcast,
     traceDir: join(env.dataDir, 'traces', goalId),
+    ...(headroomBaseUrl ? { headroomBaseUrl } : {}),
     ...(workspaceCwd ? { cwdOverride: workspaceCwd } : {}),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Restarted session ended');
@@ -472,6 +484,9 @@ const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
 const customSkillDirs = skillDirectoryService.list().map((d) => d.path);
 const systemRouterWithSkills = createSystemRouter(skillDirectoryService, {
   configService,
+  onConfigUpdated: (updated) => {
+    headroomService.sync(updated.headroom);
+  },
   skillRoots: [
     ...customSkillDirs,
     ...['skills', 'agents', 'hooks', 'commands'].flatMap((s) => [
@@ -491,7 +506,13 @@ const orchestratorStateService = new OrchestratorStateService(db);
 const orchestratorMessageService = new OrchestratorMessageService(db);
 const orchestratorMemory = new MemoryStore(env.dataDir);
 const brainRunner = new BrainRunner(
-  new ClaudeBrainProvider(adapterForModel('haiku', ['claude']).resolveBinary()),
+  new ClaudeBrainProvider(
+    adapterForModel('haiku', ['claude']).resolveBinary(),
+    () => {
+      const { headroom } = configService.getPersisted();
+      return headroom.enabled ? { ANTHROPIC_BASE_URL: headroom.baseUrl } : {};
+    },
+  ),
 );
 function orchestratorMcpConfigJson(): string {
   const mcpEntry = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'mcp', 'dist', 'index.js');
@@ -567,6 +588,7 @@ setupWss(server, { token: env.token, allowedOrigins: wsAllowedOrigins });
 
 // Start scheduler
 scheduler.start();
+headroomService.sync(configService.getPersisted().headroom);
 
 // Schedule daily trace pruning (reads config.tracePruneDays fresh each run).
 const tracePruneTask = startTracePruneJob(db, env.dataDir, () => configService.getPersisted().tracePruneDays);
@@ -643,6 +665,9 @@ function shutdown(signal: string): void {
   heartbeatJob.stop();
   orchestrator?.shutdown();
   tracePruneTask.stop();
+  void headroomService.shutdown().catch((err) => {
+    logger.error({ err }, 'Failed to stop managed Headroom proxy');
+  });
   logger.info('Scheduler stopped');
 
   // Deny all pending approvals so blocked hooks unblock
