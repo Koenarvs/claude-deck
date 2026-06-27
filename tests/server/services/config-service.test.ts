@@ -46,6 +46,33 @@ describe('config-service', () => {
     expect(c.providers.some((p) => p.id === 'antigravity')).toBe(true);
   });
 
+  it('seeds headroom defaults (enabled, balanced, all features on)', () => {
+    const h = svc.getPersisted().headroom;
+    expect(h.enabled).toBe(true);
+    expect(h.compressionDegree).toBe('balanced');
+    expect(h.interceptToolResults).toBe(true);
+    expect(h.memory).toBe(true);
+    expect(h.vertexApiUrl).toBe('https://aiplatform.googleapis.com');
+    expect(h.command).toBeUndefined();
+  });
+
+  it('shallow-merges partial headroom updates without dropping siblings', () => {
+    svc.updatePersisted({ headroom: { enabled: true } as never });
+    const h = svc.getPersisted().headroom;
+    expect(h.enabled).toBe(true);
+    expect(h.compressionDegree).toBe('balanced'); // preserved
+    expect(h.vertexApiUrl).toBe('https://aiplatform.googleapis.com'); // preserved
+  });
+
+  it('normalizes a legacy/empty command override back to undefined', () => {
+    svc.updatePersisted({ headroom: { command: 'headroom proxy --port 8787' } as never });
+    expect(svc.getPersisted().headroom.command).toBeUndefined();
+    svc.updatePersisted({ headroom: { command: '   ' } as never });
+    expect(svc.getPersisted().headroom.command).toBeUndefined();
+    svc.updatePersisted({ headroom: { command: 'headroom proxy --custom' } as never });
+    expect(svc.getPersisted().headroom.command).toBe('headroom proxy --custom');
+  });
+
   it('round-trips provider billing config through a fresh service on the same db', () => {
     svc.updatePersisted({
       tracePruneDays: 30,

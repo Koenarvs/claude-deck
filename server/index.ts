@@ -50,6 +50,8 @@ import { findJsonlFile } from './services/transcript-service';
 import { ingestAllSessions } from './services/ingestion-service';
 import { createModelValidator } from './security/model-allow';
 import { createConfigService } from './services/config-service';
+import { HeadroomService } from './services/headroom-service';
+import { headroomEnvFragment } from './headroom-env';
 import { adapterForModel, getAdapter } from './agents/registry';
 import type { AgentAdapter } from './agents/agent-adapter';
 import { homedir } from 'node:os';
@@ -178,15 +180,22 @@ const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
 
+/** Manages the local Headroom proxy lifecycle and tracks its health. */
+const headroomService = new HeadroomService();
+
 /**
- * Headroom env fragment for a spawned session/brain. When compression is enabled
- * in config, returns { headroomBaseUrl } so the CLI is launched with
- * ANTHROPIC_BASE_URL pointed at the local proxy; otherwise {} (launch normally).
- * Read live each spawn so toggling config takes effect without a restart.
+ * Headroom env fragment for a spawned session/brain. Returns { headroomBaseUrl }
+ * only for the 'claude' provider AND when compression is enabled AND the proxy is
+ * actually reachable; otherwise {} (launch normally). Headroom speaks the Anthropic
+ * API, so non-Claude providers (Codex/Antigravity) never get the env. Fail-closed:
+ * because the Vertex override is honored by the CLI, pointing a session at a dead
+ * proxy would break it. Read live each spawn so toggling config / proxy state
+ * takes effect without a restart.
  */
-function headroomOpts(): { headroomBaseUrl?: string } {
+function headroomOpts(providerId: string): { headroomBaseUrl?: string } {
+  if (providerId !== 'claude') return {};
   const h = configService.getPersisted().headroom;
-  return h.enabled ? { headroomBaseUrl: h.baseUrl } : {};
+  return h.enabled && headroomService.isHealthy() ? { headroomBaseUrl: h.baseUrl } : {};
 }
 
 // Phase 6: declared early so the approval/scheduler observers can reference it; the
@@ -281,7 +290,7 @@ function spawnTerminalSession(goalId: string, initialPrompt?: string): string {
     broadcast,
     traceDir: join(env.dataDir, 'traces', goalId),
     ...(workspaceCwd ? { cwdOverride: workspaceCwd } : {}),
-    ...headroomOpts(),
+    ...headroomOpts(adapter.id),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Terminal session ended');
       goalService.update(gId, { status: 'waiting' });
@@ -436,7 +445,7 @@ function restartSession(sessionId: string, goalId: string): void {
     broadcast,
     traceDir: join(env.dataDir, 'traces', goalId),
     ...(workspaceCwd ? { cwdOverride: workspaceCwd } : {}),
-    ...headroomOpts(),
+    ...headroomOpts(adapter.id),
     onExit(gId, exitCode) {
       logger.info({ goalId: gId, exitCode }, 'Restarted session ended');
       goalService.update(gId, { status: 'waiting' });
@@ -486,6 +495,9 @@ const approvalsRouter = createApprovalsRouter(db, approvalCoordinator);
 const customSkillDirs = skillDirectoryService.list().map((d) => d.path);
 const systemRouterWithSkills = createSystemRouter(skillDirectoryService, {
   configService,
+  onConfigUpdated: (updated) => {
+    headroomService.sync(updated.headroom);
+  },
   skillRoots: [
     ...customSkillDirs,
     ...['skills', 'agents', 'hooks', 'commands'].flatMap((s) => [
@@ -506,8 +518,8 @@ const orchestratorMessageService = new OrchestratorMessageService(db);
 const orchestratorMemory = new MemoryStore(env.dataDir);
 const brainRunner = new BrainRunner(
   new ClaudeBrainProvider(adapterForModel('haiku', ['claude']).resolveBinary(), () => {
-    const h = headroomOpts();
-    return h.headroomBaseUrl ? { ANTHROPIC_BASE_URL: h.headroomBaseUrl } : {};
+    const h = headroomOpts('claude');
+    return h.headroomBaseUrl ? headroomEnvFragment(h.headroomBaseUrl) : {};
   }),
 );
 function orchestratorMcpConfigJson(): string {
@@ -620,6 +632,9 @@ const reconciliationService = createReconciliationService(db);
 server.listen(env.port, env.bindHost, () => {
   logger.info({ port: env.port, host: env.bindHost, lan: !env.isLoopback }, 'claude-deck server listening');
 
+  // Start (or attach to) the Headroom compression proxy per persisted config.
+  headroomService.sync(configService.getPersisted().headroom);
+
   // 5D: resume sessions orphaned by a previous shutdown/crash. A goal the DB still
   // believes is active/waiting, with an open session and no live process, is resumed
   // in its workspace (capability-gated; failures are isolated per orphan).
@@ -661,6 +676,11 @@ function shutdown(signal: string): void {
   orchestrator?.shutdown();
   tracePruneTask.stop();
   logger.info('Scheduler stopped');
+
+  // Stop the managed Headroom proxy
+  void headroomService.shutdown().catch((err) => {
+    logger.error({ err }, 'Failed to stop managed Headroom proxy');
+  });
 
   // Deny all pending approvals so blocked hooks unblock
   approvalCoordinator.shutdown();

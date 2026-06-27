@@ -8,8 +8,31 @@ const DEFAULTS: PersistedConfig = {
   defaultModel: 'default',
   defaultPermissionMode: 'supervised',
   providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
-  headroom: { enabled: false, baseUrl: 'http://localhost:8787' },
+  headroom: {
+    enabled: true,
+    baseUrl: 'http://localhost:8787',
+    launchOnStartup: true,
+    compressionDegree: 'balanced',
+    interceptToolResults: true,
+    memory: true,
+    vertexApiUrl: 'https://aiplatform.googleapis.com',
+  },
 };
+
+/**
+ * The freeform `command` field is an advanced override. Older persisted rows
+ * stored the legacy default string; map that (and empty strings) back to
+ * `undefined` so the HeadroomService auto-builds the command from the
+ * structured fields instead of treating the stale string as a real override.
+ */
+const LEGACY_DEFAULT_COMMAND = 'headroom proxy --port 8787';
+function normalizeHeadroom(h: PersistedConfig['headroom']): PersistedConfig['headroom'] {
+  if (h.command === LEGACY_DEFAULT_COMMAND || (h.command != null && h.command.trim() === '')) {
+    const { command: _drop, ...rest } = h;
+    return rest;
+  }
+  return h;
+}
 
 /**
  * Enforces the claude-always-on invariant: a 'claude' record is always present
@@ -42,6 +65,7 @@ export function createConfigService(db: Database.Database) {
     try {
       const parsed = PersistedConfigSchema.parse(JSON.parse(row.config_json));
       parsed.providers = normalizeProviders(parsed.providers);
+      parsed.headroom = normalizeHeadroom(parsed.headroom);
       return parsed;
     } catch (err) {
       logger.warn({ err }, 'app_config row invalid; returning defaults');
@@ -51,7 +75,12 @@ export function createConfigService(db: Database.Database) {
 
   function updatePersisted(partial: Partial<PersistedConfig>): PersistedConfig {
     const current = getPersisted();
-    const merged: PersistedConfig = { ...current, ...partial };
+    const merged: PersistedConfig = {
+      ...current,
+      ...partial,
+      // headroom is shallow-merged so a partial update can't drop sibling fields.
+      headroom: { ...current.headroom, ...(partial.headroom ?? {}) },
+    };
     merged.providers = normalizeProviders(merged.providers);
     const validated = PersistedConfigSchema.parse(merged);
     upsertStmt.run(JSON.stringify(validated), Date.now());

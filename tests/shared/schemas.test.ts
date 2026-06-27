@@ -418,7 +418,9 @@ describe('AppConfigSchema providers (Delta B)', () => {
       providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
     });
     expect(Object.keys(p).sort()).toEqual(
-      ['defaultModel', 'defaultPermissionMode', 'homeRoute', 'providers', 'tracePruneDays'],
+      ['defaultModel', 'defaultPermissionMode', 'headroom', 'homeRoute', 'providers', 'tracePruneDays'],
     );
+    // headroom is backfilled with its defaults (enabled, balanced, all features on) when omitted.
+    expect(p.headroom).toMatchObject({ enabled: true, compressionDegree: 'balanced', interceptToolResults: true, memory: true });
   });
 });

@@ -11,6 +11,7 @@ import { TraceWriter } from './trace-writer';
 import logger from './logger';
 import type { AgentAdapter } from './agents/agent-adapter';
 import type { SpawnContext, McpServerDescriptor } from '../src/shared/agents/types';
+import { headroomEnvFragment } from './headroom-env';
 
 // On Windows with Git Bash, process.execPath points to Git's bundled node stub
 // which doesn't exist as a real binary. node-pty's conpty agent needs the real
@@ -87,7 +88,9 @@ export class PtyManager implements Killable {
   /**
    * Spawn environment shared by start() and resume(): inherits process.env,
    * forces TERM, and — when headroom is enabled — points the CLI at the local
-   * compression proxy via ANTHROPIC_BASE_URL (the proxy relays auth untouched).
+   * compression proxy. On Vertex this is ANTHROPIC_VERTEX_BASE_URL=<baseUrl>/v1
+   * (ANTHROPIC_BASE_URL is ignored on Vertex); otherwise ANTHROPIC_BASE_URL.
+   * The proxy relays the client's existing auth untouched.
    */
   private buildEnv(): Record<string, string> {
     const env: Record<string, string> = {};
@@ -95,7 +98,7 @@ export class PtyManager implements Killable {
       if (v !== undefined) env[k] = v;
     }
     env['TERM'] = 'xterm-256color';
-    if (this.headroomBaseUrl) env['ANTHROPIC_BASE_URL'] = this.headroomBaseUrl;
+    if (this.headroomBaseUrl) Object.assign(env, headroomEnvFragment(this.headroomBaseUrl));
     return env;
   }
 

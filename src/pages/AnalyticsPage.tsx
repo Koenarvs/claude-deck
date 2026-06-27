@@ -14,9 +14,10 @@ import {
 import { fmtCost, fmtTokens } from '../lib/format';
 import {
   fetchModelBreakdown, fetchModelMix, fetchProviderValue,
-  fetchWindowUtilization, fetchCostPerGoal,
+  fetchWindowUtilization, fetchCostPerGoal, fetchHeadroomStats,
+  EMPTY_HEADROOM_STATS,
   type ModelBreakdownResponse, type ModelMixResponse, type ProviderValueResponse,
-  type WindowUtilizationResponse, type CostPerGoalResponse,
+  type WindowUtilizationResponse, type CostPerGoalResponse, type HeadroomStatsResponse,
 } from '../lib/analytics-api';
 import { resolveModel } from '../shared/agents/model-registry';
 
@@ -138,6 +139,7 @@ function AnalyticsPageContent() {
   const [providerValue, setProviderValue] = useState<ProviderValueResponse>({ providers: [] });
   const [windowUtil, setWindowUtil] = useState<WindowUtilizationResponse>({ rows: [] });
   const [costPerGoal, setCostPerGoal] = useState<CostPerGoalResponse>({ label: 'equivalent_value', series: [] });
+  const [headroomStats, setHeadroomStats] = useState<HeadroomStatsResponse>(EMPTY_HEADROOM_STATS);
 
   useEffect(() => {
     setLoading(true);
@@ -207,6 +209,7 @@ function AnalyticsPageContent() {
       fetchProviderValue(days, ctrl.signal).then(setProviderValue),
       fetchWindowUtilization(ctrl.signal).then(setWindowUtil),
       fetchCostPerGoal(days, ctrl.signal).then(setCostPerGoal),
+      fetchHeadroomStats(ctrl.signal).then(setHeadroomStats),
     ]).catch(() => { /* helpers already fall back to defaults */ });
     return () => ctrl.abort();
   }, [timeRange]);
@@ -313,6 +316,39 @@ function AnalyticsPageContent() {
                 </ResponsiveContainer>
               ) : (
                 <Empty text="No session data yet" />
+              )}
+            </div>
+
+            {/* Headroom compression savings */}
+            <div className="rounded-md border border-line bg-card p-4">
+              <h2 className="mb-4 text-sm font-medium text-dim">Headroom Compression</h2>
+              {headroomStats.enabled && headroomStats.requests > 0 ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-md border border-line p-3">
+                    <div className="text-xs text-dim">Token Savings</div>
+                    <div className="mt-1 text-lg font-semibold text-fg">
+                      {headroomStats.savingsPercent.toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-faint">avg {headroomStats.avgCompressionPct.toFixed(1)}% / best {headroomStats.bestCompressionPct.toFixed(1)}%</div>
+                  </div>
+                  <div className="rounded-md border border-line p-3">
+                    <div className="text-xs text-dim">Tokens Saved</div>
+                    <div className="mt-1 text-lg font-semibold text-fg">{fmtTokens(headroomStats.tokensSaved)}</div>
+                    <div className="text-xs text-faint">lifetime {fmtTokens(headroomStats.lifetimeTokensSaved)}</div>
+                  </div>
+                  <div className="rounded-md border border-line p-3">
+                    <div className="text-xs text-dim">Cache Hit Rate</div>
+                    <div className="mt-1 text-lg font-semibold text-fg">{headroomStats.cacheHitRate.toFixed(1)}%</div>
+                    <div className="text-xs text-faint">net {fmtTokens(headroomStats.netTokens)} tok</div>
+                  </div>
+                  <div className="rounded-md border border-line p-3">
+                    <div className="text-xs text-dim">$ Saved</div>
+                    <div className="mt-1 text-lg font-semibold text-fg">{fmtCost(headroomStats.compressionSavingsUsd)}</div>
+                    <div className="text-xs text-faint">{headroomStats.requests} requests</div>
+                  </div>
+                </div>
+              ) : (
+                <Empty text="No headroom data — proxy disabled or unreachable" />
               )}
             </div>
 
