@@ -321,9 +321,18 @@ export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
  * proxy`, which compresses request bodies before forwarding to Anthropic with
  * the client's existing (subscription) auth untouched. Off by default.
  */
+export const CompressionDegreeSchema = z.enum(['off', 'light', 'balanced', 'aggressive']);
+export type CompressionDegree = z.infer<typeof CompressionDegreeSchema>;
+
 export const HeadroomConfigSchema = z.object({
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().default(true),
   baseUrl: z.string().url().default('http://localhost:8787'),
+  launchOnStartup: z.boolean().default(true),
+  compressionDegree: CompressionDegreeSchema.default('balanced'),
+  interceptToolResults: z.boolean().default(true),
+  memory: z.boolean().default(true),
+  vertexApiUrl: z.string().url().default('https://aiplatform.googleapis.com'),
+  command: z.string().optional(), // advanced override; undefined => auto-build
 });
 export type HeadroomConfig = z.infer<typeof HeadroomConfigSchema>;
 
@@ -335,7 +344,7 @@ export const AppConfigSchema = z.object({
   defaultModel: GoalModelSchema,
   defaultPermissionMode: PermissionModeSchema,
   providers: z.array(ProviderConfigSchema).default([{ id: 'claude', enabled: true, billingMode: 'seat' }]),
-  headroom: HeadroomConfigSchema.default({ enabled: false, baseUrl: 'http://localhost:8787' }),
+  headroom: HeadroomConfigSchema.default({ enabled: true, baseUrl: 'http://localhost:8787', interceptToolResults: true, memory: true }),
 });
 
 /** The subset of AppConfig that is persisted (dataDir/hooksInstalled are computed at runtime). */

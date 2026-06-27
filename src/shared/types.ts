@@ -364,6 +364,20 @@ export interface ProviderConfig {
   budget?: { dailyUsd?: number; monthlyUsd?: number; perGoalUsd?: number };
 }
 
+export type CompressionDegree = 'off' | 'light' | 'balanced' | 'aggressive';
+
+export interface HeadroomConfig {
+  enabled: boolean;
+  baseUrl: string;
+  launchOnStartup: boolean;
+  compressionDegree: CompressionDegree;
+  interceptToolResults: boolean;
+  memory: boolean;
+  vertexApiUrl: string;
+  /** Advanced override; when set, used verbatim instead of the auto-built command. */
+  command?: string | undefined;
+}
+
 export interface AppConfig {
   homeRoute: string;
   dataDir: string;
@@ -372,6 +386,7 @@ export interface AppConfig {
   defaultModel: GoalModel;
   defaultPermissionMode: PermissionMode;
   providers: ProviderConfig[];
+  headroom: HeadroomConfig;
 }
 
 // ── Stream JSON Events (CLI → server) ─────────────────────────────────────────

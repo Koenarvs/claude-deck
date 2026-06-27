@@ -28,6 +28,8 @@ export interface SystemRouterConfig {
   skillRoots?: string[];
   /** When present, GET/PUT /config persist via this service instead of stubbing. */
   configService?: ConfigService;
+  /** Called after a successful PUT /config so callers can react (e.g. sync the Headroom proxy). */
+  onConfigUpdated?: (updated: ReturnType<ConfigService['updatePersisted']>) => void;
   /** Override the provider list (tests). Falls back to configService's providers. */
   getProviders?: () => ProviderConfig[];
   /** Live Anthropic model-list service for the catalog overlay (tests inject a stub). */
@@ -112,6 +114,61 @@ router.get('/analytics/value', (req, res) => {
   } catch (err) {
     logger.error({ err: String(err) }, 'value failed');
     res.json({ providers: [] });
+  }
+});
+
+/**
+ * GET /api/analytics/headroom-stats
+ * Relays a small slice of the local Headroom proxy's /stats. Fail-open to zeros
+ * when disabled or unreachable — the panel never branches on missing data.
+ */
+router.get('/analytics/headroom-stats', async (_req, res) => {
+  const EMPTY = {
+    enabled: false,
+    requests: 0,
+    totalInputTokens: 0,
+    tokensSaved: 0,
+    savingsPercent: 0,
+    compressionSavingsUsd: 0,
+    avgCompressionPct: 0,
+    bestCompressionPct: 0,
+    cacheHitRate: 0,
+    netTokens: 0,
+    lifetimeTokensSaved: 0,
+    savingsHistory: [] as unknown[],
+  };
+  try {
+    const h = configService?.getPersisted().headroom;
+    if (!h?.enabled) { res.json(EMPTY); return; }
+    const r = await fetch(`${h.baseUrl}/stats`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) { res.json(EMPTY); return; }
+    const s = (await r.json()) as Record<string, unknown>;
+    const ps = (s['persistent_savings'] ?? {}) as Record<string, unknown>;
+    const ds = (ps['display_session'] ?? {}) as Record<string, unknown>;
+    const life = (ps['lifetime'] ?? {}) as Record<string, unknown>;
+    const summary = (s['summary'] ?? {}) as Record<string, unknown>;
+    const comp = (summary['compression'] ?? {}) as Record<string, unknown>;
+    const prefix = (s['prefix_cache'] ?? {}) as Record<string, unknown>;
+    const totals = (prefix['totals'] ?? {}) as Record<string, unknown>;
+    const cvc = (prefix['compression_vs_cache'] ?? {}) as Record<string, unknown>;
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    res.json({
+      enabled: true,
+      requests: num(ds['requests']),
+      totalInputTokens: num(ds['total_input_tokens']),
+      tokensSaved: num(ds['tokens_saved']),
+      savingsPercent: num(ds['savings_percent']),
+      compressionSavingsUsd: num(ds['compression_savings_usd']),
+      avgCompressionPct: num(comp['avg_compression_pct']),
+      bestCompressionPct: num(comp['best_compression_pct']),
+      cacheHitRate: num(totals['hit_rate']),
+      netTokens: num(cvc['net_tokens']),
+      lifetimeTokensSaved: num(life['tokens_saved']),
+      savingsHistory: Array.isArray(s['savings_history']) ? (s['savings_history'] as unknown[]) : [],
+    });
+  } catch (err) {
+    logger.error({ err: String(err) }, 'headroom-stats failed');
+    res.json(EMPTY);
   }
 });
 
@@ -303,6 +360,7 @@ router.put('/config', async (req, res) => {
   }
   try {
     const updated = configService.updatePersisted(req.body ?? {});
+    config?.onConfigUpdated?.(updated);
     const enabledIds = updated.providers.filter((p) => p.enabled).map((p) => p.id);
     res.json({ ...updated, catalog: await buildCatalogWithLiveModels(enabledIds) });
   } catch (err) {

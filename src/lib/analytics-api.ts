@@ -62,6 +62,36 @@ export interface CostPerGoalResponse {
   series: CostPerGoalPoint[];
 }
 
+export interface HeadroomStatsResponse {
+  enabled: boolean;
+  requests: number;
+  totalInputTokens: number;
+  tokensSaved: number;
+  savingsPercent: number;
+  compressionSavingsUsd: number;
+  avgCompressionPct: number;
+  bestCompressionPct: number;
+  cacheHitRate: number;
+  netTokens: number;
+  lifetimeTokensSaved: number;
+  savingsHistory: Array<Record<string, number>>;
+}
+
+export const EMPTY_HEADROOM_STATS: HeadroomStatsResponse = {
+  enabled: false,
+  requests: 0,
+  totalInputTokens: 0,
+  tokensSaved: 0,
+  savingsPercent: 0,
+  compressionSavingsUsd: 0,
+  avgCompressionPct: 0,
+  bestCompressionPct: 0,
+  cacheHitRate: 0,
+  netTokens: 0,
+  lifetimeTokensSaved: 0,
+  savingsHistory: [],
+};
+
 async function getJson<T>(url: string, signal: AbortSignal, fallback: T): Promise<T> {
   try {
     const r = await fetch(url, { signal });
@@ -91,4 +121,7 @@ export function fetchWindowUtilization(signal: AbortSignal): Promise<WindowUtili
 }
 export function fetchCostPerGoal(days: number, signal: AbortSignal): Promise<CostPerGoalResponse> {
   return getJson(`/api/analytics/cost-per-goal?days=${days}`, signal, { label: 'equivalent_value', series: [] });
+}
+export function fetchHeadroomStats(signal: AbortSignal): Promise<HeadroomStatsResponse> {
+  return getJson(`/api/analytics/headroom-stats`, signal, EMPTY_HEADROOM_STATS);
 }

@@ -24,6 +24,15 @@ const defaultConfig: AppConfig = {
   defaultModel: 'sonnet',
   defaultPermissionMode: 'supervised',
   providers: [{ id: 'claude', enabled: true, billingMode: 'seat' }],
+  headroom: {
+    enabled: true,
+    baseUrl: 'http://localhost:8787',
+    launchOnStartup: true,
+    compressionDegree: 'balanced',
+    interceptToolResults: true,
+    memory: true,
+    vertexApiUrl: 'https://aiplatform.googleapis.com',
+  },
 };
 
 beforeEach(() => {
@@ -223,6 +232,51 @@ describe('SettingsPage', () => {
         }),
       );
     });
+  });
+
+  it('renders headroom degree controls when enabled and PUTs degree change', async () => {
+    const user = userEvent.setup();
+    mockConfigFetch(); // headroom.enabled = true by default
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Compression Degree')).toBeInTheDocument();
+    });
+
+    fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url === '/api/config' && opts?.method === 'PUT') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultConfig) });
+      }
+      if (url === '/api/extensions') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ hooks: {} }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(defaultConfig) });
+    });
+
+    await user.click(screen.getByRole('button', { name: /Aggressive/ }));
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(
+        ([url, opts]) => url === '/api/config' && (opts as RequestInit | undefined)?.method === 'PUT',
+      );
+      expect(putCall).toBeTruthy();
+      expect(String((putCall![1] as RequestInit).body)).toContain('"compressionDegree":"aggressive"');
+    });
+  });
+
+  it('hides headroom sub-controls when disabled', async () => {
+    const disabled = { ...defaultConfig, headroom: { ...defaultConfig.headroom, enabled: false } };
+    mockConfigFetch(disabled);
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Headroom Compression')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Compression Degree')).not.toBeInTheDocument();
   });
 
   it('shows Saved indicator after successful config update', async () => {
