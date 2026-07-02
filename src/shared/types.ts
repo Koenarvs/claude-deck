@@ -29,6 +29,8 @@ export interface Goal {
   workspace_branch?: string | null;
   /** Latest verification-gate outcome (5C); null/absent when never verified. */
   verification_status?: VerificationStatus | null;
+  /** Agent definition name for the session (e.g. 'orchestrator', 'dev-looker'). */
+  agent_type?: string | null;
 }
 
 export interface CreateGoalInput {
@@ -41,6 +43,7 @@ export interface CreateGoalInput {
   initialPrompt?: string | undefined;
   /** Optionally link to a registered project (5A); else inferred from cwd. */
   projectId?: string | undefined;
+  agent_type?: string | undefined;
 }
 
 // ── Project Registry (5A) ─────────────────────────────────────────────────────
@@ -151,6 +154,7 @@ export interface UpdateGoalInput {
   model?: GoalModel | null | undefined;
   permission_mode?: PermissionMode | undefined;
   kanban_order?: number | undefined;
+  agent_type?: string | null | undefined;
 }
 
 // ── Session ───────────────────────────────────────────────────────────────────
@@ -261,6 +265,7 @@ export interface GoalTemplate {
   model?: GoalModel | undefined;
   initialPrompt?: string | undefined;
   tags?: string[] | undefined;
+  agent_type?: string | undefined;
 }
 
 // ── Plan ──────────────────────────────────────────────────────────────────────
@@ -373,7 +378,8 @@ export interface HeadroomConfig {
   compressionDegree: CompressionDegree;
   interceptToolResults: boolean;
   memory: boolean;
-  vertexApiUrl: string;
+  /** Optional Vertex upstream override; blank/undefined => auto-derived from CLOUD_ML_REGION. */
+  vertexApiUrl?: string | undefined;
   /** Advanced override; when set, used verbatim instead of the auto-built command. */
   command?: string | undefined;
 }

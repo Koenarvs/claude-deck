@@ -36,6 +36,7 @@ interface GoalRow {
   project_id: string | null;
   workspace_branch?: string | null;
   verification_status?: string | null;
+  agent_type?: string | null;
 }
 
 interface MessageRow {
@@ -75,6 +76,7 @@ function rowToGoal(row: GoalRow): Goal {
     project_id: row.project_id ?? null,
     workspace_branch: row.workspace_branch ?? null,
     verification_status: (row.verification_status as Goal['verification_status']) ?? null,
+    agent_type: row.agent_type ?? null,
   };
 }
 
@@ -114,9 +116,9 @@ export function createGoalService(db: Database.Database, projectService?: Projec
   // ── Prepared Statements ──────────────────────────────────────────────────
 
   const insertStmt = db.prepare<
-    [string, string, string | null, string, string, number, string | null, string | null, string, string | null, string | null, number, number, number, number | null, string | null]
-  >(`INSERT INTO goals (id, title, description, cwd, status, priority, tags, current_session_id, permission_mode, model, initial_prompt, kanban_order, created_at, updated_at, completed_at, project_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    [string, string, string | null, string, string, number, string | null, string | null, string, string | null, string | null, number, number, number, number | null, string | null, string | null]
+  >(`INSERT INTO goals (id, title, description, cwd, status, priority, tags, current_session_id, permission_mode, model, initial_prompt, kanban_order, created_at, updated_at, completed_at, project_id, agent_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   const getByIdStmt = db.prepare<[string], GoalRow>(
     'SELECT * FROM goals WHERE id = ?',
@@ -221,6 +223,7 @@ export function createGoalService(db: Database.Database, projectService?: Projec
       now,
       null,
       projectId,
+      input.agent_type ?? null,
     );
 
     const goal = get(id);
@@ -416,6 +419,11 @@ export function createGoalService(db: Database.Database, projectService?: Projec
     if (patch.kanban_order !== undefined) {
       setClauses.push('kanban_order = ?');
       params.push(patch.kanban_order);
+    }
+
+    if (patch.agent_type !== undefined) {
+      setClauses.push('agent_type = ?');
+      params.push(patch.agent_type);
     }
 
     params.push(id);

@@ -15,7 +15,7 @@ const DEFAULTS: PersistedConfig = {
     compressionDegree: 'balanced',
     interceptToolResults: true,
     memory: true,
-    vertexApiUrl: 'https://aiplatform.googleapis.com',
+    // vertexApiUrl omitted: auto-derived from CLOUD_ML_REGION unless overridden.
   },
 };
 
@@ -26,12 +26,20 @@ const DEFAULTS: PersistedConfig = {
  * structured fields instead of treating the stale string as a real override.
  */
 const LEGACY_DEFAULT_COMMAND = 'headroom proxy --port 8787';
+const LEGACY_DEFAULT_VERTEX_URL = 'https://aiplatform.googleapis.com';
 function normalizeHeadroom(h: PersistedConfig['headroom']): PersistedConfig['headroom'] {
-  if (h.command === LEGACY_DEFAULT_COMMAND || (h.command != null && h.command.trim() === '')) {
-    const { command: _drop, ...rest } = h;
-    return rest;
+  let out = h;
+  if (out.command === LEGACY_DEFAULT_COMMAND || (out.command != null && out.command.trim() === '')) {
+    const { command: _drop, ...rest } = out;
+    out = rest;
   }
-  return h;
+  // Drop the legacy static Vertex URL (and empty strings) so the proxy
+  // auto-derives the host from CLOUD_ML_REGION instead of pinning a stale value.
+  if (out.vertexApiUrl === LEGACY_DEFAULT_VERTEX_URL || (out.vertexApiUrl != null && out.vertexApiUrl.trim() === '')) {
+    const { vertexApiUrl: _dropUrl, ...rest } = out;
+    out = rest;
+  }
+  return out;
 }
 
 /**

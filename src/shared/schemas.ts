@@ -85,6 +85,7 @@ export const GoalSchema = z.object({
   created_at: z.number(),
   updated_at: z.number(),
   completed_at: z.number().nullable(),
+  agent_type: z.string().nullable().optional(),
 });
 
 export const CreateGoalInputSchema = z.object({
@@ -96,6 +97,7 @@ export const CreateGoalInputSchema = z.object({
   tags: z.array(z.string()).optional(),
   initialPrompt: z.string().optional(),
   projectId: z.string().optional(),
+  agent_type: z.string().optional(),
 });
 
 // ── Project Registry (5A) ─────────────────────────────────────────────────────
@@ -156,6 +158,7 @@ export const UpdateGoalInputSchema = z.object({
   model: GoalModelSchema.nullable().optional(),
   permission_mode: PermissionModeSchema.optional(),
   kanban_order: z.number().optional(),
+  agent_type: z.string().nullable().optional(),
 });
 
 // ── Session ───────────────────────────────────────────────────────────────────
@@ -221,6 +224,7 @@ export const GoalTemplateSchema = z.object({
   model: GoalModelSchema.optional(),
   initialPrompt: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  agent_type: z.string().optional(),
 });
 
 export const ScheduledTaskSchema = z.object({
@@ -290,6 +294,7 @@ export const CreateGoalAndInstructSchema = z.object({
   instruction: z.string().min(1),
   source_goal_id: z.string().min(1),
   spawn_session: z.boolean().optional().default(true),
+  agent_type: z.string().optional(),
 });
 
 // ── Goal Detail ───────────────────────────────────────────────────────────────
@@ -331,7 +336,9 @@ export const HeadroomConfigSchema = z.object({
   compressionDegree: CompressionDegreeSchema.default('balanced'),
   interceptToolResults: z.boolean().default(true),
   memory: z.boolean().default(true),
-  vertexApiUrl: z.string().url().default('https://aiplatform.googleapis.com'),
+  // Optional override for the Vertex upstream host. Blank/undefined => the
+  // proxy auto-derives it from CLOUD_ML_REGION (self-correcting on region change).
+  vertexApiUrl: z.string().url().optional(),
   command: z.string().optional(), // advanced override; undefined => auto-build
 });
 export type HeadroomConfig = z.infer<typeof HeadroomConfigSchema>;

@@ -16,9 +16,9 @@ describe('ClaudeAdapter args (characterization of current pty-manager behavior)'
     expect(a.buildStartArgs(base)).toEqual(['--session-id', 'goal-1']);
   });
 
-  it('start: adds bypassPermissions for autonomous and --model for non-default', () => {
+  it('start: adds --dangerously-skip-permissions for autonomous and --model for non-default', () => {
     expect(a.buildStartArgs({ ...base, permissionMode: 'autonomous', model: 'opus' })).toEqual([
-      '--session-id', 'goal-1', '--permission-mode', 'bypassPermissions', '--model', 'opus',
+      '--session-id', 'goal-1', '--dangerously-skip-permissions', '--model', 'opus',
     ]);
   });
 
@@ -49,10 +49,33 @@ describe('ClaudeAdapter args (characterization of current pty-manager behavior)'
     expect(a.buildResumeArgs('sess-9', { ...base, model: 'opus' })).toEqual(['--resume', 'sess-9']);
   });
 
-  it('resume: adds bypassPermissions for autonomous', () => {
+  it('resume: adds --dangerously-skip-permissions for autonomous', () => {
     expect(a.buildResumeArgs('sess-9', { ...base, permissionMode: 'autonomous' })).toEqual([
-      '--resume', 'sess-9', '--permission-mode', 'bypassPermissions',
+      '--resume', 'sess-9', '--dangerously-skip-permissions',
     ]);
+  });
+
+  it('start: adds --agent when agentType is set', () => {
+    expect(a.buildStartArgs({ ...base, agentType: 'dev-looker' })).toEqual([
+      '--session-id', 'goal-1', '--agent', 'dev-looker',
+    ]);
+  });
+
+  it('start: combines autonomous + model + agent', () => {
+    expect(a.buildStartArgs({ ...base, permissionMode: 'autonomous', model: 'sonnet', agentType: 'research' })).toEqual([
+      '--session-id', 'goal-1', '--dangerously-skip-permissions', '--model', 'sonnet', '--agent', 'research',
+    ]);
+  });
+
+  it('resume: adds --agent when agentType is set', () => {
+    expect(a.buildResumeArgs('sess-9', { ...base, agentType: 'eval' })).toEqual([
+      '--resume', 'sess-9', '--agent', 'eval',
+    ]);
+  });
+
+  it('start: omits --agent when agentType is null or empty', () => {
+    expect(a.buildStartArgs({ ...base, agentType: null })).toEqual(['--session-id', 'goal-1']);
+    expect(a.buildStartArgs({ ...base, agentType: undefined })).toEqual(['--session-id', 'goal-1']);
   });
 
   it('catalog: exposes default + every registry claude model, all capabilities true', () => {

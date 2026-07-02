@@ -22,6 +22,10 @@ export const CreateGoalInputSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Tags for categorization'),
+  agent_type: z
+    .string()
+    .optional()
+    .describe('Agent definition name for the session (e.g. "orchestrator", "dev-looker", "research")'),
 });
 
 export type CreateGoalInput = z.infer<typeof CreateGoalInputSchema>;
@@ -41,11 +45,13 @@ export async function createGoal(
     permission_mode?: string | undefined;
     initialPrompt?: string | undefined;
     tags?: string[] | undefined;
+    agent_type?: string | undefined;
   } = { title: input.title, cwd: input.cwd };
   if (input.model !== undefined) params.model = input.model;
   if (input.permission_mode !== undefined) params.permission_mode = input.permission_mode;
   if (input.initialPrompt !== undefined) params.initialPrompt = input.initialPrompt;
   if (input.tags !== undefined) params.tags = input.tags;
+  if (input.agent_type !== undefined) params.agent_type = input.agent_type;
   try {
     const goal = await client.createGoal(params);
     return JSON.stringify(goal, null, 2);

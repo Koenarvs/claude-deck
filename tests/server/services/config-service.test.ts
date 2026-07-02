@@ -52,7 +52,7 @@ describe('config-service', () => {
     expect(h.compressionDegree).toBe('balanced');
     expect(h.interceptToolResults).toBe(true);
     expect(h.memory).toBe(true);
-    expect(h.vertexApiUrl).toBe('https://aiplatform.googleapis.com');
+    expect(h.vertexApiUrl).toBeUndefined();
     expect(h.command).toBeUndefined();
   });
 
@@ -61,7 +61,14 @@ describe('config-service', () => {
     const h = svc.getPersisted().headroom;
     expect(h.enabled).toBe(true);
     expect(h.compressionDegree).toBe('balanced'); // preserved
-    expect(h.vertexApiUrl).toBe('https://aiplatform.googleapis.com'); // preserved
+    expect(h.vertexApiUrl).toBeUndefined(); // still auto-derived
+  });
+
+  it('normalizes a legacy static vertexApiUrl back to undefined', () => {
+    svc.updatePersisted({ headroom: { vertexApiUrl: 'https://aiplatform.googleapis.com' } as never });
+    expect(svc.getPersisted().headroom.vertexApiUrl).toBeUndefined();
+    svc.updatePersisted({ headroom: { vertexApiUrl: 'https://custom.example.com' } as never });
+    expect(svc.getPersisted().headroom.vertexApiUrl).toBe('https://custom.example.com');
   });
 
   it('normalizes a legacy/empty command override back to undefined', () => {

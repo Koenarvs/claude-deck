@@ -733,3 +733,10 @@ function shutdown(signal: string): void {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// Last line of defense: 'exit' fires synchronously on every controlled exit path
+// (SIGINT/SIGTERM handlers, the force-kill timeout, normal close). The async
+// headroomService.shutdown() above can lose the race with process.exit(), so kill
+// the proxy's whole process tree synchronously here too — this is what guarantees
+// Ctrl-C on `npm run dev` doesn't leave an orphaned headroom holding port 8787.
+process.on('exit', () => headroomService.killTreeSync());

@@ -131,6 +131,7 @@ export class PtyManager implements Killable {
       cwd: this.cwd,
       permissionMode: this.goal.permission_mode,
       mcpServer: this.buildMcpDescriptor(),
+      agentType: this.goal.agent_type,
     };
   }
 

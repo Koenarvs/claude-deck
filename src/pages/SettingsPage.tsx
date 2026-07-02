@@ -394,16 +394,18 @@ export default function SettingsPage() {
               <input
                 id="headroom-vertex-url"
                 type="url"
-                defaultValue={headroom.vertexApiUrl}
+                defaultValue={headroom.vertexApiUrl ?? ''}
                 onBlur={(e) => {
                   const v = e.target.value.trim();
-                  if (v && v !== headroom.vertexApiUrl) updateHeadroom({ vertexApiUrl: v });
+                  const next = v.length > 0 ? v : undefined;
+                  if (next !== headroom.vertexApiUrl) updateHeadroom({ vertexApiUrl: next });
                 }}
-                placeholder="https://aiplatform.googleapis.com"
+                placeholder="Auto-detect from CLOUD_ML_REGION"
                 className="w-full rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
               />
               <p className="mt-1 text-xs text-deck-muted">
-                Vertex AI endpoint the proxy forwards to. Use the global endpoint unless you need a region.
+                Optional override for the Vertex AI endpoint the proxy forwards to. Leave blank to
+                auto-detect from CLOUD_ML_REGION (self-corrects when the region changes).
               </p>
             </div>
 

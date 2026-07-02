@@ -77,8 +77,9 @@ export class ClaudeAdapter implements AgentAdapter {
 
   buildStartArgs(ctx: SpawnContext): string[] {
     const args: string[] = ['--session-id', ctx.goalId];
-    if (ctx.permissionMode === 'autonomous') args.push('--permission-mode', 'bypassPermissions');
+    if (ctx.permissionMode === 'autonomous') args.push('--dangerously-skip-permissions');
     if (ctx.model && ctx.model !== 'default') args.push('--model', ctx.model);
+    if (ctx.agentType) args.push('--agent', ctx.agentType);
     if (ctx.mcpServer) args.push('--mcp-config', serializeMcp(ctx.mcpServer));
     return args;
   }
@@ -86,7 +87,8 @@ export class ClaudeAdapter implements AgentAdapter {
   buildResumeArgs(sessionId: string, ctx: SpawnContext): string[] {
     // Note: resume does NOT pass --model (matches today's behavior).
     const args: string[] = ['--resume', sessionId];
-    if (ctx.permissionMode === 'autonomous') args.push('--permission-mode', 'bypassPermissions');
+    if (ctx.permissionMode === 'autonomous') args.push('--dangerously-skip-permissions');
+    if (ctx.agentType) args.push('--agent', ctx.agentType);
     if (ctx.mcpServer) args.push('--mcp-config', serializeMcp(ctx.mcpServer));
     return args;
   }
