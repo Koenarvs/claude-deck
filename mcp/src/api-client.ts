@@ -228,6 +228,7 @@ export class DashboardApiClient {
     initialPrompt?: string | undefined;
     tags?: string[] | undefined;
     permission_mode?: string | undefined;
+    agent_type?: string | undefined;
   }): Promise<Goal> {
     const body: Record<string, unknown> = {
       title: input.title,
@@ -237,6 +238,7 @@ export class DashboardApiClient {
     if (input.initialPrompt !== undefined) body['initialPrompt'] = input.initialPrompt;
     if (input.tags !== undefined) body['tags'] = input.tags;
     if (input.permission_mode !== undefined) body['permission_mode'] = input.permission_mode;
+    if (input.agent_type !== undefined) body['agent_type'] = input.agent_type;
     return this.request('POST', '/api/goals', body, GoalResponseSchema);
   }
 
@@ -273,6 +275,8 @@ export class DashboardApiClient {
     instruction: string;
     source_goal_id: string;
     spawn_session?: boolean | undefined;
+    permission_mode?: string | undefined;
+    agent_type?: string | undefined;
   }): Promise<CreateGoalAndInstructResponse> {
     const body: Record<string, unknown> = {
       title: input.title,
@@ -284,6 +288,8 @@ export class DashboardApiClient {
     if (input.model !== undefined) body['model'] = input.model;
     if (input.tags !== undefined) body['tags'] = input.tags;
     if (input.spawn_session !== undefined) body['spawn_session'] = input.spawn_session;
+    if (input.permission_mode !== undefined) body['permission_mode'] = input.permission_mode;
+    if (input.agent_type !== undefined) body['agent_type'] = input.agent_type;
     return this.request(
       'POST',
       '/api/goals/create-and-instruct',

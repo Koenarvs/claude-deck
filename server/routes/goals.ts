@@ -176,6 +176,7 @@ export function createGoalsRouter(
           instruction,
           source_goal_id,
           spawn_session,
+          agent_type,
         } = req.body;
 
         // Validate source goal exists
@@ -193,6 +194,7 @@ export function createGoalsRouter(
           model,
           permission_mode,
           tags,
+          agent_type,
         });
 
         // Step 2: Send the instruction

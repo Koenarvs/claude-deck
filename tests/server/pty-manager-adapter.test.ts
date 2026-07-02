@@ -17,8 +17,8 @@ describe('PtyManager + adapter', () => {
     const mgr = new PtyManager(goal, adapter, { broadcast: () => {} });
     const args = mgr.buildLaunchArgs();
     // session id + autonomous bypass + non-default model; mcp-config appended last.
-    expect(args.slice(0, 6)).toEqual([
-      '--session-id', 'goal-1', '--permission-mode', 'bypassPermissions', '--model', 'opus',
+    expect(args.slice(0, 5)).toEqual([
+      '--session-id', 'goal-1', '--dangerously-skip-permissions', '--model', 'opus',
     ]);
     expect(spy).toHaveBeenCalledOnce();
   });

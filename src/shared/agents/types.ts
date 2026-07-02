@@ -29,6 +29,7 @@ export interface SpawnContext {
   cwd: string;
   permissionMode: 'autonomous' | 'supervised';
   mcpServer: McpServerDescriptor | null;
+  agentType?: string | null | undefined;
 }
 
 /** Per-model token totals within a session. */

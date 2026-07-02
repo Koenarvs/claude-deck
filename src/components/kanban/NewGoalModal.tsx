@@ -33,6 +33,7 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
   const [cwd, setCwd] = useState('');
   const [model, setModel] = useState<GoalModel>('default');
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('supervised');
+  const [agentType, setAgentType] = useState('');
   const [initialPrompt, setInitialPrompt] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -44,6 +45,7 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
     setCwd('');
     setModel('default');
     setPermissionMode('supervised');
+    setAgentType('');
     setInitialPrompt('');
     setTagsInput('');
     setError(null);
@@ -105,6 +107,7 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
         permission_mode: permissionMode,
         tags: tags.length > 0 ? tags : undefined,
         initialPrompt: initialPrompt.trim() || undefined,
+        agent_type: agentType || undefined,
       };
 
       // Client-side validation
@@ -267,8 +270,8 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
             />
           </div>
 
-          {/* Model + Permission row */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Model + Permission + Agent row */}
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label htmlFor="goal-model" className="mb-1 block text-sm font-medium text-deck-text">
                 Model
@@ -303,6 +306,28 @@ export default function NewGoalModal({ open, onClose }: NewGoalModalProps) {
                     {opt.label}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="goal-agent" className="mb-1 block text-sm font-medium text-deck-text">
+                Agent
+              </label>
+              <select
+                id="goal-agent"
+                value={agentType}
+                onChange={(e) => setAgentType(e.target.value)}
+                className="w-full rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text
+                  focus:border-deck-accent focus:outline-none focus:ring-1 focus:ring-deck-accent"
+              >
+                <option value="">Default (none)</option>
+                <option value="orchestrator">Orchestrator</option>
+                <option value="orchestrator-lite">Orchestrator Lite</option>
+                <option value="dev-looker">Dev Looker</option>
+                <option value="dev-dataform">Dev Dataform</option>
+                <option value="dev-claude-deck">Dev Claude Deck</option>
+                <option value="research">Research</option>
+                <option value="eval">Eval</option>
+                <option value="scorer">Scorer</option>
               </select>
             </div>
           </div>

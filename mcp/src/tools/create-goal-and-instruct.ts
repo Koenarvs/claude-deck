@@ -35,6 +35,10 @@ export const CreateGoalAndInstructInputSchema = z.object({
     .optional()
     .default(true)
     .describe('Whether to spawn a session immediately (default: true)'),
+  agent_type: z
+    .string()
+    .optional()
+    .describe('Agent definition name for the session (e.g. "orchestrator", "dev-looker", "research")'),
 });
 
 export type CreateGoalAndInstructInput = z.infer<typeof CreateGoalAndInstructInputSchema>;
@@ -58,6 +62,7 @@ export async function createGoalAndInstruct(
     instruction: string;
     source_goal_id: string;
     spawn_session?: boolean | undefined;
+    agent_type?: string | undefined;
   } = {
     title: input.title,
     cwd: input.cwd,
@@ -69,6 +74,7 @@ export async function createGoalAndInstruct(
   if (input.tags !== undefined) params.tags = input.tags;
   if (input.description !== undefined) params.description = input.description;
   if (input.spawn_session !== undefined) params.spawn_session = input.spawn_session;
+  if (input.agent_type !== undefined) params.agent_type = input.agent_type;
 
   try {
     const result = await client.createGoalAndInstruct(params);
