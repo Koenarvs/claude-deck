@@ -373,7 +373,8 @@ export interface HeadroomConfig {
   compressionDegree: CompressionDegree;
   interceptToolResults: boolean;
   memory: boolean;
-  vertexApiUrl: string;
+  /** Optional Vertex upstream override; blank/undefined => auto-derived from CLOUD_ML_REGION. */
+  vertexApiUrl?: string | undefined;
   /** Advanced override; when set, used verbatim instead of the auto-built command. */
   command?: string | undefined;
 }

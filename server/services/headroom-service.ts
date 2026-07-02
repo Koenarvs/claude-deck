@@ -1,6 +1,16 @@
-import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import {
+  spawn as nodeSpawn,
+  spawnSync,
+  type ChildProcess,
+  type SpawnOptions,
+} from 'node:child_process';
 import type { HeadroomConfig } from '../../src/shared/types';
-import { isVertex } from '../headroom-env';
+import {
+  isVertex,
+  vertexApiUrlForRegion,
+  resolveVertexRegion,
+  regionFromClaudeSettings,
+} from '../headroom-env';
 import logger from '../logger';
 
 type SpawnFn = (
@@ -34,7 +44,24 @@ export function buildHeadroomCommand(config: HeadroomConfig): string {
   }
 
   const args = ['headroom', 'proxy', '--port', port];
-  if (isVertex()) args.push('--vertex-api-url', config.vertexApiUrl);
+  if (isVertex()) {
+    // Vertex routes through headroom's DEDICATED Vertex passthrough, selected by
+    // the `--vertex-api-url` + `--region` pair — NOT `--anthropic-api-url` (that
+    // is the direct-Anthropic backend; pointing it at a Vertex host makes
+    // headroom fall back to its default --region us-west-2, where the newer
+    // models aren't deployed → 404 model_not_found).
+    //
+    // The region is resolved from the CLI's own ~/.claude settings first, then
+    // the deck's process env, then the us-east5 default — so the proxy mirrors
+    // whatever region the spawned `claude` sessions use and self-corrects when it
+    // changes, even when the deck's launch shell never exported CLOUD_ML_REGION.
+    // The host is derived from that same region unless an explicit override is
+    // configured, and headroom fills the path's location from --region.
+    const region = resolveVertexRegion(process.env, regionFromClaudeSettings());
+    const override = config.vertexApiUrl?.trim();
+    const url = override && override.length > 0 ? override : vertexApiUrlForRegion(region);
+    args.push('--vertex-api-url', url, '--region', region);
+  }
   args.push(...DEGREE_FLAGS[config.compressionDegree]);
   if (config.interceptToolResults) args.push('--intercept-tool-results');
   if (config.memory) args.push('--memory');
@@ -56,6 +83,11 @@ export class HeadroomService {
   private desiredConfig: HeadroomConfig | null = null;
   private reconciling = false;
   private pendingReconcile = false;
+  private crashCount = 0;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
+
+  static readonly MAX_CRASH_RESTARTS = 5;
+  static readonly RESTART_DELAY_MS = 3_000;
 
   // Health polling
   private healthy = false;
@@ -82,8 +114,37 @@ export class HeadroomService {
 
   async shutdown(): Promise<void> {
     this.desiredConfig = null;
+    if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
     this.stopHealthLoop();
     await this.stop('shutdown');
+  }
+
+  /**
+   * Synchronously kill the managed proxy AND its whole process tree. Safe to call
+   * from a `process.on('exit')` / signal handler right before the deck exits: on
+   * Windows the proxy is launched via `shell:true` (cmd.exe → python), so a normal
+   * async `child.kill()` only reaps the cmd wrapper and orphans the python proxy —
+   * which keeps holding port 8787 and answering with stale flags after the deck is
+   * gone. `taskkill /T /F` reaps the entire tree; being synchronous, it completes
+   * even when `process.exit()` races the async shutdown path.
+   */
+  killTreeSync(): void {
+    if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
+    this.desiredConfig = null; // stop any restart from being scheduled
+    const child = this.child;
+    this.child = null;
+    this.signature = null;
+    const pid = child?.pid;
+    if (!pid) return;
+    try {
+      if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      } else {
+        try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+      }
+    } catch {
+      /* best effort — nothing more we can do on the way out */
+    }
   }
 
   // ── Health polling ──────────────────────────────────────────────────────────
@@ -175,6 +236,7 @@ export class HeadroomService {
 
     child.once('spawn', () => {
       logger.info({ pid: child.pid, baseUrl }, 'Managed Headroom proxy started');
+      this.crashCount = 0;
     });
 
     child.once('error', (err) => {
@@ -182,6 +244,7 @@ export class HeadroomService {
       if (this.child === child) {
         this.child = null;
         this.signature = null;
+        this.scheduleRestart('spawn error');
       }
     });
 
@@ -190,8 +253,24 @@ export class HeadroomService {
       if (this.child === child) {
         this.child = null;
         this.signature = null;
+        if (this.desiredConfig?.enabled) this.scheduleRestart('unexpected exit');
       }
     });
+  }
+
+  private scheduleRestart(reason: string): void {
+    this.crashCount++;
+    if (this.crashCount > HeadroomService.MAX_CRASH_RESTARTS) {
+      logger.error({ crashCount: this.crashCount }, 'Headroom proxy exceeded max restarts, giving up');
+      return;
+    }
+    logger.info({ reason, attempt: this.crashCount }, 'Scheduling Headroom proxy restart');
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      this.requestReconcile();
+    }, HeadroomService.RESTART_DELAY_MS);
+    this.restartTimer.unref?.();
   }
 
   private async stop(reason: string): Promise<void> {
@@ -201,7 +280,27 @@ export class HeadroomService {
     if (!child) return;
     if (child.exitCode !== null || child.killed) return;
 
-    logger.info({ pid: child.pid, reason }, 'Stopping managed Headroom proxy');
+    const pid = child.pid;
+    logger.info({ pid, reason }, 'Stopping managed Headroom proxy');
+
+    // On Windows the proxy runs under `shell:true` (cmd.exe → python); a plain
+    // child.kill() reaps only the shell and orphans the python proxy, which keeps
+    // holding the port. taskkill /T kills the whole tree. See killTreeSync().
+    if (process.platform === 'win32' && pid) {
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = (): void => { if (!settled) { settled = true; resolve(); } };
+        const tk = nodeSpawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+        tk.once('exit', finish);
+        tk.once('error', finish);
+        const guard = setTimeout(finish, 3000);
+        guard.unref?.();
+      });
+      return;
+    }
 
     await new Promise<void>((resolve) => {
       let settled = false;

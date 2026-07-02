@@ -331,7 +331,9 @@ export const HeadroomConfigSchema = z.object({
   compressionDegree: CompressionDegreeSchema.default('balanced'),
   interceptToolResults: z.boolean().default(true),
   memory: z.boolean().default(true),
-  vertexApiUrl: z.string().url().default('https://aiplatform.googleapis.com'),
+  // Optional override for the Vertex upstream host. Blank/undefined => the
+  // proxy auto-derives it from CLOUD_ML_REGION (self-correcting on region change).
+  vertexApiUrl: z.string().url().optional(),
   command: z.string().optional(), // advanced override; undefined => auto-build
 });
 export type HeadroomConfig = z.infer<typeof HeadroomConfigSchema>;
