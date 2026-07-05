@@ -311,9 +311,10 @@ Deviations from plan (all deliberate):
 - `apiDelete` kept — it gained callers during the Phase 4 api.ts migration.
 - Codex parser could not be validated against real rollouts on this machine (`~/.codex/sessions` doesn't exist here); the `ASSUMED` shapes remain — verify on a machine with Codex usage.
 
-New issues surfaced by the Phase 5 tests (characterization tests included; NOT yet fixed):
-1. `usage-service.getAllSessionUsageSummaries` never reads `message.model` — sessions
-   without an init event ingest uncosted ($0) in totals/daily-costs.
-2. `inter-goal-message-service.markDelivered` can regress an `acknowledged` message
-   back to `delivered` (possible instruction re-delivery).
-3. `ws-manager` has no intentional-close/teardown path (reconnects forever).
+Issues surfaced by the Phase 5 tests — ALL FIXED in the follow-up commit:
+1. `usage-service.getAllSessionUsageSummaries` now falls back to `message.model`,
+   so sessions without an init event are costed.
+2. `inter-goal-message-service.markDelivered` treats `acknowledged` as terminal
+   (no-op + warn instead of regressing the status).
+3. `ws-manager` gained `closeWs()`/`reconnectWs()` — intentional close suppresses
+   the auto-reconnect and cancels pending timers.

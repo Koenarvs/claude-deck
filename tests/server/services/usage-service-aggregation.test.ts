@@ -144,19 +144,17 @@ describe('usage-service aggregation (synthetic ~/.claude/projects)', () => {
       expect(summaries[0]!.estimatedCostUsd).toBe(0);
     });
 
-    it('characterization: model nested in message.model is NOT detected (session goes unpriced)', () => {
-      // getAllSessionUsageSummaries only reads init events or a top-level `model`
-      // field; parseClaudeUsage (the adapter primitive) DOES read message.model.
-      // Real Claude transcripts carry the model on message.model, so sessions
-      // without an init line are silently uncosted here.
+    it('detects the model from message.model when there is no init event (priced)', () => {
+      // Real Claude transcripts carry the model on message.model; sessions
+      // without an init line must still be costed.
       writeSession('proj-a', 'sess-nested-model', [
         usageLine({ model: 'claude-opus-4', input: 1_000_000, output: 0 }),
       ]);
 
       const summaries = getAllSessionUsageSummaries();
       expect(summaries).toHaveLength(1);
-      expect(summaries[0]!.model).toBeNull();
-      expect(summaries[0]!.estimatedCostUsd).toBe(0);
+      expect(summaries[0]!.model).toBe('claude-opus-4');
+      expect(summaries[0]!.estimatedCostUsd).toBeCloseTo(15, 4); // 1M input × $15/M
     });
 
     it('falls back to file mtime when no timestamp exists in the JSONL', () => {

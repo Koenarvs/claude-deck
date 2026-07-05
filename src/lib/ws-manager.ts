@@ -16,6 +16,7 @@ let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let initialized = false;
+let intentionallyClosed = false;
 
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 30000;
@@ -128,6 +129,7 @@ function connect(): void {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
   }
+  intentionallyClosed = false;
 
   useConnectionStore.getState().setStatus('connecting');
 
@@ -156,7 +158,7 @@ function connect(): void {
   ws.onclose = () => {
     useConnectionStore.getState().setStatus('closed');
     ws = null;
-    scheduleReconnect();
+    if (!intentionallyClosed) scheduleReconnect();
   };
 
   ws.onerror = () => {
@@ -180,6 +182,32 @@ export function sendWsMessage(msg: Record<string, unknown>): void {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
   }
+}
+
+/**
+ * Intentional teardown: cancels any pending reconnect, closes the socket, and
+ * suppresses the onclose-driven reconnect. `initialized` is reset so a later
+ * useWsManager() mount (or reconnectWs()) brings the connection back.
+ */
+export function closeWs(): void {
+  intentionallyClosed = true;
+  initialized = false;
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  reconnectAttempt = 0;
+  if (ws) {
+    ws.close();
+    ws = null;
+    useConnectionStore.getState().setStatus('closed');
+  }
+}
+
+/** Explicitly (re)open the connection after a closeWs(). */
+export function reconnectWs(): void {
+  initialized = true;
+  connect();
 }
 
 /**

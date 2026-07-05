@@ -177,14 +177,14 @@ describe('InterGoalMessageService', () => {
       expect(again.status).toBe('delivered');
     });
 
-    it('characterization: markDelivered on an acknowledged message regresses status to delivered', () => {
-      // The service has no guard against this transition; this documents current behavior.
+    it('markDelivered on an acknowledged message is a no-op (acknowledged is terminal)', () => {
       const created = service.sendInstruction('goal-a', 'goal-b', 'x');
       service.acknowledgeInstruction(created.id);
-      const regressed = service.markDelivered(created.id);
-      expect(regressed.status).toBe('delivered');
-      // The message re-appears in the pending/delivered queue
-      expect(service.getInstructions('goal-b').map((m) => m.id)).toContain(created.id);
+      const result = service.markDelivered(created.id);
+      expect(result.status).toBe('acknowledged');
+      // The message must NOT re-appear in the pending/delivered queue
+      expect(service.getInstructions('goal-b').map((m) => m.id)).not.toContain(created.id);
+      expect(service.get(created.id)?.status).toBe('acknowledged');
     });
   });
 

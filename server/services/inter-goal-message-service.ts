@@ -146,6 +146,14 @@ export function createInterGoalMessageService(db: Database.Database) {
       throw new InterGoalMessageNotFoundError(messageId);
     }
 
+    // Acknowledged is terminal — regressing it to 'delivered' would put the
+    // message back in the delivered queue and re-deliver an instruction the
+    // recipient already processed.
+    if (existing.status === 'acknowledged') {
+      logger.warn({ messageId }, 'markDelivered ignored: message already acknowledged');
+      return existing;
+    }
+
     const now = Date.now();
     updateStatusStmt.run('delivered', now, messageId);
 

@@ -294,4 +294,57 @@ describe('ws-manager', () => {
       expect(inst.send).not.toHaveBeenCalled();
     });
   });
+
+  describe('teardown (closeWs/reconnectWs)', () => {
+    it('closeWs closes the socket, cancels reconnect, and suppresses the onclose reconnect', async () => {
+      const { wsManager, connectionStore } = await freshModules();
+      const inst = mount(wsManager);
+      act(() => inst.simulateOpen());
+
+      act(() => wsManager.closeWs());
+
+      expect(inst.close).toHaveBeenCalledOnce();
+      expect(connectionStore.getState().status).toBe('closed');
+      // The browser fires onclose after close(); it must NOT schedule a reconnect.
+      act(() => inst.simulateClose());
+      // No reconnect fires, even well past the max backoff window.
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    it('closeWs cancels a pending reconnect timer', async () => {
+      const { wsManager } = await freshModules();
+      const inst = mount(wsManager);
+      act(() => inst.simulateOpen());
+      // Server-side close schedules a reconnect...
+      act(() => inst.simulateClose());
+      // ...which closeWs cancels before it fires.
+      act(() => wsManager.closeWs());
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    it('reconnectWs re-opens after an intentional close', async () => {
+      const { wsManager } = await freshModules();
+      const inst = mount(wsManager);
+      act(() => inst.simulateOpen());
+      act(() => wsManager.closeWs());
+
+      act(() => wsManager.reconnectWs());
+      expect(MockWebSocket.instances).toHaveLength(2);
+
+      // And the new socket reconnects normally on unexpected close again.
+      const second = MockWebSocket.instances[1]!;
+      act(() => second.simulateOpen());
+      act(() => second.simulateClose());
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(MockWebSocket.instances).toHaveLength(3);
+    });
+  });
 });
