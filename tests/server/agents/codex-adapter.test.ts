@@ -313,9 +313,11 @@ describe('CodexAdapter — listSessionLogs / locateSessionLog', () => {
     expect(locateCodexRollout('sess-7', sessionsRoot)).toBe(file);
   });
 
-  it('listSessionLogs returns [] when the store does not exist', () => {
-    // adapter method over the real (likely absent) ~/.codex on this box
-    expect(Array.isArray(a.listSessionLogs(60_000))).toBe(true);
+  it('listCodexRollouts returns [] when the store does not exist', () => {
+    // Injected nonexistent root — never touches the real ~/.codex, which may be
+    // large or slow enough on a dev box to blow the test timeout.
+    const missing = join(root, 'no-such-sessions-dir');
+    expect(listCodexRollouts(60_000, missing)).toEqual([]);
   });
 });
 
