@@ -9,7 +9,7 @@ import OrchestratorSection from '../components/settings/OrchestratorSection';
 import { useConfigStore } from '../stores/useConfigStore';
 import { modelOptionsFromCatalog } from '../shared/agents/catalog-client';
 import type { AgentCatalogEntry } from '../shared/agents/types';
-import type { AppConfig, AuthMode, GoalModel, PermissionMode, CompressionDegree } from '../shared/types';
+import type { AppConfig, AuthMode, LogLevel, GoalModel, PermissionMode, CompressionDegree } from '../shared/types';
 
 type ConfigResponse = AppConfig & { catalog?: AgentCatalogEntry[] };
 
@@ -39,6 +39,8 @@ const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string; descript
     description: 'Tools are auto-approved',
   },
 ];
+
+const LOG_LEVELS: LogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
 
 const AUTH_MODE_OPTIONS: Array<{ value: AuthMode; label: string; description: string }> = [
   {
@@ -500,6 +502,88 @@ export default function SettingsPage() {
             className="w-24 rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
           />
           <span className="text-sm text-deck-muted">days</span>
+        </div>
+      </div>
+
+      {/* Logging */}
+      <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
+        <h3 className="text-sm font-semibold text-deck-text">Logging</h3>
+        <p className="mt-1 text-xs text-deck-muted">
+          Server logs are written to &lt;data dir&gt;/logs (one file per day) plus the console.
+          Verbosity applies immediately, no restart needed. Old log files and hook-event rows
+          are pruned nightly per the retention settings below.
+        </p>
+
+        <div className="mt-4 grid grid-cols-3 gap-4">
+          <div>
+            <label htmlFor="log-level" className="mb-1 block text-xs font-medium text-deck-muted">
+              Verbosity
+            </label>
+            <select
+              id="log-level"
+              value={config.logLevel}
+              onChange={(e) => void updateConfig({ logLevel: e.target.value as LogLevel })}
+              className="w-full rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
+            >
+              {LOG_LEVELS.map((lvl) => (
+                <option key={lvl} value={lvl}>
+                  {lvl}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="log-retention"
+              className="mb-1 block text-xs font-medium text-deck-muted"
+            >
+              Log Retention
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="log-retention"
+                type="number"
+                min={1}
+                max={365}
+                value={config.logRetentionDays}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  if (!isNaN(val) && val >= 1) {
+                    void updateConfig({ logRetentionDays: val });
+                  }
+                }}
+                className="w-24 rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
+              />
+              <span className="text-sm text-deck-muted">days</span>
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="hook-event-retention"
+              className="mb-1 block text-xs font-medium text-deck-muted"
+            >
+              Hook Event Retention
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="hook-event-retention"
+                type="number"
+                min={1}
+                max={730}
+                value={config.hookEventRetentionDays}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  if (!isNaN(val) && val >= 1) {
+                    void updateConfig({ hookEventRetentionDays: val });
+                  }
+                }}
+                className="w-24 rounded-md border border-deck-border bg-deck-bg px-3 py-2 text-sm text-deck-text focus:outline-none focus:ring-2 focus:ring-deck-accent"
+              />
+              <span className="text-sm text-deck-muted">days</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

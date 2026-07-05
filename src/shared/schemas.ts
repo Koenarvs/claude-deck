@@ -352,11 +352,20 @@ export type HeadroomConfig = z.infer<typeof HeadroomConfigSchema>;
 export const AuthModeSchema = z.enum(['auto', 'vertex', 'oauth']);
 export type AuthMode = z.infer<typeof AuthModeSchema>;
 
+/** Pino levels, user-selectable at runtime from the Settings page. */
+export const LogLevelSchema = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']);
+export type LogLevel = z.infer<typeof LogLevelSchema>;
+
 export const AppConfigSchema = z.object({
   homeRoute: z.string(),
   dataDir: z.string(),
   hooksInstalled: z.boolean(),
   authMode: AuthModeSchema.default('auto'),
+  logLevel: LogLevelSchema.default('info'),
+  /** Days to keep the server's daily NDJSON log files under <dataDir>/logs. */
+  logRetentionDays: z.number().int().min(1).default(30),
+  /** Days to keep hook_events rows (tool-usage analytics history). */
+  hookEventRetentionDays: z.number().int().min(1).default(90),
   tracePruneDays: z.number().int().min(1),
   defaultModel: GoalModelSchema,
   defaultPermissionMode: PermissionModeSchema,
@@ -368,6 +377,9 @@ export const AppConfigSchema = z.object({
 export const PersistedConfigSchema = AppConfigSchema.pick({
   homeRoute: true,
   authMode: true,
+  logLevel: true,
+  logRetentionDays: true,
+  hookEventRetentionDays: true,
   tracePruneDays: true,
   defaultModel: true,
   defaultPermissionMode: true,

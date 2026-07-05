@@ -68,11 +68,17 @@ import { ClaudeBrainProvider } from './orchestrator/brain-provider';
 import { OrchestratorService } from './orchestrator/orchestrator-service';
 import { createOrchestratorRouter } from './routes/orchestrator';
 import { createOrchestratorChannelsRouter } from './routes/orchestrator-channels';
-import logger from './logger';
+import logger, { enableFileLogging, setLogLevel } from './logger';
+import { startLogPruneJob } from './log-prune-job';
+import { createClientErrorsRouter } from './routes/client-errors';
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 
 const env = loadEnv();
+
+// Persist logs to <dataDir>/logs/deck-YYYY-MM-DD.log alongside stdout, as soon
+// as the data dir is known. Retention is enforced by the daily log prune job.
+const logDir = enableFileLogging(env.dataDir);
 
 // Initialize database
 const db = getDb(env.dataDir);
@@ -180,6 +186,10 @@ function activeSessionsByProvider(): Record<string, number> {
 const interGoalMessageService = createInterGoalMessageService(db);
 const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
+
+// Apply the persisted verbosity once config is readable (env LOG_LEVEL was only
+// the pre-config bootstrap default). Kept live via onConfigUpdated below.
+setLogLevel(configService.getPersisted().logLevel);
 
 /** Manages the local Headroom proxy lifecycle and tracks its health. */
 const headroomService = new HeadroomService(undefined, undefined, () => {
@@ -528,6 +538,7 @@ const systemRouterWithSkills = createSystemRouter(skillDirectoryService, {
   configService,
   onConfigUpdated: (updated) => {
     headroomService.sync(updated.headroom);
+    setLogLevel(updated.logLevel);
   },
   skillRoots: [
     ...customSkillDirs,
@@ -618,7 +629,7 @@ const budgetRouter = createBudgetRouter(budgetService, {
 
 // Create Express app and HTTP server
 const app = createApp({
-  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter, orchestratorRouter, orchestratorChannelsRouter],
+  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter, orchestratorRouter, orchestratorChannelsRouter, createClientErrorsRouter()],
   auth: { token: env.token },
 });
 // Make db available to routes that need it (analytics, hook-events)
@@ -636,6 +647,12 @@ scheduler.start();
 
 // Schedule daily trace pruning (reads config.tracePruneDays fresh each run).
 const tracePruneTask = startTracePruneJob(db, env.dataDir, () => configService.getPersisted().tracePruneDays);
+const logPruneTask = startLogPruneJob(
+  db,
+  logDir,
+  () => configService.getPersisted().logRetentionDays,
+  () => configService.getPersisted().hookEventRetentionDays,
+);
 
 // Phase 6: heartbeat sweep — every 3 minutes, only fires a trigger when the
 // orchestrator is enabled (trigger() itself no-ops when disabled).
@@ -712,6 +729,7 @@ function shutdown(signal: string): void {
   heartbeatJob.stop();
   orchestrator?.shutdown();
   tracePruneTask.stop();
+  logPruneTask.stop();
   logger.info('Scheduler stopped');
 
   // Stop the managed Headroom proxy

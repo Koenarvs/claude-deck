@@ -21,6 +21,9 @@ const defaultConfig: AppConfig = {
   dataDir: '/home/user/.claude-deck',
   hooksInstalled: false,
   authMode: 'auto',
+  logLevel: 'info',
+  logRetentionDays: 30,
+  hookEventRetentionDays: 90,
   tracePruneDays: 30,
   defaultModel: 'sonnet',
   defaultPermissionMode: 'supervised',
@@ -193,7 +196,22 @@ describe('SettingsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Trace Retention')).toBeInTheDocument();
     });
-    expect(screen.getByText('days')).toBeInTheDocument();
+    // The Logging section adds more 'days' suffixes — assert at least one exists.
+    expect(screen.getAllByText('days').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders Logging section with verbosity and retention controls', async () => {
+    mockConfigFetch();
+    const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Logging')).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Verbosity')).toHaveValue('info');
+    expect(screen.getByLabelText('Log Retention')).toHaveValue(30);
+    expect(screen.getByLabelText('Hook Event Retention')).toHaveValue(90);
   });
 
   it('sends PUT when model is changed', async () => {
