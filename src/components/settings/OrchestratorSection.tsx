@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { apiGet, apiPut, ApiError } from '../../lib/api';
 import type { OrchestratorConfig, OrchestratorStateRecord } from '../../shared/orchestrator';
 import type { ModelOption } from '../../shared/agents/types';
 
@@ -20,28 +21,30 @@ export default function OrchestratorSection({ modelOptions }: Props) {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch('/api/orchestrator');
-        if (!res.ok) throw new Error(res.statusText);
-        const data = (await res.json()) as { state: OrchestratorStateRecord };
+        const data = await apiGet<{ state: OrchestratorStateRecord }>('/api/orchestrator');
         setConfig(data.state.config);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load orchestrator config');
+        setError(
+          err instanceof ApiError
+            ? err.statusText
+            : err instanceof Error
+              ? err.message
+              : 'Failed to load orchestrator config',
+        );
       }
     })();
   }, []);
 
   const save = useCallback(async (patch: Partial<OrchestratorConfig>) => {
     try {
-      const res = await fetch('/api/orchestrator/config', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
-      });
-      if (!res.ok) throw new Error(res.statusText);
-      const next = (await res.json()) as OrchestratorConfig;
+      const next = await apiPut<OrchestratorConfig>('/api/orchestrator/config', patch);
       setConfig(next);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(
+        err instanceof ApiError ? err.statusText : err instanceof Error ? err.message : 'Save failed',
+      );
     }
   }, []);
 

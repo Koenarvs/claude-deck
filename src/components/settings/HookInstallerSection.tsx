@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Shield, ShieldOff, AlertTriangle } from 'lucide-react';
+import { apiGet, apiPost, ApiError } from '../../lib/api';
 
 interface HookInstallerSectionProps {
   hooksInstalled: boolean;
@@ -19,11 +20,8 @@ export default function HookInstallerSection({
 
   const fetchExtensions = useCallback(async () => {
     try {
-      const res = await fetch('/api/extensions');
-      if (res.ok) {
-        const data: { hooks: Record<string, unknown> } = await res.json();
-        setExtensionStatus(data);
-      }
+      const data = await apiGet<{ hooks: Record<string, unknown> }>('/api/extensions');
+      setExtensionStatus(data);
     } catch {
       // Non-critical, status indicator just won't show details
     }
@@ -37,11 +35,13 @@ export default function HookInstallerSection({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/system/install-hooks', { method: 'POST' });
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(body || `Install failed: ${res.statusText}`);
-      }
+      await apiPost('/api/system/install-hooks', undefined).catch((err: unknown) => {
+        if (err instanceof ApiError) {
+          const body = typeof err.body === 'string' ? err.body : JSON.stringify(err.body);
+          throw new Error(body || `Install failed: ${err.statusText}`);
+        }
+        throw err;
+      });
       setShowConfirm(false);
       onStatusChange();
       await fetchExtensions();
@@ -56,11 +56,13 @@ export default function HookInstallerSection({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/system/uninstall-hooks', { method: 'POST' });
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(body || `Uninstall failed: ${res.statusText}`);
-      }
+      await apiPost('/api/system/uninstall-hooks', undefined).catch((err: unknown) => {
+        if (err instanceof ApiError) {
+          const body = typeof err.body === 'string' ? err.body : JSON.stringify(err.body);
+          throw new Error(body || `Uninstall failed: ${err.statusText}`);
+        }
+        throw err;
+      });
       setShowConfirm(false);
       onStatusChange();
       await fetchExtensions();

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Bot, RefreshCw } from 'lucide-react';
+import { apiGet, apiPost, ApiError } from '../lib/api';
 import { useOrchestratorStore } from '../stores/useOrchestratorStore';
 import OrchestratorThread from '../components/orchestrator/OrchestratorThread';
 import OrchestratorComposer from '../components/orchestrator/OrchestratorComposer';
@@ -25,9 +26,14 @@ export default function OrchestratorPage() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/orchestrator');
-      if (!res.ok) throw new Error(`Failed to load orchestrator: ${res.statusText}`);
-      const data = (await res.json()) as OrchestratorGetResponse;
+      const data = await apiGet<OrchestratorGetResponse>('/api/orchestrator').catch(
+        (err: unknown) => {
+          if (err instanceof ApiError) {
+            throw new Error(`Failed to load orchestrator: ${err.statusText}`);
+          }
+          throw err;
+        },
+      );
       setPersona(data.state.config.persona_name);
       hydrate(data.messages, data.state.status);
     } catch (err) {
@@ -48,8 +54,9 @@ export default function OrchestratorPage() {
   }, [messages.length, toolLog.length]);
 
   const send = useCallback((text: string) => {
-    void fetch('/api/orchestrator/messages', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    void apiPost('/api/orchestrator/messages', { text }).catch((err: unknown) => {
+      // HTTP errors were silently ignored before; other failures still surface.
+      if (!(err instanceof ApiError)) throw err;
     });
     // The owner turn + reply arrive via WS (orchestrator:message); no optimistic insert needed.
   }, []);
@@ -58,10 +65,12 @@ export default function OrchestratorPage() {
     // The approval id is not on the message; the orchestrator references it in its text and via
     // the persisted approval. v1 posts the decision keyed by the most recent pending approval the
     // recommendation concerns — the Core's POST /decision validates pending-ness and 409s if stale.
-    await fetch('/api/orchestrator/decision', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageId: msg.id, decision }),
-    });
+    await apiPost('/api/orchestrator/decision', { messageId: msg.id, decision }).catch(
+      (err: unknown) => {
+        // HTTP errors were silently ignored before; other failures still surface.
+        if (!(err instanceof ApiError)) throw err;
+      },
+    );
   }, []);
 
   return (

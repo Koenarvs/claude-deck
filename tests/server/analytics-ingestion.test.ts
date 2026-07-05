@@ -6,7 +6,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { createApp } from '../../server/app';
-import { createSystemRouter } from '../../server/routes/system';
+import { createAnalyticsRouter } from '../../server/routes/analytics';
 import { runMigrations } from '../../server/db/migrate';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -277,7 +277,7 @@ describe('Analytics Cleanup & Health', () => {
       '2026-05-15', now - 5 * 86400000, now - 5 * 86400000 + 60000, now,
     );
 
-    const systemRouter = createSystemRouter();
+    const systemRouter = createAnalyticsRouter();
     const app = createApp({ apiRouters: [systemRouter] });
     (app as unknown as { locals: { db: Database.Database } }).locals.db = db;
 

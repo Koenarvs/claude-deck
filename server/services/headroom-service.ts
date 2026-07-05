@@ -139,11 +139,11 @@ export const reclaimStaleHeadroomPort: PortReclaimer = makePortReclaimer({
  * port from baseUrl and append the Vertex upstream, compression degree, and
  * per-feature flags. Spawned with shell:true, so a joined string is fine.
  */
-export function buildHeadroomCommand(config: HeadroomConfig): string {
+export function buildHeadroomCommand(config: HeadroomConfig, vertex: boolean = isVertex()): string {
   if (config.command && config.command.trim() !== '') return config.command;
 
   const args = ['headroom', 'proxy', '--port', portFromBaseUrl(config.baseUrl)];
-  if (isVertex()) {
+  if (vertex) {
     // Vertex routes through headroom's DEDICATED Vertex passthrough, selected by
     // the `--vertex-api-url` + `--region` pair — NOT `--anthropic-api-url` (that
     // is the direct-Anthropic backend; pointing it at a Vertex host makes
@@ -202,6 +202,12 @@ export class HeadroomService {
   constructor(
     private readonly spawnFn: SpawnFn = nodeSpawn,
     private readonly reclaimPort: PortReclaimer = reclaimStaleHeadroomPort,
+    /**
+     * Resolves whether the proxy upstream should be Vertex at command-build time.
+     * Injected so the persisted authMode setting (read fresh on each reconcile)
+     * wins over the deck's ambient CLAUDE_CODE_USE_VERTEX.
+     */
+    private readonly resolveVertex: () => boolean = () => isVertex(),
   ) {}
 
   sync(config: HeadroomConfig): void {
@@ -321,7 +327,7 @@ export class HeadroomService {
       return;
     }
 
-    const command = buildHeadroomCommand(config);
+    const command = buildHeadroomCommand(config, this.resolveVertex());
     const nextSignature = `${command}\n${config.baseUrl}`;
 
     if (this.isRunning() && this.signature === nextSignature) return;

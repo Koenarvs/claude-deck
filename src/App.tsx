@@ -1,6 +1,9 @@
 import { useEffect } from 'react';
 import { Outlet } from 'react-router';
+import { apiGet } from './lib/api';
 import { useWsManager } from './lib/ws-manager';
+import type { AppConfig } from './shared/types';
+import type { AgentCatalogEntry } from './shared/agents/types';
 import { useConfigStore } from './stores/useConfigStore';
 import AppShell from './components/AppShell';
 
@@ -15,8 +18,7 @@ export default function App() {
   // would otherwise wedge the picker on the static fallback for the whole session.
   useEffect(() => {
     const loadConfig = (): void => {
-      fetch('/api/config')
-        .then((r) => r.json())
+      apiGet<AppConfig & { catalog?: AgentCatalogEntry[] }>('/api/config')
         .then((data) => {
           setConfig(data);
           if (Array.isArray(data?.catalog)) setCatalog(data.catalog);

@@ -706,7 +706,7 @@ describe('AnalyticsPage — Phase 3: Context Management Tab', () => {
     });
 
     // Summary should show total item count (6 items in test data)
-    expect(screen.getByText(/6/)).toBeInTheDocument();
+    expect(screen.getByText(/6 items/)).toBeInTheDocument();
   });
 
   it('fetches context-inventory endpoint when Context Management tab is selected', async () => {

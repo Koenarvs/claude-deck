@@ -119,6 +119,7 @@ describe('GoalPlanPane', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/api/goals/test-goal-1/documents'),
+        expect.anything(),
       );
     });
   });

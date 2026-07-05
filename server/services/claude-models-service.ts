@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ModelOption } from '../../src/shared/agents/types';
+import { createCachedModelSource } from './cached-model-source';
 import logger from '../logger';
 
 /**
@@ -69,10 +70,6 @@ export function createClaudeModelsService(deps: ClaudeModelsDeps = {}) {
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
-  let cache: ModelOption[] | null = null;
-  let fetchedAt = 0;
-  let inflight: Promise<ModelOption[] | null> | null = null;
-
   /** One HTTP attempt. Returns options, or throws on a network error (caller retries). */
   async function fetchOnce(token: string): Promise<ModelOption[] | null> {
     const controller = new AbortController();
@@ -138,34 +135,16 @@ export function createClaudeModelsService(deps: ClaudeModelsDeps = {}) {
     return null;
   }
 
-  /**
-   * Returns the cached model options, refreshing if stale. Concurrent callers share
-   * one in-flight fetch. Returns null when no list is available (caller falls back).
-   * A successful result is cached; a failure leaves any prior cache intact.
-   */
-  async function getModelOptions(): Promise<ModelOption[] | null> {
-    if (cache && now() - fetchedAt < ttlMs) return cache;
-    if (inflight) return inflight;
-    inflight = fetchOptions()
-      .then((opts) => {
-        if (opts) {
-          cache = opts;
-          fetchedAt = now();
-        }
-        return opts ?? cache;
-      })
-      .finally(() => {
-        inflight = null;
-      });
-    return inflight;
-  }
+  // Cached with a TTL; concurrent callers share one in-flight fetch, and a failed
+  // refresh falls back to the prior (stale) cache when one exists.
+  const source = createCachedModelSource({
+    fetch: fetchOptions,
+    isStale: ({ fetchedAt }) => now() - fetchedAt >= ttlMs,
+    refreshMode: 'await',
+    now,
+  });
 
-  /** The currently-cached model values (sync; [] when cold). Used by the model validator. */
-  function cachedValues(): string[] {
-    return cache ? cache.map((o) => o.value) : [];
-  }
-
-  return { getModelOptions, cachedValues };
+  return { getModelOptions: source.getModelOptions, cachedValues: source.cachedValues };
 }
 
 export type ClaudeModelsService = ReturnType<typeof createClaudeModelsService>;

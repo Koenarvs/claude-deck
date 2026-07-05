@@ -223,12 +223,16 @@ export function getAllSessionUsageSummaries(sinceDaysAgo = 0): SessionUsageSumma
           try {
             const parsed = JSON.parse(line);
 
-            // Try to detect model from init event or message model field
+            // Try to detect model from init event, top-level model field, or the
+            // per-message model (real transcripts carry it on message.model —
+            // without this, sessions lacking an init line ingested uncosted).
             if (!detectedModel) {
               if (parsed?.type === 'system' && parsed?.subtype === 'init' && parsed?.model) {
                 detectedModel = parsed.model as string;
               } else if (parsed?.model) {
                 detectedModel = parsed.model as string;
+              } else if (parsed?.message?.model) {
+                detectedModel = parsed.message.model as string;
               }
             }
 

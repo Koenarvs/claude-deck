@@ -47,9 +47,19 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           setupFiles: [],
-          include: ['tests/server/**/*.test.ts'],
+          include: [
+            'tests/server/**/*.test.ts',
+            'tests/hooks/**/*.test.ts',
+            'tests/scripts/**/*.test.ts',
+          ],
         },
       },
     ],
+    coverage: {
+      provider: 'v8',
+      include: ['server/**', 'src/**', 'hooks/**', 'scripts/**'],
+      exclude: ['src/main.tsx', '**/*.d.ts'],
+      reporter: ['text-summary', 'html'],
+    },
   },
 });

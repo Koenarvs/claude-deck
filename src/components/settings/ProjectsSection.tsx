@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { apiGetSafe, apiPost, apiDelete, ApiError } from '../../lib/api';
 import type { Project } from '../../shared/types';
 
 /**
@@ -14,14 +15,9 @@ export default function ProjectsSection() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    try {
-      const res = await fetch('/api/projects');
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data)) setProjects(data as Project[]);
-    } catch {
-      /* leave list as-is */
-    }
+    // On failure, leave list as-is
+    const data = await apiGetSafe<unknown>('/api/projects', null);
+    if (Array.isArray(data)) setProjects(data as Project[]);
   }, []);
 
   useEffect(() => {
@@ -36,19 +32,19 @@ export default function ProjectsSection() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), root_path: rootPath.trim() }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(body.error ?? `Failed (${res.status})`);
-        return;
-      }
+      await apiPost('/api/projects', { name: name.trim(), root_path: rootPath.trim() });
       setName('');
       setRootPath('');
       await load();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const body = (typeof err.body === 'object' && err.body !== null ? err.body : {}) as {
+          error?: string;
+        };
+        setError(body.error ?? `Failed (${err.status})`);
+        return;
+      }
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -56,7 +52,7 @@ export default function ProjectsSection() {
 
   const remove = useCallback(
     async (id: string) => {
-      await fetch(`/api/projects/${id}`, { method: 'DELETE' }).catch(() => {});
+      await apiDelete(`/api/projects/${id}`).catch(() => {});
       await load();
     },
     [load],

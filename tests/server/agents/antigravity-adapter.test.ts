@@ -192,20 +192,18 @@ describe('AntigravityAdapter.parseUsage (cumulative-token dedup)', () => {
   });
 });
 
-describe('AntigravityAdapter pricing & context window (seat)', () => {
-  it('pricingFor a gemini (seat) model is zeroed / unpriced', () => {
+describe('AntigravityAdapter pricing & context window', () => {
+  it('pricingFor: unknown gemini variants stay zeroed; registered ones carry API-value rates', () => {
+    // 'gemini-2.5-pro' matches no registry entry → unpriced zeros (never opus).
     expect(a.pricingFor('gemini-2.5-pro')).toEqual({
       input: 0,
       cache_read: 0,
       cache_creation: 0,
       output: 0,
     });
-    expect(a.pricingFor('gemini-3-pro')).toEqual({
-      input: 0,
-      cache_read: 0,
-      cache_creation: 0,
-      output: 0,
-    });
+    const p = a.pricingFor('gemini-3-pro');
+    expect(p.input).toBeCloseTo(2 / 1_000_000, 12);
+    expect(p.output).toBeCloseTo(12 / 1_000_000, 12);
   });
 
   it('contextWindowFor returns ~1M for gemini and a sane default otherwise', () => {

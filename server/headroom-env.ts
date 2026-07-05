@@ -19,8 +19,10 @@ export function isVertex(env: NodeJS.ProcessEnv = process.env): boolean {
 export function headroomEnvFragment(
   baseUrl: string,
   env: NodeJS.ProcessEnv = process.env,
+  mode?: 'vertex' | 'oauth',
 ): Record<string, string> {
-  if (isVertex(env)) {
+  const vertex = mode !== undefined ? mode === 'vertex' : isVertex(env);
+  if (vertex) {
     let target = baseUrl.replace(/\/+$/, '');
     if (!target.endsWith('/v1')) target = `${target}/v1`;
     return { ANTHROPIC_VERTEX_BASE_URL: target };

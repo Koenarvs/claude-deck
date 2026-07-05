@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router';
+import { apiGetSafe } from '../lib/api';
 import {
   LayoutGrid,
   Layers,
@@ -118,9 +119,11 @@ function UsageStrip() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch('/api/sessions?limit=50');
-        if (!res.ok) return;
-        const sessions = (await res.json()) as Array<Record<string, unknown>>;
+        const sessions = await apiGetSafe<Array<Record<string, unknown>> | null>(
+          '/api/sessions?limit=50',
+          null,
+        );
+        if (!sessions) return;
 
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
@@ -134,9 +137,11 @@ function UsageStrip() {
         await Promise.all(
           todaySessions.map(async (s) => {
             try {
-              const uRes = await fetch(`/api/sessions/${s.id}/usage`);
-              if (!uRes.ok) return;
-              const u = (await uRes.json()) as Record<string, number>;
+              const u = await apiGetSafe<Record<string, number> | null>(
+                `/api/sessions/${s.id}/usage`,
+                null,
+              );
+              if (!u) return;
               cost += u.estimatedCostUsd ?? 0;
               fresh += (u.inputTokens ?? 0) + (u.cacheCreationTokens ?? 0) + (u.outputTokens ?? 0);
               cached += u.cacheReadTokens ?? 0;

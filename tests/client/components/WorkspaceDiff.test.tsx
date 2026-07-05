@@ -23,7 +23,7 @@ describe('WorkspaceDiff', () => {
     expect(screen.getByText(/uncommitted changes/i)).toBeInTheDocument();
     expect(screen.getByText('+new')).toBeInTheDocument();
     expect(screen.getByText('-old')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith('/api/goals/g1/diff');
+    expect(fetchMock).toHaveBeenCalledWith('/api/goals/g1/diff', expect.anything());
   });
 
   it('shows an empty-workspace message when the goal has no workspace', async () => {

@@ -84,24 +84,29 @@ describe('model-registry: pricing parity guard (existing analytics must not move
   });
 });
 
-describe('model-registry: provider stubs are seat-only (pricing null)', () => {
-  it('gpt-5.5 is registered but unpriced', () => {
+describe('model-registry: non-Claude providers carry equivalent-API-value pricing', () => {
+  it('gpt-5.5 is registered and metered at $5/$30 per MTok', () => {
     const e = resolveModel('gpt-5.5');
     expect(e).not.toBeNull();
     expect(e!.provider).toBe('codex');
-    expect(e!.pricing).toBeNull();
+    expect(e!.pricing).not.toBeNull();
+    expect(e!.pricing!.input).toBeCloseTo(5 / 1_000_000, 12);
+    expect(e!.pricing!.output).toBeCloseTo(30 / 1_000_000, 12);
   });
-  it('gemini-3-pro is registered but unpriced', () => {
+  it('gemini-3-pro is registered and metered at $2/$12 per MTok', () => {
     const e = resolveModel('gemini-3-pro');
     expect(e).not.toBeNull();
     expect(e!.provider).toBe('antigravity');
-    expect(e!.pricing).toBeNull();
+    expect(e!.pricing).not.toBeNull();
+    expect(e!.pricing!.input).toBeCloseTo(2 / 1_000_000, 12);
+    expect(e!.pricing!.output).toBeCloseTo(12 / 1_000_000, 12);
   });
-  it('gemini-flash-2.5 is registered but unpriced and fast-tier', () => {
+  it('gemini-flash-2.5 is registered, metered, and fast-tier', () => {
     const e = resolveModel('gemini-flash-2.5');
     expect(e).not.toBeNull();
     expect(e!.tier).toBe('fast');
-    expect(e!.pricing).toBeNull();
+    expect(e!.pricing).not.toBeNull();
+    expect(e!.pricing!.output).toBeCloseTo(2.5 / 1_000_000, 12);
   });
   it('UNKNOWN_PRICING_FALLBACK is null (never Opus)', () => {
     expect(UNKNOWN_PRICING_FALLBACK).toBeNull();

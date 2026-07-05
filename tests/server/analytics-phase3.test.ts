@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import http from 'node:http';
 import Database from 'better-sqlite3';
 import { createApp } from '../../server/app';
-import { createSystemRouter } from '../../server/routes/system';
+import { createAnalyticsRouter } from '../../server/routes/analytics';
 import { runMigrations } from '../../server/db/migrate';
 
 let server: http.Server;
@@ -25,7 +25,7 @@ describe('Analytics API — Phase 3: Context Inventory', () => {
     db.prepare(`INSERT INTO hook_events (id, session_id, event_type, tool_name, created_at)
       VALUES (?, ?, ?, ?, ?)`).run('he3', 's1', 'PostToolUse', 'mcp__atlassian__search', now - 3000);
 
-    const systemRouter = createSystemRouter();
+    const systemRouter = createAnalyticsRouter();
     const app = createApp({ apiRouters: [systemRouter] });
     (app as unknown as { locals: { db: Database.Database } }).locals.db = db;
 

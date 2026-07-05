@@ -56,6 +56,13 @@ interface PtyManagerOptions {
    * (the default) leaves traffic going straight to Anthropic.
    */
   headroomBaseUrl?: string;
+  /**
+   * Resolved auth mode for Claude sessions. When set, the child env is forced to
+   * match: 'vertex' exports CLAUDE_CODE_USE_VERTEX=1, 'oauth' strips it — so the
+   * configured mode wins over whatever the deck's launch shell happened to carry.
+   * Unset (non-Claude providers) leaves the inherited env untouched.
+   */
+  authMode?: 'vertex' | 'oauth';
 }
 
 export class PtyManager implements Killable {
@@ -70,6 +77,7 @@ export class PtyManager implements Killable {
   /** The directory the PTY runs in — an isolated worktree (5B) or the goal's cwd. */
   private readonly cwd: string;
   private readonly headroomBaseUrl: string | undefined;
+  private readonly authMode: 'vertex' | 'oauth' | undefined;
   private traceWriter: TraceWriter | null = null;
   private exited = false;
 
@@ -83,6 +91,7 @@ export class PtyManager implements Killable {
     this.traceDir = options.traceDir;
     this.cwd = options.cwdOverride ?? goal.cwd;
     this.headroomBaseUrl = options.headroomBaseUrl;
+    this.authMode = options.authMode;
   }
 
   /**
@@ -98,7 +107,14 @@ export class PtyManager implements Killable {
       if (v !== undefined) env[k] = v;
     }
     env['TERM'] = 'xterm-256color';
-    if (this.headroomBaseUrl) Object.assign(env, headroomEnvFragment(this.headroomBaseUrl));
+    if (this.authMode === 'vertex') {
+      env['CLAUDE_CODE_USE_VERTEX'] = '1';
+    } else if (this.authMode === 'oauth') {
+      delete env['CLAUDE_CODE_USE_VERTEX'];
+    }
+    if (this.headroomBaseUrl) {
+      Object.assign(env, headroomEnvFragment(this.headroomBaseUrl, env, this.authMode));
+    }
     return env;
   }
 
@@ -140,53 +156,47 @@ export class PtyManager implements Killable {
     return this.adapter.buildStartArgs(this.spawnContext());
   }
 
-  start(initialPrompt?: string): void {
-    const claudePath = this.adapter.resolveBinary();
-    const args = this.buildLaunchArgs();
-    this.initTrace();
-
-    const env = this.buildEnv();
-
-    logger.info(
-      { goalId: this.goalId, claudePath, args, cwd: this.cwd },
-      'PTY: Spawning claude',
-    );
-
-    try {
-      // Temporarily fix process.execPath for conpty agent (it uses this to find node)
-      const origExecPath = process.execPath;
-      const realNode = findRealNodePath();
-      if (realNode !== origExecPath) {
-        Object.defineProperty(process, 'execPath', { value: realNode, writable: true, configurable: true });
-      }
-
-      this.terminal = pty.spawn(claudePath, args, {
-        name: 'xterm-256color',
-        cols: 120,
-        rows: 30,
-        cwd: this.cwd,
-        env,
-      });
-
-      // Restore original execPath
-      if (realNode !== origExecPath) {
-        Object.defineProperty(process, 'execPath', { value: origExecPath, writable: true, configurable: true });
-      }
-    } catch (err) {
-      logger.error({ err, goalId: this.goalId }, 'PTY: Failed to spawn');
-      this.exited = true;
-      this.broadcast({
-        type: 'terminal:exited',
-        goal_id: this.goalId,
-        exitCode: 1,
-      });
-      return;
+  /**
+   * Spawn the CLI in a PTY, temporarily fixing process.execPath so node-pty's
+   * conpty agent can find the real node.exe (it uses execPath to locate it).
+   * If pty.spawn throws, execPath is intentionally left as-is — matching the
+   * original inline behavior in start()/resume().
+   */
+  private spawnPty(binary: string, args: string[], env: Record<string, string>): pty.IPty {
+    const origExecPath = process.execPath;
+    const realNode = findRealNodePath();
+    if (realNode !== origExecPath) {
+      Object.defineProperty(process, 'execPath', { value: realNode, writable: true, configurable: true });
     }
 
-    // Idle detection determines when the PTY is ready for input.
-    // When ready: send the initial prompt (if any), then fire onReady.
-    const pendingPrompt = initialPrompt ?? '';
-    const hasPrompt = !!pendingPrompt;
+    const terminal = pty.spawn(binary, args, {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 30,
+      cwd: this.cwd,
+      env,
+    });
+
+    // Restore original execPath
+    if (realNode !== origExecPath) {
+      Object.defineProperty(process, 'execPath', { value: origExecPath, writable: true, configurable: true });
+    }
+    return terminal;
+  }
+
+  /**
+   * Wire ready detection + data/exit handlers on a freshly spawned terminal,
+   * then broadcast terminal:started.
+   *
+   * Ready detection is driven by the adapter's promptStrategy (idle delay +
+   * optional prompt regex), with a hard 45s fallback. `onReady(method)` fires
+   * exactly once, after both timers are cleared.
+   */
+  private wireTerminal(
+    terminal: pty.IPty,
+    exitLogMessage: string,
+    onReady: (method: string) => void,
+  ): void {
     let sessionReady = false;
 
     const markReady = (method: string) => {
@@ -194,23 +204,9 @@ export class PtyManager implements Killable {
       sessionReady = true;
       if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
       if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
-
-      if (hasPrompt) {
-        setTimeout(() => {
-          this.write(pendingPrompt);
-          setTimeout(() => {
-            this.write('\r');
-            logger.info({ goalId: this.goalId, promptLength: pendingPrompt.length, method }, 'PTY: Sent initial prompt');
-            this.onReadyCallback?.();
-          }, 200);
-        }, 500);
-      } else {
-        this.onReadyCallback?.();
-      }
+      onReady(method);
     };
 
-    // Prompt-readiness detection is driven by the adapter's promptStrategy
-    // (idle delay + optional prompt regex), with a hard 45s fallback.
     const strategy = this.adapter.promptStrategy;
     const idleMs = strategy.kind === 'flag' ? 0 : strategy.idleMs;
     const promptRegex = strategy.kind === 'regex' ? strategy.promptRegex : null;
@@ -218,7 +214,7 @@ export class PtyManager implements Killable {
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     fallbackTimer = setTimeout(() => markReady('timeout-fallback'), 45_000);
 
-    this.terminal.onData((data: string) => {
+    terminal.onData((data: string) => {
       this.broadcast({
         type: 'terminal:data',
         goal_id: this.goalId,
@@ -240,11 +236,11 @@ export class PtyManager implements Killable {
       }
     });
 
-    this.terminal.onExit(({ exitCode }) => {
+    terminal.onExit(({ exitCode }) => {
       this.exited = true;
       if (idleTimer) clearTimeout(idleTimer);
       if (fallbackTimer) clearTimeout(fallbackTimer);
-      logger.info({ goalId: this.goalId, exitCode }, 'PTY: Process exited');
+      logger.info({ goalId: this.goalId, exitCode }, exitLogMessage);
       this.broadcast({
         type: 'terminal:exited',
         goal_id: this.goalId,
@@ -261,6 +257,51 @@ export class PtyManager implements Killable {
     });
   }
 
+  start(initialPrompt?: string): void {
+    const claudePath = this.adapter.resolveBinary();
+    const args = this.buildLaunchArgs();
+    this.initTrace();
+
+    const env = this.buildEnv();
+
+    logger.info(
+      { goalId: this.goalId, claudePath, args, cwd: this.cwd },
+      'PTY: Spawning claude',
+    );
+
+    try {
+      this.terminal = this.spawnPty(claudePath, args, env);
+    } catch (err) {
+      logger.error({ err, goalId: this.goalId }, 'PTY: Failed to spawn');
+      this.exited = true;
+      this.broadcast({
+        type: 'terminal:exited',
+        goal_id: this.goalId,
+        exitCode: 1,
+      });
+      return;
+    }
+
+    // When ready: send the initial prompt (if any), then fire onReady.
+    const pendingPrompt = initialPrompt ?? '';
+    const hasPrompt = !!pendingPrompt;
+
+    this.wireTerminal(this.terminal, 'PTY: Process exited', (method) => {
+      if (hasPrompt) {
+        setTimeout(() => {
+          this.write(pendingPrompt);
+          setTimeout(() => {
+            this.write('\r');
+            logger.info({ goalId: this.goalId, promptLength: pendingPrompt.length, method }, 'PTY: Sent initial prompt');
+            this.onReadyCallback?.();
+          }, 200);
+        }, 500);
+      } else {
+        this.onReadyCallback?.();
+      }
+    });
+  }
+
   resume(sessionId: string): void {
     const claudePath = this.adapter.resolveBinary();
     const args = this.adapter.buildResumeArgs(sessionId, this.spawnContext());
@@ -273,83 +314,13 @@ export class PtyManager implements Killable {
       'PTY: Resuming session',
     );
 
-    const origExecPath = process.execPath;
-    const realNode = findRealNodePath();
-    if (realNode !== origExecPath) {
-      Object.defineProperty(process, 'execPath', { value: realNode, writable: true, configurable: true });
-    }
+    // NOTE: unlike start(), a spawn failure here intentionally propagates to
+    // the caller (no try/catch) — matching the original resume() behavior.
+    this.terminal = this.spawnPty(claudePath, args, env);
 
-    this.terminal = pty.spawn(claudePath, args, {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 30,
-      cwd: this.cwd,
-      env,
-    });
-
-    if (realNode !== origExecPath) {
-      Object.defineProperty(process, 'execPath', { value: origExecPath, writable: true, configurable: true });
-    }
-
-    // Idle detection for resumed sessions — fire onReady when output settles
-    let readyFired = false;
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const fireReady = (method: string) => {
-      if (readyFired) return;
-      readyFired = true;
-      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+    this.wireTerminal(this.terminal, 'PTY: Resumed process exited', (method) => {
       logger.info({ goalId: this.goalId, method }, 'PTY: Resumed session ready');
       this.onReadyCallback?.();
-    };
-
-    const strategy = this.adapter.promptStrategy;
-    const idleMs = strategy.kind === 'flag' ? 0 : strategy.idleMs;
-    const promptRegex = strategy.kind === 'regex' ? strategy.promptRegex : null;
-    fallbackTimer = setTimeout(() => fireReady('timeout-fallback'), 45_000);
-
-    this.terminal.onData((data: string) => {
-      this.broadcast({
-        type: 'terminal:data',
-        goal_id: this.goalId,
-        data,
-      });
-      this.traceWriter?.appendStream(data);
-
-      if (!readyFired) {
-        if (idleMs > 0) {
-          if (idleTimer) clearTimeout(idleTimer);
-          idleTimer = setTimeout(() => fireReady('idle'), idleMs);
-        }
-        if (promptRegex) {
-          const clean = data.replace(/\x1b[^\x1b]*/g, '');
-          if (promptRegex.test(clean)) {
-            fireReady('regex');
-          }
-        }
-      }
-    });
-
-    this.terminal.onExit(({ exitCode }) => {
-      this.exited = true;
-      if (idleTimer) clearTimeout(idleTimer);
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-      logger.info({ goalId: this.goalId, exitCode }, 'PTY: Resumed process exited');
-      this.broadcast({
-        type: 'terminal:exited',
-        goal_id: this.goalId,
-        exitCode,
-      });
-      this.finishTrace(exitCode);
-      processRegistry.remove(this.goalId);
-      this.onExitCallback?.(this.goalId, exitCode);
-    });
-
-    this.broadcast({
-      type: 'terminal:started',
-      goal_id: this.goalId,
     });
   }
 

@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import { apiPost, ApiError } from '@/lib/api';
 import { sendWsMessage } from '@/lib/ws-manager';
 import { onTerminalData, onTerminalStarted, onTerminalExited, cleanupTerminalListeners } from '@/lib/terminal-events';
 
@@ -24,22 +25,12 @@ export default function TerminalPanel({ goalId }: TerminalPanelProps) {
     spawnedRef.current = true;
 
     try {
-      const res = await fetch(`/api/goals/${goalId}/terminal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        console.error('Failed to spawn terminal:', err);
-        return;
-      }
-      const data = await res.json();
+      const data = await apiPost<{ status?: string }>(`/api/goals/${goalId}/terminal`, {});
       if (data.status === 'already_running') {
         setStatus('running');
       }
     } catch (err) {
-      console.error('Failed to spawn terminal:', err);
+      console.error('Failed to spawn terminal:', err instanceof ApiError ? err.body : err);
     }
   }, [goalId]);
 

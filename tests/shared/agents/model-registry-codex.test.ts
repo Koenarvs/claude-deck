@@ -4,11 +4,12 @@ import { resolveModel } from '../../../src/shared/agents/model-registry';
 // Codex model variants (the gpt-5.5 default already lands as a Phase-1 stub;
 // these add the rest of the ChatGPT-seat lineup discovered in ~/.codex/models_cache.json).
 describe('codex model variants in registry', () => {
-  it('resolves gpt-5.4 to a codex, seat-priced (null), frontier-or-balanced entry', () => {
+  it('resolves gpt-5.4 to a codex entry metered at the pre-5.5 line rate', () => {
     const m = resolveModel('gpt-5.4');
     expect(m).not.toBeNull();
     expect(m!.provider).toBe('codex');
-    expect(m!.pricing).toBeNull(); // seat — no metered rate
+    expect(m!.pricing).not.toBeNull(); // equivalent-API-value rate ($2.50/$15)
+    expect(m!.pricing!.input).toBeCloseTo(2.5 / 1_000_000, 12);
     expect(m!.contextWindow).toBeGreaterThanOrEqual(200_000);
   });
 

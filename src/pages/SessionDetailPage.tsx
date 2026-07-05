@@ -10,6 +10,7 @@ import {
   CircleDot,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { apiGet, apiGetSafe, ApiError } from '../lib/api';
 import { useMessagesStore } from '../stores/useMessagesStore';
 import { useSessionsStore } from '../stores/useSessionsStore';
 import SessionDetailHeader from '../components/sessions/SessionDetailHeader';
@@ -78,8 +79,7 @@ function HookEventsSection({ sessionId }: { sessionId: string }) {
     let cancelled = false;
 
     setLoading(true);
-    fetch(`/api/sessions/${sessionId}/events?limit=200`)
-      .then((res) => (res.ok ? res.json() : []))
+    apiGetSafe<unknown>(`/api/sessions/${sessionId}/events?limit=200`, [])
       .then((data: unknown) => {
         if (!cancelled && Array.isArray(data)) {
           setEvents(data as HookEvent[]);
@@ -176,20 +176,20 @@ export default function SessionDetailPage() {
         setLoading(true);
         setError(null);
 
-        const [sessionRes, messagesRes] = await Promise.all([
-          fetch(`/api/sessions/${sessionId}`),
-          fetch(`/api/sessions/${sessionId}/messages`),
+        const [sessionData, messagesData] = await Promise.all([
+          apiGet<Session>(`/api/sessions/${sessionId}`).catch((err: unknown) => {
+            if (err instanceof ApiError) {
+              throw new Error(`Failed to fetch session: ${err.status}`);
+            }
+            throw err;
+          }),
+          apiGet<Message[]>(`/api/sessions/${sessionId}/messages`).catch((err: unknown) => {
+            if (err instanceof ApiError) {
+              throw new Error(`Failed to fetch messages: ${err.status}`);
+            }
+            throw err;
+          }),
         ]);
-
-        if (!sessionRes.ok) {
-          throw new Error(`Failed to fetch session: ${sessionRes.status}`);
-        }
-        if (!messagesRes.ok) {
-          throw new Error(`Failed to fetch messages: ${messagesRes.status}`);
-        }
-
-        const sessionData: Session = await sessionRes.json() as Session;
-        const messagesData: Message[] = await messagesRes.json() as Message[];
 
         if (!cancelled) {
           setSession(sessionData);

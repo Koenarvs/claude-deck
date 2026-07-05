@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import http from 'node:http';
 import Database from 'better-sqlite3';
 import { createApp } from '../../server/app';
-import { createSystemRouter } from '../../server/routes/system';
+import { createAnalyticsRouter } from '../../server/routes/analytics';
 import { runMigrations } from '../../server/db/migrate';
 
 let server: http.Server;
@@ -20,7 +20,7 @@ describe('Analytics API — Phase 2: New Endpoints', () => {
     db = new Database(':memory:');
     runMigrations(db);
 
-    const systemRouter = createSystemRouter();
+    const systemRouter = createAnalyticsRouter();
     const app = createApp({ apiRouters: [systemRouter] });
     (app as unknown as { locals: { db: Database.Database } }).locals.db = db;
 

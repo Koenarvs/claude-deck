@@ -2,7 +2,11 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider, createBrowserRouter } from 'react-router';
 import { routes } from './routes';
+import ErrorBoundary from './components/global/ErrorBoundary';
+import { installGlobalErrorReporter } from './lib/error-reporter';
 import './main.css';
+
+installGlobalErrorReporter();
 
 const router = createBrowserRouter(routes);
 
@@ -13,6 +17,8 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <ErrorBoundary>
+      <RouterProvider router={router} />
+    </ErrorBoundary>
   </StrictMode>,
 );

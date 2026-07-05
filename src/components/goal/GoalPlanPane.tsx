@@ -13,6 +13,7 @@ import {
   GitBranch,
   Loader2,
 } from 'lucide-react';
+import { apiGetSafe, apiPut, ApiError } from '@/lib/api';
 import { usePlanStore } from '@/stores/usePlanStore';
 import { PlanRenderer } from './PlanRenderer';
 import ContextHealth from './ContextHealth';
@@ -99,8 +100,7 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
     if (activeTab !== 'documents') return;
     let cancelled = false;
 
-    fetch(`/api/goals/${goalId}/documents`)
-      .then((r) => r.ok ? r.json() : { files: [] })
+    apiGetSafe<{ files: string[] }>(`/api/goals/${goalId}/documents`, { files: [] })
       .then((data: { files: string[] }) => {
         if (cancelled) return;
         setMdFiles(data.files);
@@ -132,9 +132,11 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
     const isConversation = selectedFile === 'conversation.md';
     const tailParam = isConversation ? '&tail=500' : '';
 
-    fetch(`/api/goals/${goalId}/document?name=${encodeURIComponent(selectedFile)}${tailParam}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { exists: boolean; content: string | null; hasMore?: boolean; totalLines?: number; path?: string; modifiedMs?: number } | null) => {
+    apiGetSafe<{ exists: boolean; content: string | null; hasMore?: boolean; totalLines?: number; path?: string; modifiedMs?: number } | null>(
+      `/api/goals/${goalId}/document?name=${encodeURIComponent(selectedFile)}${tailParam}`,
+      null,
+    )
+      .then((data) => {
         if (!cancelled) {
           setDoc({
             loading: false,
@@ -164,9 +166,11 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
     if (activeTab !== 'documents' || selectedFile !== 'conversation.md') return;
 
     const unsub = onConversationUpdated(goalId, () => {
-      fetch(`/api/goals/${goalId}/document?name=conversation.md&tail=500`)
-        .then(res => res.ok ? res.json() : null)
-        .then((data: { exists: boolean; content: string | null; hasMore?: boolean; totalLines?: number } | null) => {
+      apiGetSafe<{ exists: boolean; content: string | null; hasMore?: boolean; totalLines?: number } | null>(
+        `/api/goals/${goalId}/document?name=conversation.md&tail=500`,
+        null,
+      )
+        .then((data) => {
           if (data) {
             setDoc({
               loading: false,
@@ -191,9 +195,11 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
     if (!selectedFile || !doc.hasMore) return;
     const newOffset = loadedOffset + 500;
 
-    fetch(`/api/goals/${goalId}/document?name=${encodeURIComponent(selectedFile)}&tail=500&offset=${newOffset}`)
-      .then(res => res.ok ? res.json() : null)
-      .then((data: { exists: boolean; content: string | null; hasMore?: boolean } | null) => {
+    apiGetSafe<{ exists: boolean; content: string | null; hasMore?: boolean } | null>(
+      `/api/goals/${goalId}/document?name=${encodeURIComponent(selectedFile)}&tail=500&offset=${newOffset}`,
+      null,
+    )
+      .then((data) => {
         if (data?.content) {
           setDoc(prev => ({
             ...prev,
@@ -296,20 +302,22 @@ export default function GoalPlanPane({ goalId, sessionHealth, collapsed: control
             {...(doc.path
               ? {
                   onSaveDoc: async (next: string) => {
-                    const res = await fetch('/api/file', {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
+                    let saved: { modifiedMs?: number };
+                    try {
+                      saved = await apiPut<{ modifiedMs?: number }>('/api/file', {
                         path: doc.path,
                         content: next,
                         ...(doc.modifiedMs != null ? { baseModifiedMs: doc.modifiedMs } : {}),
-                      }),
-                    });
-                    if (!res.ok) {
-                      const body = (await res.json().catch(() => ({}))) as { error?: string };
-                      throw new Error(body.error ?? `Save failed (${res.status})`);
+                      });
+                    } catch (err) {
+                      if (err instanceof ApiError) {
+                        const body = (
+                          typeof err.body === 'object' && err.body !== null ? err.body : {}
+                        ) as { error?: string };
+                        throw new Error(body.error ?? `Save failed (${err.status})`);
+                      }
+                      throw err;
                     }
-                    const saved = (await res.json().catch(() => ({}))) as { modifiedMs?: number };
                     setDoc((prev) => ({
                       ...prev,
                       content: next,
@@ -446,8 +454,7 @@ function AgentTree({ goalId }: { goalId: string }) {
     let cancelled = false;
     setLoading(true);
 
-    fetch(`/api/sessions?goal_id=${goalId}&limit=200`)
-      .then((r) => (r.ok ? r.json() : []))
+    apiGetSafe<AgentSession[]>(`/api/sessions?goal_id=${goalId}&limit=200`, [])
       .then((sessions: AgentSession[]) => {
         if (cancelled || !Array.isArray(sessions)) return;
 

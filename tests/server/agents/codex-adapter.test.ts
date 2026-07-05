@@ -189,14 +189,11 @@ describe('CodexAdapter — hooks are honest no-ops', () => {
   });
 });
 
-describe('CodexAdapter — pricing & context window (seat)', () => {
-  it('codex models are seat-priced → zero pricing', () => {
-    expect(a.pricingFor('gpt-5.5')).toEqual({
-      input: 0,
-      cache_read: 0,
-      cache_creation: 0,
-      output: 0,
-    });
+describe('CodexAdapter — pricing & context window', () => {
+  it('codex models carry equivalent-API-value pricing from the registry', () => {
+    const p = a.pricingFor('gpt-5.5');
+    expect(p.input).toBeCloseTo(5 / 1_000_000, 12);
+    expect(p.output).toBeCloseTo(30 / 1_000_000, 12);
   });
 
   it('unknown model → still zero pricing (never throws / opus-defaults)', () => {
@@ -313,9 +310,11 @@ describe('CodexAdapter — listSessionLogs / locateSessionLog', () => {
     expect(locateCodexRollout('sess-7', sessionsRoot)).toBe(file);
   });
 
-  it('listSessionLogs returns [] when the store does not exist', () => {
-    // adapter method over the real (likely absent) ~/.codex on this box
-    expect(Array.isArray(a.listSessionLogs(60_000))).toBe(true);
+  it('listCodexRollouts returns [] when the store does not exist', () => {
+    // Injected nonexistent root — never touches the real ~/.codex, which may be
+    // large or slow enough on a dev box to blow the test timeout.
+    const missing = join(root, 'no-such-sessions-dir');
+    expect(listCodexRollouts(60_000, missing)).toEqual([]);
   });
 });
 

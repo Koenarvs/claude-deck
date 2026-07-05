@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { ArrowLeft, Loader2 } from 'lucide-react';
+import { apiGet, apiPost, apiPatch, ApiError } from '@/lib/api';
 import { useGoalsStore } from '@/stores/useGoalsStore';
 import { useMessagesStore } from '@/stores/useMessagesStore';
 import { usePlanStore } from '@/stores/usePlanStore';
@@ -32,14 +33,15 @@ export default function GoalDetailPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/goals/${id}`);
-        if (!res.ok) {
-          if (res.status === 404) {
-            throw new Error('Goal not found');
+        const data = await apiGet<GoalDetail>(`/api/goals/${id}`).catch((err: unknown) => {
+          if (err instanceof ApiError) {
+            if (err.status === 404) {
+              throw new Error('Goal not found');
+            }
+            throw new Error(`Failed to load goal: ${err.status}`);
           }
-          throw new Error(`Failed to load goal: ${res.status}`);
-        }
-        const data = (await res.json()) as GoalDetail;
+          throw err;
+        });
 
         if (cancelled) return;
 
@@ -95,20 +97,10 @@ export default function GoalDetailPage() {
       upsertGoal(optimistic);
 
       try {
-        const res = await fetch(`/api/goals/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title }),
-        });
-        if (!res.ok) {
-          // Revert on failure
-          upsertGoal(goal);
-        } else {
-          const updated = (await res.json()) as Goal;
-          upsertGoal(updated);
-        }
+        const updated = await apiPatch<Goal>(`/api/goals/${id}`, { title });
+        upsertGoal(updated);
       } catch {
-        // Revert on network error
+        // Revert on failure or network error
         upsertGoal(goal);
       }
     },
@@ -124,17 +116,8 @@ export default function GoalDetailPage() {
       upsertGoal(optimistic);
 
       try {
-        const res = await fetch(`/api/goals/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model }),
-        });
-        if (!res.ok) {
-          upsertGoal(goal);
-        } else {
-          const updated = (await res.json()) as Goal;
-          upsertGoal(updated);
-        }
+        const updated = await apiPatch<Goal>(`/api/goals/${id}`, { model });
+        upsertGoal(updated);
       } catch {
         upsertGoal(goal);
       }
@@ -148,12 +131,8 @@ export default function GoalDetailPage() {
     setIsInterrupting(true);
 
     try {
-      const res = await fetch(`/api/goals/${id}/interrupt`, {
-        method: 'POST',
-      });
-      if (!res.ok) {
-        // Error handled via WS goal:status event or user can retry
-      }
+      await apiPost(`/api/goals/${id}/interrupt`, undefined);
+      // Errors handled via WS goal:status event or user can retry
     } catch {
       // Network error — user can retry
     } finally {

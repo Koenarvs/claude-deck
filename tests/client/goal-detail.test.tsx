@@ -609,6 +609,8 @@ describe('GoalDetailPage', () => {
     mockFetch.mockResolvedValue({
       ok: false,
       status: 404,
+      // The api.ts helper reads error bodies via res.text()
+      text: async () => '',
     });
 
     renderPage();

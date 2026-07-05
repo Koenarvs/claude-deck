@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
 import Database from 'better-sqlite3';
 import { createApp } from '../../../server/app';
-import { createSystemRouter } from '../../../server/routes/system';
+import { createAnalyticsRouter } from '../../../server/routes/analytics';
 import { runMigrations } from '../../../server/db/migrate';
 import type { ProviderConfig } from '../../../src/shared/agents/provider-config';
 
@@ -29,7 +29,7 @@ beforeAll(async () => {
   ins.run('s1', 'claude-sonnet-4-6', 'balanced', 'claude', 4000, 2000, 6000, 0.5, 0, dateOf(2), daysAgo(2));
   ins.run('s2', 'gemini-3-pro', 'frontier', 'antigravity', 9000, 0, 9000, 0, 1, dateOf(1), daysAgo(1));
 
-  const router = createSystemRouter(undefined, { getProviders: () => PROVIDERS });
+  const router = createAnalyticsRouter({ getProviders: () => PROVIDERS });
   const app = createApp({ apiRouters: [router] });
   (app as unknown as { locals: { db: Database.Database } }).locals.db = db;
   server = http.createServer(app);
@@ -94,7 +94,7 @@ describe('graceful degradation', () => {
   it('returns empty shapes (not 500) when session_model_usage is empty', async () => {
     const db2 = new Database(':memory:');
     runMigrations(db2);
-    const router = createSystemRouter(undefined, { getProviders: () => PROVIDERS });
+    const router = createAnalyticsRouter({ getProviders: () => PROVIDERS });
     const app2 = createApp({ apiRouters: [router] });
     (app2 as unknown as { locals: { db: Database.Database } }).locals.db = db2;
     const s2 = http.createServer(app2);

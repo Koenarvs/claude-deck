@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiGetSafe } from '@/lib/api';
 
 interface DiffData {
   branch: string | null;
@@ -33,8 +34,7 @@ export default function WorkspaceDiff({ goalId }: { goalId: string }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/goals/${goalId}/diff`)
-      .then((r) => (r.ok ? (r.json() as Promise<DiffData>) : null))
+    apiGetSafe<DiffData | null>(`/api/goals/${goalId}/diff`, null)
       .then((d) => {
         if (!cancelled) {
           setData(d);

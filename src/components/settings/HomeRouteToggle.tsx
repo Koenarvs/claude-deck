@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Home, Kanban, LayoutDashboard } from 'lucide-react';
+import { apiPut, ApiError } from '../../lib/api';
 
 interface HomeRouteToggleProps {
   currentRoute: string;
@@ -21,15 +22,16 @@ export default function HomeRouteToggle({ currentRoute, onRouteChange }: HomeRou
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch('/api/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ homeRoute: route }),
-      });
-      if (!res.ok) throw new Error(`Failed to update: ${res.statusText}`);
+      await apiPut('/api/config', { homeRoute: route });
       onRouteChange(route);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(
+        err instanceof ApiError
+          ? `Failed to update: ${err.statusText}`
+          : err instanceof Error
+            ? err.message
+            : 'Save failed',
+      );
     } finally {
       setSaving(false);
     }

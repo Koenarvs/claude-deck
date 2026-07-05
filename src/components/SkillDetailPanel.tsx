@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BarChart3, Star, Zap, Clock, DollarSign, TrendingUp, Check, X, RefreshCw, History, Lightbulb } from 'lucide-react';
+import { apiGet, apiPost, ApiError } from '../lib/api';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -89,29 +90,25 @@ export default function SkillDetailPanel({ skillName }: { skillName: string }) {
 
   const fetchMetrics = useCallback(async () => {
     try {
-      const res = await fetch(`/api/skills/${encodeURIComponent(skillName)}/metrics`);
-      if (res.ok) setMetrics(await res.json());
+      setMetrics(await apiGet<SkillMetrics>(`/api/skills/${encodeURIComponent(skillName)}/metrics`));
     } catch { /* non-fatal */ }
   }, [skillName]);
 
   const fetchSuggestions = useCallback(async () => {
     try {
-      const res = await fetch(`/api/skills/${encodeURIComponent(skillName)}/suggestions`);
-      if (res.ok) setSuggestions(await res.json());
+      setSuggestions(await apiGet<SkillSuggestion[]>(`/api/skills/${encodeURIComponent(skillName)}/suggestions`));
     } catch { /* non-fatal */ }
   }, [skillName]);
 
   const fetchExecutions = useCallback(async () => {
     try {
-      const res = await fetch(`/api/skills/${encodeURIComponent(skillName)}/executions?limit=20`);
-      if (res.ok) setExecutions(await res.json());
+      setExecutions(await apiGet<SkillExecution[]>(`/api/skills/${encodeURIComponent(skillName)}/executions?limit=20`));
     } catch { /* non-fatal */ }
   }, [skillName]);
 
   const fetchVersions = useCallback(async () => {
     try {
-      const res = await fetch(`/api/skills/${encodeURIComponent(skillName)}/versions`);
-      if (res.ok) setVersions(await res.json());
+      setVersions(await apiGet<SkillVersion[]>(`/api/skills/${encodeURIComponent(skillName)}/versions`));
     } catch { /* non-fatal */ }
   }, [skillName]);
 
@@ -125,38 +122,36 @@ export default function SkillDetailPanel({ skillName }: { skillName: string }) {
   const handleAnalyze = useCallback(async () => {
     setAnalyzing(true);
     try {
-      const res = await fetch(`/api/skills/${encodeURIComponent(skillName)}/analyze`, { method: 'POST' });
-      if (res.ok) {
-        await fetchSuggestions();
-        setActiveSection('suggestions');
-      }
+      await apiPost(`/api/skills/${encodeURIComponent(skillName)}/analyze`, undefined);
+      await fetchSuggestions();
+      setActiveSection('suggestions');
     } catch { /* non-fatal */ }
     finally { setAnalyzing(false); }
   }, [skillName, fetchSuggestions]);
 
   const handleApply = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`/api/skills/suggestions/${id}/apply`, { method: 'POST' });
-      if (res.ok) {
-        await Promise.all([fetchSuggestions(), fetchVersions()]);
-      }
+      await apiPost(`/api/skills/suggestions/${id}/apply`, undefined);
+      await Promise.all([fetchSuggestions(), fetchVersions()]);
     } catch { /* non-fatal */ }
   }, [fetchSuggestions, fetchVersions]);
 
   const handleDismiss = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`/api/skills/suggestions/${id}/dismiss`, { method: 'POST' });
-      if (res.ok) await fetchSuggestions();
+      await apiPost(`/api/skills/suggestions/${id}/dismiss`, undefined);
+      await fetchSuggestions();
     } catch { /* non-fatal */ }
   }, [fetchSuggestions]);
 
   const handleRate = useCallback(async () => {
     if (!ratingExecId || ratingValue < 1) return;
     try {
-      await fetch(`/api/skills/executions/${ratingExecId}/rate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rating: ratingValue, notes: ratingNotes || undefined }),
+      // HTTP errors never blocked the rating-state reset; only network errors did.
+      await apiPost(`/api/skills/executions/${ratingExecId}/rate`, {
+        rating: ratingValue,
+        notes: ratingNotes || undefined,
+      }).catch((err: unknown) => {
+        if (!(err instanceof ApiError)) throw err;
       });
       setRatingExecId(null);
       setRatingValue(0);
@@ -167,8 +162,8 @@ export default function SkillDetailPanel({ skillName }: { skillName: string }) {
 
   const handleRevert = useCallback(async (versionId: string) => {
     try {
-      const res = await fetch(`/api/skills/versions/${versionId}/revert`, { method: 'POST' });
-      if (res.ok) await fetchVersions();
+      await apiPost(`/api/skills/versions/${versionId}/revert`, undefined);
+      await fetchVersions();
     } catch { /* non-fatal */ }
   }, [fetchVersions]);
 

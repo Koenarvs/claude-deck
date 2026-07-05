@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiGetSafe } from '../lib/api';
 import { useGoalsStore } from '../stores/useGoalsStore';
 import { useSessionsStore } from '../stores/useSessionsStore';
 import StatCards from '../components/dashboard/StatCards';
@@ -14,16 +15,10 @@ async function fetchInitialData(): Promise<{
   sessions: Session[];
   events: HookEvent[];
 }> {
-  const [goalsRes, sessionsRes, eventsRes] = await Promise.all([
-    fetch('/api/goals'),
-    fetch('/api/sessions?active=true'),
-    fetch('/api/hook-events?limit=20'),
-  ]);
-
   const [goals, sessions, events] = await Promise.all([
-    goalsRes.ok ? (goalsRes.json() as Promise<Goal[]>) : Promise.resolve([]),
-    sessionsRes.ok ? (sessionsRes.json() as Promise<Session[]>) : Promise.resolve([]),
-    eventsRes.ok ? (eventsRes.json() as Promise<HookEvent[]>) : Promise.resolve([]),
+    apiGetSafe<Goal[]>('/api/goals', []),
+    apiGetSafe<Session[]>('/api/sessions?active=true', []),
+    apiGetSafe<HookEvent[]>('/api/hook-events?limit=20', []),
   ]);
 
   return { goals, sessions, events };
