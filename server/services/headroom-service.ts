@@ -18,6 +18,12 @@ type SpawnFn = (
   options: SpawnOptions,
 ) => ChildProcess;
 
+/**
+ * Frees a TCP port before we (re)spawn the proxy. Injected into HeadroomService
+ * so tests can supply a no-op instead of touching the real machine.
+ */
+export type PortReclaimer = (port: string, ownPid?: number) => void;
+
 /** Map a compression degree to headroom proxy flags (mutually exclusive). */
 const DEGREE_FLAGS: Record<HeadroomConfig['compressionDegree'], string[]> = {
   off: ['--no-optimize'],
@@ -25,6 +31,107 @@ const DEGREE_FLAGS: Record<HeadroomConfig['compressionDegree'], string[]> = {
   balanced: ['--target-ratio', '0.4'],
   aggressive: ['--target-ratio', '0.3'],
 };
+
+/** Derive the proxy port from a baseUrl, falling back to 8787. */
+export function portFromBaseUrl(baseUrl: string): string {
+  try {
+    const p = new URL(baseUrl).port;
+    if (p) return p;
+  } catch {
+    /* keep default */
+  }
+  return '8787';
+}
+
+/** PIDs holding a LISTENING TCP socket on `port` (best-effort, per platform). */
+function listenerPids(port: string): number[] {
+  try {
+    if (process.platform === 'win32') {
+      const out = spawnSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', windowsHide: true });
+      if (out.status !== 0 || !out.stdout) return [];
+      const pids = new Set<number>();
+      for (const line of out.stdout.split(/\r?\n/)) {
+        if (!/\bLISTENING\b/.test(line)) continue;
+        // e.g.  TCP    127.0.0.1:8787    0.0.0.0:0    LISTENING    16020
+        const m = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/i);
+        if (m && m[1] === port) pids.add(Number(m[2]));
+      }
+      return [...pids];
+    }
+    const out = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
+    if (out.status !== 0 || !out.stdout) return [];
+    return out.stdout.split(/\s+/).filter(Boolean).map(Number).filter((n) => Number.isFinite(n));
+  } catch {
+    return [];
+  }
+}
+
+/** True when the process's command line identifies it as a headroom proxy. */
+function isHeadroomPid(pid: number): boolean {
+  try {
+    if (process.platform === 'win32') {
+      const out = spawnSync(
+        'powershell',
+        ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`],
+        { encoding: 'utf8', windowsHide: true },
+      );
+      return /headroom/i.test(out.stdout ?? '');
+    }
+    const out = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+    return /headroom/i.test(out.stdout ?? '');
+  } catch {
+    return false;
+  }
+}
+
+/** Force-kill a process tree (Windows) or the process (POSIX). Best-effort. */
+function killTree(pid: number): void {
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } else {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
+ * Build a PortReclaimer from injectable IO seams so the decision logic is unit
+ * testable without touching the machine. The policy is deliberately narrow: a
+ * squatter is killed ONLY when it positively identifies as a headroom process
+ * (a stale orphan from a Deck that exited uncleanly). A foreign, unrelated
+ * process on the same port is logged and left untouched — we never kill
+ * something we can't confirm is ours.
+ */
+export function makePortReclaimer(deps: {
+  listenerPids: (port: string) => number[];
+  isHeadroomPid: (pid: number) => boolean;
+  killTree: (pid: number) => void;
+}): PortReclaimer {
+  return (port, ownPid) => {
+    for (const pid of deps.listenerPids(port)) {
+      if (ownPid && pid === ownPid) continue;
+      if (deps.isHeadroomPid(pid)) {
+        logger.warn({ pid, port }, 'Reclaiming port from stale Headroom process');
+        deps.killTree(pid);
+      } else {
+        logger.error(
+          { pid, port },
+          'Port held by a non-Headroom process — leaving it alone; the proxy cannot start until the port is free',
+        );
+      }
+    }
+  };
+}
+
+/** Default reclaimer wired to the real per-platform IO helpers. */
+export const reclaimStaleHeadroomPort: PortReclaimer = makePortReclaimer({
+  listenerPids,
+  isHeadroomPid,
+  killTree,
+});
 
 /**
  * Build the `headroom proxy ...` command from the structured config. When the
@@ -35,15 +142,7 @@ const DEGREE_FLAGS: Record<HeadroomConfig['compressionDegree'], string[]> = {
 export function buildHeadroomCommand(config: HeadroomConfig): string {
   if (config.command && config.command.trim() !== '') return config.command;
 
-  let port = '8787';
-  try {
-    const p = new URL(config.baseUrl).port;
-    if (p) port = p;
-  } catch {
-    /* keep default */
-  }
-
-  const args = ['headroom', 'proxy', '--port', port];
+  const args = ['headroom', 'proxy', '--port', portFromBaseUrl(config.baseUrl)];
   if (isVertex()) {
     // Vertex routes through headroom's DEDICATED Vertex passthrough, selected by
     // the `--vertex-api-url` + `--region` pair — NOT `--anthropic-api-url` (that
@@ -85,9 +184,14 @@ export class HeadroomService {
   private pendingReconcile = false;
   private crashCount = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
 
   static readonly MAX_CRASH_RESTARTS = 5;
   static readonly RESTART_DELAY_MS = 3_000;
+  // A freshly-spawned proxy must stay up this long before we consider it stable
+  // and reset the crash counter. Guards against a spawn-then-immediately-die loop
+  // (e.g. it can't bind the port) resetting the counter on every spawn.
+  static readonly STABLE_AFTER_MS = 15_000;
 
   // Health polling
   private healthy = false;
@@ -95,7 +199,10 @@ export class HeadroomService {
   private healthBaseUrl: string | null = null;
   private healthPath: '/livez' | '/readyz' = '/livez';
 
-  constructor(private readonly spawnFn: SpawnFn = nodeSpawn) {}
+  constructor(
+    private readonly spawnFn: SpawnFn = nodeSpawn,
+    private readonly reclaimPort: PortReclaimer = reclaimStaleHeadroomPort,
+  ) {}
 
   sync(config: HeadroomConfig): void {
     this.desiredConfig = { ...config };
@@ -115,6 +222,7 @@ export class HeadroomService {
   async shutdown(): Promise<void> {
     this.desiredConfig = null;
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
+    this.clearStableTimer();
     this.stopHealthLoop();
     await this.stop('shutdown');
   }
@@ -130,6 +238,7 @@ export class HeadroomService {
    */
   killTreeSync(): void {
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
+    this.clearStableTimer();
     this.desiredConfig = null; // stop any restart from being scheduled
     const child = this.child;
     this.child = null;
@@ -222,6 +331,11 @@ export class HeadroomService {
   }
 
   private start(command: string, baseUrl: string): void {
+    // Reclaim the port from a STALE HEADROOM squatter (an orphan from a Deck that
+    // exited uncleanly) so our spawn can bind. A foreign non-headroom process is
+    // left alone by the reclaimer — see makePortReclaimer.
+    this.reclaimPort(portFromBaseUrl(baseUrl));
+
     logger.info({ command, baseUrl }, 'Starting managed Headroom proxy');
 
     const child = this.spawnFn(command, {
@@ -236,12 +350,22 @@ export class HeadroomService {
 
     child.once('spawn', () => {
       logger.info({ pid: child.pid, baseUrl }, 'Managed Headroom proxy started');
-      this.crashCount = 0;
+      // Reset the crash counter only after the proxy has stayed up for a grace
+      // period — NOT on spawn. A process that spawns but dies within
+      // STABLE_AFTER_MS (e.g. it can't bind the port) must keep counting toward
+      // MAX_CRASH_RESTARTS instead of resetting on every spawn and looping forever.
+      this.clearStableTimer();
+      this.stableTimer = setTimeout(() => {
+        this.stableTimer = null;
+        if (this.child === child) this.crashCount = 0;
+      }, HeadroomService.STABLE_AFTER_MS);
+      this.stableTimer.unref?.();
     });
 
     child.once('error', (err) => {
       logger.error({ err, command }, 'Managed Headroom proxy failed to start');
       if (this.child === child) {
+        this.clearStableTimer();
         this.child = null;
         this.signature = null;
         this.scheduleRestart('spawn error');
@@ -251,11 +375,19 @@ export class HeadroomService {
     child.once('exit', (code, signal) => {
       logger.info({ pid: child.pid, code, signal }, 'Managed Headroom proxy exited');
       if (this.child === child) {
+        this.clearStableTimer();
         this.child = null;
         this.signature = null;
         if (this.desiredConfig?.enabled) this.scheduleRestart('unexpected exit');
       }
     });
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
   }
 
   private scheduleRestart(reason: string): void {
@@ -274,6 +406,7 @@ export class HeadroomService {
   }
 
   private async stop(reason: string): Promise<void> {
+    this.clearStableTimer();
     const child = this.child;
     this.child = null;
     this.signature = null;
