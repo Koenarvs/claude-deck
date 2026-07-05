@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import ScheduledTasksList from '../components/scheduled/ScheduledTasksList';
 import ScheduledTaskEditor from '../components/scheduled/ScheduledTaskEditor';
+import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../lib/api';
 import type {
   ScheduledTask,
   CreateScheduledTaskInput,
@@ -19,12 +20,16 @@ export default function ScheduledPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/scheduled-tasks');
-      if (!res.ok) throw new Error(`Failed to fetch tasks: ${res.statusText}`);
-      const data: ScheduledTask[] = await res.json();
+      const data = await apiGet<ScheduledTask[]>('/api/scheduled-tasks');
       setTasks(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load scheduled tasks');
+      setError(
+        err instanceof ApiError
+          ? `Failed to fetch tasks: ${err.statusText}`
+          : err instanceof Error
+            ? err.message
+            : 'Failed to load scheduled tasks',
+      );
     } finally {
       setLoading(false);
     }
@@ -50,19 +55,15 @@ export default function ScheduledPage() {
     try {
       if ('id' in input) {
         const { id, ...body } = input;
-        const res = await fetch(`/api/scheduled-tasks/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+        await apiPatch(`/api/scheduled-tasks/${id}`, body).catch((err: unknown) => {
+          if (err instanceof ApiError) throw new Error(`Failed to update task: ${err.statusText}`);
+          throw err;
         });
-        if (!res.ok) throw new Error(`Failed to update task: ${res.statusText}`);
       } else {
-        const res = await fetch('/api/scheduled-tasks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input),
+        await apiPost('/api/scheduled-tasks', input).catch((err: unknown) => {
+          if (err instanceof ApiError) throw new Error(`Failed to create task: ${err.statusText}`);
+          throw err;
         });
-        if (!res.ok) throw new Error(`Failed to create task: ${res.statusText}`);
       }
 
       setShowEditor(false);
@@ -77,8 +78,10 @@ export default function ScheduledPage() {
     if (!confirm('Delete this scheduled task?')) return;
 
     try {
-      const res = await fetch(`/api/scheduled-tasks/${taskId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(`Failed to delete task: ${res.statusText}`);
+      await apiDelete(`/api/scheduled-tasks/${taskId}`).catch((err: unknown) => {
+        if (err instanceof ApiError) throw new Error(`Failed to delete task: ${err.statusText}`);
+        throw err;
+      });
       await fetchTasks();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');
@@ -87,12 +90,10 @@ export default function ScheduledPage() {
 
   const handleToggleEnabled = async (taskId: string, enabled: boolean) => {
     try {
-      const res = await fetch(`/api/scheduled-tasks/${taskId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
+      await apiPatch(`/api/scheduled-tasks/${taskId}`, { enabled }).catch((err: unknown) => {
+        if (err instanceof ApiError) throw new Error(`Failed to toggle task: ${err.statusText}`);
+        throw err;
       });
-      if (!res.ok) throw new Error(`Failed to toggle task: ${res.statusText}`);
       await fetchTasks();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Toggle failed');
@@ -101,9 +102,11 @@ export default function ScheduledPage() {
 
   const handleRunNow = async (taskId: string) => {
     try {
-      const res = await fetch(`/api/scheduled-tasks/${taskId}/run-now`, { method: 'POST' });
-      if (!res.ok) throw new Error(`Failed to run task: ${res.statusText}`);
-      await res.json(); // Response contains { goal_id } — consumed on refresh
+      // Response contains { goal_id } — consumed on refresh
+      await apiPost(`/api/scheduled-tasks/${taskId}/run-now`, undefined).catch((err: unknown) => {
+        if (err instanceof ApiError) throw new Error(`Failed to run task: ${err.statusText}`);
+        throw err;
+      });
       await fetchTasks();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Run failed');

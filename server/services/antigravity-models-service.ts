@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ModelOption } from '../../src/shared/agents/types';
+import { createCachedModelSource } from './cached-model-source';
 import logger from '../logger';
 
 /**
@@ -96,10 +97,6 @@ export function createAntigravityModelsService(deps: AntigravityModelsDeps = {})
   const ttlMs = deps.ttlMs ?? DEFAULT_TTL_MS;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  let cache: ModelOption[] | null = null;
-  let fetchedAt = 0;
-  let inflight: Promise<ModelOption[] | null> | null = null;
-
   function runFetch(): Promise<ModelOption[] | null> {
     return new Promise((resolve) => {
       let proc: PtyProc;
@@ -142,43 +139,18 @@ export function createAntigravityModelsService(deps: AntigravityModelsDeps = {})
     });
   }
 
-  function refresh(): Promise<ModelOption[] | null> {
-    if (inflight) return inflight;
-    inflight = runFetch()
-      .then((opts) => {
-        if (opts) {
-          cache = opts;
-          fetchedAt = now();
-        }
-        return opts ?? cache;
-      })
-      .finally(() => {
-        inflight = null;
-      });
-    return inflight;
-  }
+  // Non-blocking: getModelOptions returns the cached list immediately (or null on a
+  // cold cache) and triggers a background refresh when the TTL lapses — it never
+  // waits on the PTY fetch. warm() is the awaitable warm-up for server boot, so the
+  // cache is ready before the UI loads.
+  const source = createCachedModelSource({
+    fetch: runFetch,
+    isStale: ({ fetchedAt }) => now() - fetchedAt >= ttlMs,
+    refreshMode: 'background',
+    now,
+  });
 
-  /**
-   * Non-blocking: returns the cached list immediately (or null on a cold cache) and
-   * triggers a background refresh when stale. Never waits on the PTY fetch.
-   */
-  async function getModelOptions(): Promise<ModelOption[] | null> {
-    if (cache && now() - fetchedAt < ttlMs) return cache;
-    void refresh();
-    return cache;
-  }
-
-  /** Awaitable warm-up for server boot, so the cache is ready before the UI loads. */
-  async function warm(): Promise<void> {
-    await refresh();
-  }
-
-  /** The currently-cached model values (sync; [] when cold). Used by the model validator. */
-  function cachedValues(): string[] {
-    return cache ? cache.map((o) => o.value) : [];
-  }
-
-  return { getModelOptions, warm, cachedValues };
+  return { getModelOptions: source.getModelOptions, warm: source.warm, cachedValues: source.cachedValues };
 }
 
 export type AntigravityModelsService = ReturnType<typeof createAntigravityModelsService>;

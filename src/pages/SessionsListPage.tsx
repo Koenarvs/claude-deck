@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { List } from 'lucide-react';
+import { apiGet, apiPost, ApiError } from '../lib/api';
 import { useSessionsStore } from '../stores/useSessionsStore';
 import SessionsTable from '../components/sessions/SessionsTable';
 import SessionFilters from '../components/sessions/SessionFilters';
@@ -64,11 +65,14 @@ export default function SessionsListPage() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch('/api/sessions?limit=500');
-        if (!res.ok) {
-          throw new Error(`Failed to fetch sessions: ${res.status}`);
-        }
-        const data: EnrichedSession[] = await res.json() as EnrichedSession[];
+        const data = await apiGet<EnrichedSession[]>('/api/sessions?limit=500').catch(
+          (err: unknown) => {
+            if (err instanceof ApiError) {
+              throw new Error(`Failed to fetch sessions: ${err.status}`);
+            }
+            throw err;
+          },
+        );
         if (!cancelled) {
           setSessions(data);
         }
@@ -111,8 +115,7 @@ export default function SessionsListPage() {
   // End session handler
   const handleEndSession = useCallback(async (sessionId: string) => {
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/end`, { method: 'POST' });
-      if (!res.ok) return;
+      await apiPost(`/api/sessions/${sessionId}/end`, undefined);
       setSessions(
         sessions.map((s) =>
           s.id === sessionId ? { ...s, ended_at: Date.now() } : s,
@@ -126,8 +129,7 @@ export default function SessionsListPage() {
   // Restart session handler
   const handleRestartSession = useCallback(async (sessionId: string) => {
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/restart`, { method: 'POST' });
-      if (!res.ok) return;
+      await apiPost(`/api/sessions/${sessionId}/restart`, undefined);
       setSessions(
         sessions.map((s) =>
           s.id === sessionId ? { ...s, ended_at: null } : s,

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { apiGetSafe } from '@/lib/api';
 import type { GoalStatus } from '@shared/types';
 import TerminalPanel from './TerminalPanel';
 import GoalPlanPane from './GoalPlanPane';
@@ -49,21 +50,17 @@ export default function GoalSplitView({ goalId, goalStatus }: GoalSplitViewProps
     let cancelled = false;
     async function load() {
       try {
-        const goalRes = await fetch(`/api/goals/${goalId}`);
-        if (!goalRes.ok) return;
-        const data = (await goalRes.json()) as Record<string, unknown>;
+        const data = await apiGetSafe<Record<string, unknown> | null>(`/api/goals/${goalId}`, null);
+        if (!data) return;
         const goal = data.goal as Record<string, unknown> | undefined;
         const sessionId = goal?.current_session_id as string | undefined;
         if (!sessionId) return;
 
-        const [sessRes, usageRes] = await Promise.all([
-          fetch(`/api/sessions/${sessionId}`),
-          fetch(`/api/sessions/${sessionId}/usage`),
+        const [session, usage] = await Promise.all([
+          apiGetSafe<Record<string, unknown> | null>(`/api/sessions/${sessionId}`, null),
+          apiGetSafe<Record<string, number> | null>(`/api/sessions/${sessionId}/usage`, null),
         ]);
         if (cancelled) return;
-
-        const session = sessRes.ok ? (await sessRes.json()) as Record<string, unknown> : null;
-        const usage = usageRes.ok ? (await usageRes.json()) as Record<string, number> : null;
 
         const tokensIn = (usage?.inputTokens ?? 0)
           + (usage?.cacheCreationTokens ?? 0)

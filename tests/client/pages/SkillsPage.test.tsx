@@ -439,6 +439,7 @@ describe('SkillsPage', () => {
     // Should have fetched skill content
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/skill-content'),
+      expect.anything(),
     );
 
     // Close button should be present

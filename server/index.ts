@@ -29,6 +29,7 @@ import { SessionService } from './services/session-service';
 import { MessageService } from './services/message-service';
 import { createSessionsRouter } from './routes/sessions';
 import { createSystemRouter } from './routes/system';
+import { createAnalyticsRouter } from './routes/analytics';
 import { createTraceRouter } from './routes/trace';
 import { createFileRouter } from './routes/file';
 import { createProjectService } from './services/project-service';
@@ -571,6 +572,7 @@ const systemRouterWithSkills = createSystemRouter(skillDirectoryService, {
     ]),
   ],
 });
+const analyticsRouter = createAnalyticsRouter({ configService });
 const skillsRouter = createSkillsRouter(skillExecutionService, skillAnalysisService, skillFileService);
 const traceRouter = createTraceRouter(db, env.dataDir);
 const fileRouter = createFileRouter();
@@ -652,7 +654,7 @@ const budgetRouter = createBudgetRouter(budgetService, {
 
 // Create Express app and HTTP server
 const app = createApp({
-  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter, orchestratorRouter, orchestratorChannelsRouter, createClientErrorsRouter()],
+  apiRouters: [scheduledRouter, goalsRouter, sessionsRouter, hooksRouter, approvalsRouter, systemRouterWithSkills, analyticsRouter, skillsRouter, traceRouter, fileRouter, projectsRouter, verificationRouter, budgetRouter, orchestratorRouter, orchestratorChannelsRouter, createClientErrorsRouter()],
   auth: { token: env.token },
 });
 // Make db available to routes that need it (analytics, hook-events)

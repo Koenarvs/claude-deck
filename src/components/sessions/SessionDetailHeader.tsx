@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { ArrowLeft, Clock, Cpu, DollarSign, FolderOpen, Target, Square } from 'lucide-react';
+import { apiGetSafe, apiPost, ApiError } from '../../lib/api';
 import type { Session } from '../../shared/types';
 import { OriginBadge } from './OriginBadge';
 
@@ -50,8 +51,7 @@ export default function SessionDetailHeader({ session, onSessionEnded }: Session
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/sessions/${session.id}/usage`)
-      .then((res) => (res.ok ? res.json() : null))
+    apiGetSafe<Record<string, number> | null>(`/api/sessions/${session.id}/usage`, null)
       .then((data: Record<string, number> | null) => {
         if (cancelled || !data) return;
         const tokensIn = (data.inputTokens ?? 0) + (data.cacheCreationTokens ?? 0) + (data.cacheReadTokens ?? 0);
@@ -95,8 +95,11 @@ export default function SessionDetailHeader({ session, onSessionEnded }: Session
                   onClick={async () => {
                     setEnding(true);
                     try {
-                      const res = await fetch(`/api/sessions/${session.id}/end`, { method: 'POST' });
-                      if (res.ok) onSessionEnded?.();
+                      await apiPost(`/api/sessions/${session.id}/end`, undefined);
+                      onSessionEnded?.();
+                    } catch (err) {
+                      // HTTP errors were silently ignored before; other failures still surface.
+                      if (!(err instanceof ApiError)) throw err;
                     } finally {
                       setEnding(false);
                     }

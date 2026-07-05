@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { Cpu, Archive, FolderOpen, Pause } from 'lucide-react';
 import { useGoalsStore } from '../../stores/useGoalsStore';
 import { useActiveToolStore } from '../../stores/useActiveToolStore';
+import { apiGet, apiGetSafe, apiDelete } from '../../lib/api';
 import { fmtCost, fmtTokens } from '../../lib/format';
 import type { Goal, GoalModel } from '../../shared/types';
 
@@ -62,22 +63,15 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
 
     async function load() {
       try {
-        const goalRes = await fetch(`/api/goals/${goal.id}`);
-        if (!goalRes.ok) return;
-        const goalData = (await goalRes.json()) as Record<string, unknown>;
+        const goalData = await apiGet<Record<string, unknown>>(`/api/goals/${goal.id}`);
         const g = goalData.goal as Record<string, unknown> | undefined;
         const sessionId = (g?.current_session_id as string) ?? null;
         if (!sessionId) return;
 
-        const [sessRes, usageRes] = await Promise.all([
-          fetch(`/api/sessions/${sessionId}`),
-          fetch(`/api/sessions/${sessionId}/usage`),
+        const [sess, usage] = await Promise.all([
+          apiGet<Record<string, unknown>>(`/api/sessions/${sessionId}`),
+          apiGetSafe<Record<string, number> | null>(`/api/sessions/${sessionId}/usage`, null),
         ]);
-        if (!sessRes.ok) return;
-        const sess = (await sessRes.json()) as Record<string, unknown>;
-        const usage = usageRes.ok
-          ? (await usageRes.json()) as Record<string, number>
-          : null;
         if (cancelled) return;
 
         const tokensIn = (usage?.inputTokens ?? 0)
@@ -250,9 +244,9 @@ export default function KanbanCard({ goal }: KanbanCardProps) {
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            fetch(`/api/goals/${goal.id}`, { method: 'DELETE' })
-              .then((res) => {
-                if (res.ok) removeGoal(goal.id);
+            apiDelete(`/api/goals/${goal.id}`)
+              .then(() => {
+                removeGoal(goal.id);
               })
               .catch(() => {});
           }}

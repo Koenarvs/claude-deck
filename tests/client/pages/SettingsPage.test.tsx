@@ -333,6 +333,8 @@ describe('SettingsPage', () => {
     fetchMock.mockResolvedValue({
       ok: false,
       statusText: 'Internal Server Error',
+      // The api.ts helper reads error bodies via res.text()
+      text: async () => '',
     });
 
     const { default: SettingsPage } = await import('../../../src/pages/SettingsPage');

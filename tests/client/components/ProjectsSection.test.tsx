@@ -64,7 +64,13 @@ describe('ProjectsSection', () => {
   it('surfaces a 409 duplicate-root error', async () => {
     fetchMock
       .mockResolvedValueOnce({ ok: true, json: async () => [] })
-      .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: 'A project is already registered at C:/repo' }) });
+      // The api.ts helper reads error bodies via res.text()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: async () => JSON.stringify({ error: 'A project is already registered at C:/repo' }),
+        json: async () => ({ error: 'A project is already registered at C:/repo' }),
+      });
     render(<ProjectsSection />);
     await screen.findByText(/No projects registered/i);
 

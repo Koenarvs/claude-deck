@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import http from 'node:http';
 import Database from 'better-sqlite3';
 import { createApp } from '../../server/app';
-import { createSystemRouter } from '../../server/routes/system';
+import { createAnalyticsRouter } from '../../server/routes/analytics';
 import { runMigrations } from '../../server/db/migrate';
 
 let server: http.Server;
@@ -37,7 +37,7 @@ describe('Analytics API — Phase 1 Regression', () => {
       CREATE INDEX IF NOT EXISTS idx_session_usage_first_msg ON session_usage (first_message_at);
     `);
 
-    const systemRouter = createSystemRouter();
+    const systemRouter = createAnalyticsRouter();
     const app = createApp({ apiRouters: [systemRouter] });
     (app as unknown as { locals: { db: Database.Database } }).locals.db = db;
 

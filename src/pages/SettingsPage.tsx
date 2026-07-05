@@ -6,6 +6,7 @@ import HomeRouteToggle from '../components/settings/HomeRouteToggle';
 import AgentsSection from '../components/settings/AgentsSection';
 import ProjectsSection from '../components/settings/ProjectsSection';
 import OrchestratorSection from '../components/settings/OrchestratorSection';
+import { apiGet, apiPut, ApiError } from '../lib/api';
 import { useConfigStore } from '../stores/useConfigStore';
 import { modelOptionsFromCatalog } from '../shared/agents/catalog-client';
 import type { AgentCatalogEntry } from '../shared/agents/types';
@@ -80,13 +81,17 @@ export default function SettingsPage() {
       // background catalog top-up (config cached, catalog empty) must not flash it.
       if (useConfigStore.getState().config === null) setLoading(true);
       setError(null);
-      const res = await fetch('/api/config');
-      if (!res.ok) throw new Error(`Failed to fetch config: ${res.statusText}`);
-      const data: ConfigResponse = await res.json();
+      const data = await apiGet<ConfigResponse>('/api/config');
       setConfig(data);
       if (data.catalog) setCatalog(data.catalog);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load config');
+      setError(
+        err instanceof ApiError
+          ? `Failed to fetch config: ${err.statusText}`
+          : err instanceof Error
+            ? err.message
+            : 'Failed to load config',
+      );
     } finally {
       setLoading(false);
     }
@@ -104,19 +109,19 @@ export default function SettingsPage() {
   const updateConfig = async (updates: Partial<AppConfig>) => {
     try {
       setSaveStatus(null);
-      const res = await fetch('/api/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error(`Failed to save: ${res.statusText}`);
-      const data: ConfigResponse = await res.json();
+      const data = await apiPut<ConfigResponse>('/api/config', updates);
       setConfig(data);
       if (data.catalog) setCatalog(data.catalog);
       setSaveStatus('Saved');
       setTimeout(() => setSaveStatus(null), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(
+        err instanceof ApiError
+          ? `Failed to save: ${err.statusText}`
+          : err instanceof Error
+            ? err.message
+            : 'Save failed',
+      );
     }
   };
 

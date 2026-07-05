@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { ModelOption } from '../../src/shared/agents/types';
+import { createCachedModelSource } from './cached-model-source';
 import logger from '../logger';
 
 /**
@@ -37,15 +37,15 @@ export function createCodexModelsService(deps: CodexModelsDeps = {}) {
   const readFile = deps.readFile ?? ((p: string) => fs.readFileSync(p, 'utf8'));
   const statMtimeMs = deps.statMtimeMs ?? ((p: string) => fs.statSync(p).mtimeMs);
 
-  let cache: ModelOption[] | null = null;
   let cachedMtime = Number.NaN;
 
-  // Async to share one interface with the Claude (network) service, though the work is sync.
-  async function getModelOptions(): Promise<ModelOption[] | null> {
-    try {
+  // The work is sync (local file + JSON parse) but the fetch is async to share one
+  // interface with the Claude (network) service. Staleness is keyed to the file's
+  // mtime, so the CLI's next refresh is picked up automatically; a read/parse
+  // failure yields null (not the prior cache — the file just proved unreadable).
+  const source = createCachedModelSource({
+    fetch: async () => {
       const mtime = statMtimeMs(cachePath);
-      if (cache && mtime === cachedMtime) return cache;
-
       const parsed = JSON.parse(readFile(cachePath)) as CodexCache;
       const models = (parsed.models ?? [])
         .filter((m): m is CodexCacheModel & { slug: string } => typeof m.slug === 'string')
@@ -54,24 +54,20 @@ export function createCodexModelsService(deps: CodexModelsDeps = {}) {
         .map((m) => ({ value: m.slug, label: m.display_name || m.slug }));
       if (models.length === 0) return null;
 
-      cache = models;
       cachedMtime = mtime;
       return models;
-    } catch (err) {
+    },
+    isStale: () => statMtimeMs(cachePath) !== cachedMtime,
+    refreshMode: 'await',
+    onFailure: 'null',
+    onFallbackWarn: (err) =>
       logger.warn(
         { err: err instanceof Error ? err.message : String(err) },
         'Codex models_cache.json unreadable; using fallback model list',
-      );
-      return null;
-    }
-  }
+      ),
+  });
 
-  /** The currently-cached model values (sync; [] when cold). Used by the model validator. */
-  function cachedValues(): string[] {
-    return cache ? cache.map((o) => o.value) : [];
-  }
-
-  return { getModelOptions, cachedValues };
+  return { getModelOptions: source.getModelOptions, cachedValues: source.cachedValues };
 }
 
 export type CodexModelsService = ReturnType<typeof createCodexModelsService>;

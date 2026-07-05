@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, FileText, FolderOpen } from 'lucide-react';
 import MarkdownView from '../components/shared/MarkdownView';
+import { apiGet, apiPut, ApiError } from '../lib/api';
 
 interface ClaudeMdContent {
   path: string;
@@ -22,21 +23,23 @@ export default function ClaudeMdPage() {
       const url = cwd
         ? `/api/directories?path=${encodeURIComponent(cwd)}&claudemd=true`
         : '/api/directories?claudemd=true';
-      const res = await fetch(url);
-      if (!res.ok) {
-        if (res.status === 404) {
-          setClaudeMdFiles([]);
-          return;
-        }
-        throw new Error(`Failed to fetch: ${res.statusText}`);
-      }
-      const data: ClaudeMdContent[] = await res.json();
+      const data = await apiGet<ClaudeMdContent[]>(url);
       setClaudeMdFiles(data);
       if (data.length > 0) {
         setSelectedPath((prev) => prev ?? data[0].path);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load CLAUDE.md files');
+      if (err instanceof ApiError && err.status === 404) {
+        setClaudeMdFiles([]);
+        return;
+      }
+      setError(
+        err instanceof ApiError
+          ? `Failed to fetch: ${err.statusText}`
+          : err instanceof Error
+            ? err.message
+            : 'Failed to load CLAUDE.md files',
+      );
     } finally {
       setLoading(false);
     }
@@ -153,22 +156,24 @@ export default function ClaudeMdPage() {
                   content={selectedFile.content}
                   fileName={selectedFile.path}
                   onSave={async (next: string) => {
-                    const res = await fetch('/api/file', {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
+                    let saved: { modifiedMs?: number };
+                    try {
+                      saved = await apiPut<{ modifiedMs?: number }>('/api/file', {
                         path: selectedFile.path,
                         content: next,
                         ...(selectedFile.lastModified != null
                           ? { baseModifiedMs: selectedFile.lastModified }
                           : {}),
-                      }),
-                    });
-                    if (!res.ok) {
-                      const body = (await res.json().catch(() => ({}))) as { error?: string };
-                      throw new Error(body.error ?? `Save failed (${res.status})`);
+                      });
+                    } catch (err) {
+                      if (err instanceof ApiError) {
+                        const body = (
+                          typeof err.body === 'object' && err.body !== null ? err.body : {}
+                        ) as { error?: string };
+                        throw new Error(body.error ?? `Save failed (${err.status})`);
+                      }
+                      throw err;
                     }
-                    const saved = (await res.json().catch(() => ({}))) as { modifiedMs?: number };
                     setClaudeMdFiles((prev) =>
                       prev.map((f) =>
                         f.path === selectedFile.path

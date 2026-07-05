@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, Sparkles, Puzzle, Bot, Clock, X } from 'lucide-react';
 import SkillDetailPanel from '../components/SkillDetailPanel';
 import MarkdownView from '../components/shared/MarkdownView';
+import { apiGet, apiGetSafe, apiPost, apiPut, apiDelete, ApiError } from '../lib/api';
 
 interface Skill {
   name: string;
@@ -48,6 +49,13 @@ type TabId = 'skills' | 'agents' | 'routines' | 'extensions';
 
 const LEGACY_STORAGE_KEY = 'claude-deck:skill-dirs';
 
+/** Maps HTTP errors to null (caller skips the update) while letting network errors propagate. */
+const orNull = <T,>(p: Promise<T>): Promise<T | null> =>
+  p.catch((err: unknown) => {
+    if (err instanceof ApiError) return null;
+    throw err;
+  });
+
 export default function SkillsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('skills');
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -64,15 +72,11 @@ export default function SkillsPage() {
 
   /** Fetches skill directories from the API. */
   const fetchDirs = useCallback(async (): Promise<SkillDirEntry[]> => {
-    try {
-      const res = await fetch('/api/skill-directories');
-      if (res.ok) {
-        const data: SkillDirEntry[] = await res.json();
-        setSkillDirs(data);
-        return data;
-      }
-    } catch {
-      // Non-fatal — directories just won't show
+    // Non-fatal on failure — directories just won't show
+    const data = await apiGetSafe<SkillDirEntry[] | null>('/api/skill-directories', null);
+    if (data) {
+      setSkillDirs(data);
+      return data;
     }
     return [];
   }, []);
@@ -84,32 +88,17 @@ export default function SkillsPage() {
     try {
       const dirPaths = dirs.map((d) => d.path);
       const dirParam = dirPaths.length > 0 ? `?dir=${encodeURIComponent(dirPaths.join(','))}` : '';
-      const [skillsRes, agentsRes, routinesRes, extRes] = await Promise.all([
-        fetch(`/api/skills${dirParam}`),
-        fetch(`/api/agents${dirParam}`),
-        fetch('/api/scheduled-tasks'),
-        fetch('/api/extensions'),
+      const [skillsData, agentsData, routinesData, extData] = await Promise.all([
+        orNull(apiGet<Skill[]>(`/api/skills${dirParam}`)),
+        orNull(apiGet<Agent[]>(`/api/agents${dirParam}`)),
+        orNull(apiGet<ScheduledTask[]>('/api/scheduled-tasks')),
+        orNull(apiGet<ExtensionData>('/api/extensions')),
       ]);
 
-      if (skillsRes.ok) {
-        const data: Skill[] = await skillsRes.json();
-        setSkills(data);
-      }
-
-      if (agentsRes.ok) {
-        const data: Agent[] = await agentsRes.json();
-        setAgents(data);
-      }
-
-      if (routinesRes.ok) {
-        const data: ScheduledTask[] = await routinesRes.json();
-        setRoutines(data);
-      }
-
-      if (extRes.ok) {
-        const data: ExtensionData = await extRes.json();
-        setExtensions(data);
-      }
+      if (skillsData) setSkills(skillsData);
+      if (agentsData) setAgents(agentsData);
+      if (routinesData) setRoutines(routinesData);
+      if (extData) setExtensions(extData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
@@ -135,11 +124,7 @@ export default function SkillsPage() {
 
       for (const dirPath of toMigrate) {
         try {
-          await fetch('/api/skill-directories', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: dirPath }),
-          });
+          await apiPost('/api/skill-directories', { path: dirPath });
         } catch {
           // Best-effort migration — skip failures
         }
@@ -158,31 +143,27 @@ export default function SkillsPage() {
   const addDir = useCallback(async () => {
     if (!newDir.trim()) return;
     try {
-      const res = await fetch('/api/skill-directories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: newDir.trim() }),
-      });
-      if (res.ok) {
-        setNewDir('');
-        const dirs = await fetchDirs();
-        void fetchData(dirs);
-      } else {
-        const data = await res.json();
-        setError(data.error ?? 'Failed to add directory');
-      }
+      await apiPost('/api/skill-directories', { path: newDir.trim() });
+      setNewDir('');
+      const dirs = await fetchDirs();
+      void fetchData(dirs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add directory');
+      if (err instanceof ApiError) {
+        const body = (typeof err.body === 'object' && err.body !== null ? err.body : {}) as {
+          error?: string;
+        };
+        setError(body.error ?? 'Failed to add directory');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to add directory');
+      }
     }
   }, [newDir, fetchDirs, fetchData]);
 
   const removeDir = useCallback(async (id: number) => {
     try {
-      const res = await fetch(`/api/skill-directories/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        const dirs = await fetchDirs();
-        void fetchData(dirs);
-      }
+      await apiDelete(`/api/skill-directories/${id}`);
+      const dirs = await fetchDirs();
+      void fetchData(dirs);
     } catch {
       // Non-fatal
     }
@@ -202,13 +183,10 @@ export default function SkillsPage() {
   const openViewer = useCallback(async (name: string, filePath: string, isSkill: boolean) => {
     setViewerLoading(true);
     try {
-      const res = await fetch(`/api/skill-content?path=${encodeURIComponent(filePath)}`);
-      if (res.ok) {
-        const data: { content: string } = await res.json();
-        setViewerContent({ name, content: data.content, isSkill });
-      } else {
-        setViewerContent({ name, content: '*Failed to load content.*', isSkill });
-      }
+      const data = await apiGet<{ content: string }>(
+        `/api/skill-content?path=${encodeURIComponent(filePath)}`,
+      );
+      setViewerContent({ name, content: data.content, isSkill });
     } catch {
       setViewerContent({ name, content: '*Failed to load content.*', isSkill });
     } finally {
@@ -333,17 +311,19 @@ export default function SkillsPage() {
           {...(viewerContent?.isSkill
             ? {
                 onSave: async (next: string) => {
-                  const res = await fetch(
-                    `/api/skills/${encodeURIComponent(viewerContent.name)}/content`,
-                    {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ content: next }),
-                    },
-                  );
-                  if (!res.ok) {
-                    const body = (await res.json().catch(() => ({}))) as { error?: string };
-                    throw new Error(body.error ?? `Save failed (${res.status})`);
+                  try {
+                    await apiPut(
+                      `/api/skills/${encodeURIComponent(viewerContent.name)}/content`,
+                      { content: next },
+                    );
+                  } catch (err) {
+                    if (err instanceof ApiError) {
+                      const body = (
+                        typeof err.body === 'object' && err.body !== null ? err.body : {}
+                      ) as { error?: string };
+                      throw new Error(body.error ?? `Save failed (${err.status})`);
+                    }
+                    throw err;
                   }
                   // Optimistic: reflect the saved content in the open viewer.
                   setViewerContent((v) => (v ? { ...v, content: next } : v));
