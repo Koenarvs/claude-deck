@@ -9,15 +9,23 @@ export default function App() {
   const setConfig = useConfigStore((s) => s.setConfig);
   const setCatalog = useConfigStore((s) => s.setCatalog);
   // Boot-load app config so the index route can honor the persisted home route
-  // and every model picker can read the provider catalog.
+  // and every model picker can read the provider catalog. Re-fetched periodically
+  // (not just once at boot) because the catalog's live model lists (e.g. Claude's
+  // /v1/models) can fail transiently (ECONNRESET) — a single unlucky boot fetch
+  // would otherwise wedge the picker on the static fallback for the whole session.
   useEffect(() => {
-    fetch('/api/config')
-      .then((r) => r.json())
-      .then((data) => {
-        setConfig(data);
-        if (Array.isArray(data?.catalog)) setCatalog(data.catalog);
-      })
-      .catch(() => {});
+    const loadConfig = (): void => {
+      fetch('/api/config')
+        .then((r) => r.json())
+        .then((data) => {
+          setConfig(data);
+          if (Array.isArray(data?.catalog)) setCatalog(data.catalog);
+        })
+        .catch(() => {});
+    };
+    loadConfig();
+    const interval = setInterval(loadConfig, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [setConfig, setCatalog]);
 
   return (

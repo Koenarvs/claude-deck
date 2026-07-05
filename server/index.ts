@@ -183,6 +183,11 @@ const configService = createConfigService(db);
 /** Manages the local Headroom proxy lifecycle and tracks its health. */
 const headroomService = new HeadroomService();
 
+// Set once a fallback has been logged for the current outage, cleared as soon as
+// the proxy is healthy again, so a stuck-unhealthy proxy logs once per outage
+// instead of once per spawn.
+let loggedHeadroomFallback = false;
+
 /**
  * Headroom env fragment for a spawned session/brain. Returns { headroomBaseUrl }
  * only for the 'claude' provider AND when compression is enabled AND the proxy is
@@ -195,7 +200,22 @@ const headroomService = new HeadroomService();
 function headroomOpts(providerId: string): { headroomBaseUrl?: string } {
   if (providerId !== 'claude') return {};
   const h = configService.getPersisted().headroom;
-  return h.enabled && headroomService.isHealthy() ? { headroomBaseUrl: h.baseUrl } : {};
+  if (!h.enabled) {
+    loggedHeadroomFallback = false;
+    return {};
+  }
+  if (headroomService.isHealthy()) {
+    loggedHeadroomFallback = false;
+    return { headroomBaseUrl: h.baseUrl };
+  }
+  if (!loggedHeadroomFallback) {
+    loggedHeadroomFallback = true;
+    logger.warn(
+      { baseUrl: h.baseUrl },
+      'Headroom enabled but proxy unhealthy — session(s) falling back to direct Anthropic uncompressed',
+    );
+  }
+  return {};
 }
 
 // Phase 6: declared early so the approval/scheduler observers can reference it; the
