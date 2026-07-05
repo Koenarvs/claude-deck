@@ -47,7 +47,7 @@ import type { ServerEvent } from '../src/shared/events';
 import { broadcast, setTerminalHandler } from './ws';
 import { ConversationLogger } from './services/conversation-logger';
 import { findJsonlFile } from './services/transcript-service';
-import { ingestAllSessions } from './services/ingestion-service';
+import { ingestAllSessions, ingestExternalAgentUsage, type UsageSource } from './services/ingestion-service';
 import { createModelValidator } from './security/model-allow';
 import { createConfigService } from './services/config-service';
 import { HeadroomService } from './services/headroom-service';
@@ -96,10 +96,15 @@ ingestAllSessions(db, CLAUDE_PROJECTS_DIR).then(() => {
   logger.error({ err }, 'Initial JSONL ingestion failed');
 });
 
-// Periodic re-ingestion every 5 minutes
+// Periodic re-ingestion every 5 minutes (Claude JSONL + enabled external agents;
+// externalUsageSources is defined after configService below — the interval only
+// fires long after module evaluation completes).
 const ingestionInterval = setInterval(() => {
   ingestAllSessions(db, CLAUDE_PROJECTS_DIR).catch((err) => {
     logger.error({ err }, 'Periodic JSONL ingestion failed');
+  });
+  ingestExternalAgentUsage(db, externalUsageSources()).catch((err) => {
+    logger.error({ err }, 'Periodic external agent ingestion failed');
   });
 }, 5 * 60 * 1000);
 
@@ -190,6 +195,24 @@ const configService = createConfigService(db);
 // Apply the persisted verbosity once config is readable (env LOG_LEVEL was only
 // the pre-config bootstrap default). Kept live via onConfigUpdated below.
 setLogLevel(configService.getPersisted().logLevel);
+
+/**
+ * Non-Claude usage sources for analytics ingestion — the enabled providers'
+ * adapters (Codex rollouts, Antigravity chats). Read fresh on each ingest so
+ * toggling a provider in Settings takes effect without a restart.
+ */
+function externalUsageSources(): UsageSource[] {
+  const enabled = configService.getPersisted().providers.filter((p) => p.enabled).map((p) => p.id);
+  return ['codex', 'antigravity']
+    .filter((id) => enabled.includes(id))
+    .map((id) => getAdapter(id))
+    .filter((a): a is NonNullable<typeof a> => a !== undefined);
+}
+
+// Initial external-agent ingestion (async, non-blocking, mirrors the Claude path).
+ingestExternalAgentUsage(db, externalUsageSources()).catch((err) => {
+  logger.error({ err }, 'Initial external agent ingestion failed');
+});
 
 /** Manages the local Headroom proxy lifecycle and tracks its health. */
 const headroomService = new HeadroomService(undefined, undefined, () => {

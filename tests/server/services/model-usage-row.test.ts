@@ -14,10 +14,10 @@ describe('buildModelUsageRow', () => {
     expect(row.totalTokens).toBe(1_000_000);
   });
 
-  it('flags unpriced when registry pricing is null (cost 0, model preserved)', () => {
+  it('prices registered non-Claude models at their equivalent-API-value rate', () => {
     const row = buildModelUsageRow('gemini-3-pro', tokens, '2026-06-01', 1717200000000);
-    expect(row.unpriced).toBe(1);
-    expect(row.estimatedCostUsd).toBe(0);
+    expect(row.unpriced).toBe(0);
+    expect(row.estimatedCostUsd).toBeCloseTo(2, 4); // 1M input × $2/M
     expect(row.model).toBe('gemini-3-pro');
     expect(row.totalTokens).toBe(1_000_000); // tokens never dropped
   });

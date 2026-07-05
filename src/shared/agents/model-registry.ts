@@ -105,15 +105,18 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     contextWindow: 200_000,
   },
 
-  // ── Provider stubs (adapters land in Phase 3). pricing = null = subscription
-  //    seat with no public per-token rate yet. NEVER coerced to Opus downstream.
+  // ── Non-Claude providers. These seats are subscription-billed; the metered
+  //    rates below express usage as EQUIVALENT API VALUE in dollars (public
+  //    pay-as-you-go list prices, June 2026). cache_creation uses the input rate
+  //    where the provider doesn't bill cache writes separately.
   {
     id: 'gpt-5.5',
     match: (raw) => raw.includes('gpt-5.5') || raw.includes('gpt5.5'),
     label: 'GPT-5.5',
     provider: 'codex',
     tier: 'frontier',
-    pricing: null,
+    // OpenAI list: $5 in / $30 out / $0.50 cached input (April 2026 5.5 launch).
+    pricing: perToken({ input: 5, cache_read: 0.5, cache_creation: 5, output: 30 }),
     quotaWeight: 5,
     contextWindow: 400_000,
   },
@@ -126,7 +129,8 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     label: 'GPT-5.4 Mini',
     provider: 'codex',
     tier: 'fast',
-    pricing: null,
+    // Mini class list rate ($0.25 in / $2 out).
+    pricing: perToken({ input: 0.25, cache_read: 0.025, cache_creation: 0.25, output: 2 }),
     quotaWeight: 1,
     contextWindow: 400_000,
   },
@@ -136,7 +140,8 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     label: 'GPT-5.4',
     provider: 'codex',
     tier: 'balanced',
-    pricing: null,
+    // Pre-5.5 GPT-5 line rate ($2.50 in / $15 out).
+    pricing: perToken({ input: 2.5, cache_read: 0.25, cache_creation: 2.5, output: 15 }),
     quotaWeight: 4,
     contextWindow: 400_000,
   },
@@ -146,7 +151,8 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     label: 'GPT-5.3 Codex',
     provider: 'codex',
     tier: 'balanced',
-    pricing: null,
+    // Codex line list rate ($1.25 in / $10 out).
+    pricing: perToken({ input: 1.25, cache_read: 0.125, cache_creation: 1.25, output: 10 }),
     quotaWeight: 3,
     contextWindow: 400_000,
   },
@@ -156,7 +162,8 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     label: 'Gemini 3 Pro',
     provider: 'antigravity',
     tier: 'frontier',
-    pricing: null,
+    // Google list: $2 in / $12 out (≤200K tier); cached input ~10% of input.
+    pricing: perToken({ input: 2, cache_read: 0.2, cache_creation: 2, output: 12 }),
     quotaWeight: 5,
     contextWindow: 1_000_000,
   },
@@ -166,7 +173,8 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     label: 'Gemini Flash 2.5',
     provider: 'antigravity',
     tier: 'fast',
-    pricing: null,
+    // Google list: $0.30 in / $2.50 out; cached input ~10% of input.
+    pricing: perToken({ input: 0.3, cache_read: 0.03, cache_creation: 0.3, output: 2.5 }),
     quotaWeight: 1,
     contextWindow: 1_000_000,
   },

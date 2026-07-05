@@ -1,8 +1,9 @@
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { join, basename } from 'node:path';
 import type Database from 'better-sqlite3';
 import logger from '../logger';
 import { buildModelUsageRow, type ModelTokenInput } from './model-usage-row';
+import type { RawUsage } from '../../src/shared/agents/types';
 
 export async function ingestAllSessions(db: Database.Database, projectsDir: string): Promise<void> {
   if (!existsSync(projectsDir)) return;
@@ -137,6 +138,105 @@ export async function ingestAllSessions(db: Database.Database, projectsDir: stri
         lastTimestamp || null,
         Date.now(),
       );
+    }
+  }
+}
+
+/** The slice of AgentAdapter this ingester needs (kept narrow for testability). */
+export interface UsageSource {
+  id: string;
+  listSessionLogs(sinceMs: number): string[];
+  parseUsage(logPath: string): RawUsage;
+}
+
+/**
+ * Ingest non-Claude agent usage (Codex rollouts, Antigravity/Gemini chats) into
+ * session_model_usage via each adapter's own log discovery + parser. Sessions
+ * are keyed as '<provider>:<log basename>' so they can never collide with
+ * Claude session ids. Rows re-ingest only when the parsed message count grew
+ * (mirroring the Claude JSONL path). session_usage (the Claude-session parent
+ * table) is deliberately NOT written — provider-aware analytics (model
+ * breakdown / mix / value / window utilization) all read session_model_usage.
+ */
+export async function ingestExternalAgentUsage(
+  db: Database.Database,
+  sources: UsageSource[],
+  sinceMs = 0,
+): Promise<void> {
+  const existing = new Map<string, number>();
+  const rows = db
+    .prepare(
+      "SELECT session_id, SUM(message_count) AS mc FROM session_model_usage WHERE session_id LIKE '%:%' GROUP BY session_id",
+    )
+    .all() as Array<{ session_id: string; mc: number }>;
+  for (const row of rows) existing.set(row.session_id, row.mc);
+
+  const upsertModel = db.prepare(`
+    INSERT OR REPLACE INTO session_model_usage
+      (session_id, model, tier, provider, input_tokens, cache_creation_tokens,
+       cache_read_tokens, output_tokens, total_tokens, estimated_cost_usd, unpriced,
+       message_count, session_date, first_message_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const source of sources) {
+    let logs: string[];
+    try {
+      logs = source.listSessionLogs(sinceMs);
+    } catch (err) {
+      logger.warn({ err, provider: source.id }, 'external usage: listing logs failed');
+      continue;
+    }
+
+    let ingested = 0;
+    for (const logPath of logs) {
+      const sessionId = `${source.id}:${basename(logPath).replace(/\.jsonl$/, '')}`;
+
+      let usage: RawUsage;
+      try {
+        usage = source.parseUsage(logPath);
+      } catch (err) {
+        logger.warn({ err, provider: source.id, logPath }, 'external usage: parse failed');
+        continue;
+      }
+      if (usage.messageCount === 0) continue;
+
+      const existingCount = existing.get(sessionId);
+      if (existingCount !== undefined && existingCount >= usage.messageCount) continue;
+
+      // Adapters don't expose per-message timestamps; the log file's mtime is
+      // the session's last activity, good enough for daily bucketing.
+      let mtime = Date.now();
+      try {
+        mtime = statSync(logPath).mtimeMs;
+      } catch {
+        /* keep now() */
+      }
+      const dateStr = new Date(mtime).toISOString().split('T')[0]!;
+
+      for (const m of usage.byModel) {
+        const tokens: ModelTokenInput = {
+          input: m.inputTokens,
+          cacheCreation: m.cacheCreationTokens,
+          cacheRead: m.cacheReadTokens,
+          output: m.outputTokens,
+          messageCount: m.messageCount,
+        };
+        const r = buildModelUsageRow(m.model, tokens, dateStr, mtime);
+        if (r.unpriced) {
+          logger.warn({ model: r.model, sessionId }, 'unknown model — usage uncosted');
+        }
+        upsertModel.run(
+          sessionId, r.model, r.tier, r.provider,
+          r.inputTokens, r.cacheCreationTokens, r.cacheReadTokens, r.outputTokens,
+          r.totalTokens, r.estimatedCostUsd, r.unpriced, r.messageCount,
+          r.sessionDate, r.firstMessageAt,
+        );
+      }
+      ingested += 1;
+    }
+    if (ingested > 0) {
+      logger.info({ provider: source.id, ingested }, 'external usage: sessions ingested');
     }
   }
 }
