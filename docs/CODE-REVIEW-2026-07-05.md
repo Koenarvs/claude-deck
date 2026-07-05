@@ -289,3 +289,31 @@ Phased so each lands independently with tests green.
 - ws-manager client tests, pty-manager lifecycle tests, usage-service aggregation
   tests, inter-goal-message-service tests; audit the layered analytics-phase suites
   for redundancy.
+
+---
+
+## Implementation status (2026-07-05, branch `worktree-full-review-implementation`)
+
+All phases implemented; full suite green at 168 files / 1596 tests (was 158/1492 with 2 failures).
+
+| Commit | Phase |
+|---|---|
+| `3a3c4cd` | Phase 0 — test fixes, orphaned suites now run, coverage provider, dead code deleted |
+| `e6e66c6` | Phase 1 — authMode setting (auto/vertex/oauth), env write-through, Settings UI |
+| `975845f` | Phase 2 — file logs + rotation, live verbosity, log/hook-event retention, client error capture |
+| `86c4ac0` | Phase 3 — Codex + Antigravity ingestion, metered pricing for non-Claude models |
+| `63a895b` | Phase 4a-c — analytics router split, unified model caches, api.ts migration |
+| `b6af21a` | Phase 5 — 62 new tests (ws-manager, pty lifecycle, usage aggregation, inter-goal msgs) |
+| `edb30e5` | Phase 4d-e — pty start/resume dedupe, AnalyticsPage decomposition (846→161 lines) |
+
+Deviations from plan (all deliberate):
+- `src/lib/notifications.ts` kept — it turned out to be referenced by `tests/client/global-ux.test.tsx`, putting it in the "test-backed module" bucket Jerry chose to keep.
+- `apiDelete` kept — it gained callers during the Phase 4 api.ts migration.
+- Codex parser could not be validated against real rollouts on this machine (`~/.codex/sessions` doesn't exist here); the `ASSUMED` shapes remain — verify on a machine with Codex usage.
+
+New issues surfaced by the Phase 5 tests (characterization tests included; NOT yet fixed):
+1. `usage-service.getAllSessionUsageSummaries` never reads `message.model` — sessions
+   without an init event ingest uncosted ($0) in totals/daily-costs.
+2. `inter-goal-message-service.markDelivered` can regress an `acknowledged` message
+   back to `delivered` (possible instruction re-delivery).
+3. `ws-manager` has no intentional-close/teardown path (reconnects forever).
