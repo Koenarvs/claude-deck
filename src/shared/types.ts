@@ -384,10 +384,14 @@ export interface HeadroomConfig {
   command?: string | undefined;
 }
 
+/** See AuthModeSchema in schemas.ts — per-machine Claude auth for spawned sessions. */
+export type AuthMode = 'auto' | 'vertex' | 'oauth';
+
 export interface AppConfig {
   homeRoute: string;
   dataDir: string;
   hooksInstalled: boolean;
+  authMode: AuthMode;
   tracePruneDays: number;
   defaultModel: GoalModel;
   defaultPermissionMode: PermissionMode;

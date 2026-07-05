@@ -20,6 +20,7 @@ const defaultConfig: AppConfig = {
   homeRoute: '/board',
   dataDir: '/home/user/.claude-deck',
   hooksInstalled: false,
+  authMode: 'auto',
   tracePruneDays: 30,
   defaultModel: 'sonnet',
   defaultPermissionMode: 'supervised',

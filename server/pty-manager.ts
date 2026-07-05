@@ -56,6 +56,13 @@ interface PtyManagerOptions {
    * (the default) leaves traffic going straight to Anthropic.
    */
   headroomBaseUrl?: string;
+  /**
+   * Resolved auth mode for Claude sessions. When set, the child env is forced to
+   * match: 'vertex' exports CLAUDE_CODE_USE_VERTEX=1, 'oauth' strips it — so the
+   * configured mode wins over whatever the deck's launch shell happened to carry.
+   * Unset (non-Claude providers) leaves the inherited env untouched.
+   */
+  authMode?: 'vertex' | 'oauth';
 }
 
 export class PtyManager implements Killable {
@@ -70,6 +77,7 @@ export class PtyManager implements Killable {
   /** The directory the PTY runs in — an isolated worktree (5B) or the goal's cwd. */
   private readonly cwd: string;
   private readonly headroomBaseUrl: string | undefined;
+  private readonly authMode: 'vertex' | 'oauth' | undefined;
   private traceWriter: TraceWriter | null = null;
   private exited = false;
 
@@ -83,6 +91,7 @@ export class PtyManager implements Killable {
     this.traceDir = options.traceDir;
     this.cwd = options.cwdOverride ?? goal.cwd;
     this.headroomBaseUrl = options.headroomBaseUrl;
+    this.authMode = options.authMode;
   }
 
   /**
@@ -98,7 +107,14 @@ export class PtyManager implements Killable {
       if (v !== undefined) env[k] = v;
     }
     env['TERM'] = 'xterm-256color';
-    if (this.headroomBaseUrl) Object.assign(env, headroomEnvFragment(this.headroomBaseUrl));
+    if (this.authMode === 'vertex') {
+      env['CLAUDE_CODE_USE_VERTEX'] = '1';
+    } else if (this.authMode === 'oauth') {
+      delete env['CLAUDE_CODE_USE_VERTEX'];
+    }
+    if (this.headroomBaseUrl) {
+      Object.assign(env, headroomEnvFragment(this.headroomBaseUrl, env, this.authMode));
+    }
     return env;
   }
 

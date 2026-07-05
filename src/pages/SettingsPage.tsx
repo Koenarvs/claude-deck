@@ -9,7 +9,7 @@ import OrchestratorSection from '../components/settings/OrchestratorSection';
 import { useConfigStore } from '../stores/useConfigStore';
 import { modelOptionsFromCatalog } from '../shared/agents/catalog-client';
 import type { AgentCatalogEntry } from '../shared/agents/types';
-import type { AppConfig, GoalModel, PermissionMode, CompressionDegree } from '../shared/types';
+import type { AppConfig, AuthMode, GoalModel, PermissionMode, CompressionDegree } from '../shared/types';
 
 type ConfigResponse = AppConfig & { catalog?: AgentCatalogEntry[] };
 
@@ -37,6 +37,24 @@ const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string; descript
     value: 'autonomous',
     label: 'Autonomous',
     description: 'Tools are auto-approved',
+  },
+];
+
+const AUTH_MODE_OPTIONS: Array<{ value: AuthMode; label: string; description: string }> = [
+  {
+    value: 'auto',
+    label: 'Auto-detect',
+    description: 'Vertex when CLAUDE_CODE_USE_VERTEX is set (env or ~/.claude settings), else OAuth',
+  },
+  {
+    value: 'vertex',
+    label: 'Vertex AI',
+    description: 'Force Google Cloud Vertex (needs project/region configured for the CLI)',
+  },
+  {
+    value: 'oauth',
+    label: 'OAuth',
+    description: 'Force claude.ai subscription login, ignoring ambient Vertex env',
   },
 ];
 
@@ -222,6 +240,34 @@ export default function SettingsPage() {
               ))}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Claude Authentication */}
+      <div className="rounded-lg border border-deck-border bg-deck-surface p-4">
+        <h3 className="text-sm font-semibold text-deck-text">Claude Authentication</h3>
+        <p className="mt-1 text-xs text-deck-muted">
+          How spawned Claude sessions authenticate on this machine. Auto detects from
+          CLAUDE_CODE_USE_VERTEX (deck env, then ~/.claude settings); an explicit choice
+          overrides whatever the launch shell carried. Stored per machine.
+        </p>
+        <div className="mt-4 flex gap-2">
+          {AUTH_MODE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => void updateConfig({ authMode: opt.value })}
+              className={`flex-1 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                config.authMode === opt.value
+                  ? 'border-deck-accent bg-deck-accent/10 text-deck-text'
+                  : 'border-deck-border text-deck-muted hover:text-deck-text'
+              }`}
+              aria-pressed={config.authMode === opt.value}
+            >
+              <span className="block font-medium">{opt.label}</span>
+              <span className="block text-xs text-deck-muted">{opt.description}</span>
+            </button>
+          ))}
         </div>
       </div>
 

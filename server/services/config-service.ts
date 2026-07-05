@@ -4,6 +4,7 @@ import logger from '../logger';
 
 const DEFAULTS: PersistedConfig = {
   homeRoute: '/board',
+  authMode: 'auto',
   tracePruneDays: 90,
   defaultModel: 'default',
   defaultPermissionMode: 'supervised',

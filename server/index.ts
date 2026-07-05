@@ -52,6 +52,7 @@ import { createModelValidator } from './security/model-allow';
 import { createConfigService } from './services/config-service';
 import { HeadroomService } from './services/headroom-service';
 import { headroomEnvFragment } from './headroom-env';
+import { resolveAuthMode, type ResolvedAuthMode } from './auth-mode';
 import { adapterForModel, getAdapter } from './agents/registry';
 import type { AgentAdapter } from './agents/agent-adapter';
 import { homedir } from 'node:os';
@@ -181,7 +182,9 @@ const skillDirectoryService = createSkillDirectoryService(db);
 const configService = createConfigService(db);
 
 /** Manages the local Headroom proxy lifecycle and tracks its health. */
-const headroomService = new HeadroomService();
+const headroomService = new HeadroomService(undefined, undefined, () => {
+  return resolveAuthMode(configService.getPersisted().authMode) === 'vertex';
+});
 
 // Set once a fallback has been logged for the current outage, cleared as soon as
 // the proxy is healthy again, so a stuck-unhealthy proxy logs once per outage
@@ -197,16 +200,24 @@ let loggedHeadroomFallback = false;
  * proxy would break it. Read live each spawn so toggling config / proxy state
  * takes effect without a restart.
  */
-function headroomOpts(providerId: string): { headroomBaseUrl?: string } {
+function headroomOpts(providerId: string): {
+  headroomBaseUrl?: string;
+  authMode?: ResolvedAuthMode;
+} {
   if (providerId !== 'claude') return {};
-  const h = configService.getPersisted().headroom;
+  const persisted = configService.getPersisted();
+  // Resolved fresh each spawn so a Settings change applies without restart. The
+  // resolved mode is forced onto the child env (see PtyManager.buildEnv), which
+  // is what makes the setting win over a mismatched launch-shell env.
+  const authMode = resolveAuthMode(persisted.authMode);
+  const h = persisted.headroom;
   if (!h.enabled) {
     loggedHeadroomFallback = false;
-    return {};
+    return { authMode };
   }
   if (headroomService.isHealthy()) {
     loggedHeadroomFallback = false;
-    return { headroomBaseUrl: h.baseUrl };
+    return { headroomBaseUrl: h.baseUrl, authMode };
   }
   if (!loggedHeadroomFallback) {
     loggedHeadroomFallback = true;
@@ -215,7 +226,7 @@ function headroomOpts(providerId: string): { headroomBaseUrl?: string } {
       'Headroom enabled but proxy unhealthy — session(s) falling back to direct Anthropic uncompressed',
     );
   }
-  return {};
+  return { authMode };
 }
 
 // Phase 6: declared early so the approval/scheduler observers can reference it; the
@@ -539,7 +550,13 @@ const orchestratorMemory = new MemoryStore(env.dataDir);
 const brainRunner = new BrainRunner(
   new ClaudeBrainProvider(adapterForModel('haiku', ['claude']).resolveBinary(), () => {
     const h = headroomOpts('claude');
-    return h.headroomBaseUrl ? headroomEnvFragment(h.headroomBaseUrl) : {};
+    const env: Record<string, string> = h.headroomBaseUrl
+      ? headroomEnvFragment(h.headroomBaseUrl, process.env, h.authMode)
+      : {};
+    // Force the brain's auth mode to match the setting too ('0' is falsy to both
+    // the CLI and isVertex; a spawn-env fragment can't unset an inherited var).
+    if (h.authMode) env['CLAUDE_CODE_USE_VERTEX'] = h.authMode === 'vertex' ? '1' : '0';
+    return env;
   }),
 );
 function orchestratorMcpConfigJson(): string {
