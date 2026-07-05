@@ -16,7 +16,10 @@ vi.mock('../../../server/headroom-env', async (importActual) => {
   };
 });
 
-const { buildHeadroomCommand, HeadroomService } = await import('../../../server/services/headroom-service');
+const { buildHeadroomCommand, HeadroomService, makePortReclaimer, portFromBaseUrl } = await import('../../../server/services/headroom-service');
+
+/** No-op reclaimer so service tests never touch the real machine's ports. */
+const noReclaim = (): void => {};
 
 const base: HeadroomConfig = {
   enabled: true,
@@ -133,7 +136,7 @@ describe('HeadroomService crash recovery', () => {
 
     const children: ReturnType<typeof makeFakeChild>[] = [];
     const spawnFn = vi.fn(() => { const c = makeFakeChild(); children.push(c); return c; });
-    const svc = new HeadroomService(spawnFn as never);
+    const svc = new HeadroomService(spawnFn as never, noReclaim);
 
     svc.sync(base);
     await new Promise(r => setTimeout(r, 50));
@@ -154,7 +157,7 @@ describe('HeadroomService crash recovery', () => {
     vi.useFakeTimers();
     const children: ReturnType<typeof makeFakeChild>[] = [];
     const spawnFn = vi.fn(() => { const c = makeFakeChild(); children.push(c); return c; });
-    const svc = new HeadroomService(spawnFn as never);
+    const svc = new HeadroomService(spawnFn as never, noReclaim);
 
     svc.sync(base);
     await vi.advanceTimersByTimeAsync(0);
@@ -173,5 +176,93 @@ describe('HeadroomService crash recovery', () => {
 
     await svc.shutdown();
     vi.useRealTimers();
+  });
+
+  it('counts spawn-then-quick-crash toward the cap (does not reset crashCount on spawn)', async () => {
+    vi.useFakeTimers();
+    const children: ReturnType<typeof makeFakeChild>[] = [];
+    const spawnFn = vi.fn(() => { const c = makeFakeChild(); children.push(c); return c; });
+    const svc = new HeadroomService(spawnFn as never, noReclaim);
+
+    svc.sync(base);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+
+    // Each attempt spawns successfully, then dies well before STABLE_AFTER_MS
+    // (e.g. it can't bind the port). Because the counter resets only after the
+    // grace period — never on spawn — the loop must still surrender at the cap.
+    for (let i = 0; i < HeadroomService.MAX_CRASH_RESTARTS; i++) {
+      const c = children[children.length - 1];
+      c.emit('spawn');
+      c.emit('exit', 1);
+      await vi.advanceTimersByTimeAsync(HeadroomService.RESTART_DELAY_MS + 100);
+      expect(spawnFn).toHaveBeenCalledTimes(i + 2);
+    }
+
+    const callsBefore = spawnFn.mock.calls.length;
+    const last = children[children.length - 1];
+    last.emit('spawn');
+    last.emit('exit', 1);
+    await vi.advanceTimersByTimeAsync(HeadroomService.RESTART_DELAY_MS + 100);
+    expect(spawnFn).toHaveBeenCalledTimes(callsBefore);
+
+    await svc.shutdown();
+    vi.useRealTimers();
+  });
+});
+
+describe('portFromBaseUrl', () => {
+  it('extracts the port from a baseUrl', () => {
+    expect(portFromBaseUrl('http://localhost:9001')).toBe('9001');
+  });
+  it('defaults to 8787 when absent or unparseable', () => {
+    expect(portFromBaseUrl('http://localhost')).toBe('8787');
+    expect(portFromBaseUrl('not a url')).toBe('8787');
+  });
+});
+
+describe('makePortReclaimer', () => {
+  it('kills a stale headroom squatter', () => {
+    const killed: number[] = [];
+    const reclaim = makePortReclaimer({
+      listenerPids: () => [16020],
+      isHeadroomPid: () => true,
+      killTree: (pid) => killed.push(pid),
+    });
+    reclaim('8787');
+    expect(killed).toEqual([16020]);
+  });
+
+  it('leaves a foreign non-headroom process alone', () => {
+    const killed: number[] = [];
+    const reclaim = makePortReclaimer({
+      listenerPids: () => [4321],
+      isHeadroomPid: () => false,
+      killTree: (pid) => killed.push(pid),
+    });
+    reclaim('8787');
+    expect(killed).toEqual([]);
+  });
+
+  it('never kills our own pid', () => {
+    const killed: number[] = [];
+    const reclaim = makePortReclaimer({
+      listenerPids: () => [999],
+      isHeadroomPid: () => true,
+      killTree: (pid) => killed.push(pid),
+    });
+    reclaim('8787', 999);
+    expect(killed).toEqual([]);
+  });
+
+  it('is a no-op when nothing is listening', () => {
+    const killed: number[] = [];
+    const reclaim = makePortReclaimer({
+      listenerPids: () => [],
+      isHeadroomPid: () => true,
+      killTree: (pid) => killed.push(pid),
+    });
+    reclaim('8787');
+    expect(killed).toEqual([]);
   });
 });
